@@ -32,7 +32,7 @@ router.post(
       return res.status(400).json({ error: "Invalid course ID" });
     }
     try {
-      const review = await createReview(req.session.userId!, courseId, req.body);
+      const review = await createReview(req.user!.id, courseId, req.body);
       res.status(201).json(review);
     } catch (err: any) {
       if (err?.code === "23505") {
@@ -55,7 +55,7 @@ router.patch(
     if (isNaN(reviewId)) {
       return res.status(400).json({ error: "Invalid review ID" });
     }
-    const updated = await updateReview(reviewId, req.session.userId!, req.body);
+    const updated = await updateReview(reviewId, req.user!.id, req.body);
     if (!updated) {
       return res.status(404).json({ error: "Review not found" });
     }
@@ -69,7 +69,7 @@ router.delete("/reviews/:id", requireAuth, async (req, res) => {
   if (isNaN(reviewId)) {
     return res.status(400).json({ error: "Invalid review ID" });
   }
-  const deleted = await deleteReview(reviewId, req.session.userId!);
+  const deleted = await deleteReview(reviewId, req.user!.id);
   if (!deleted) {
     return res.status(404).json({ error: "Review not found" });
   }

@@ -11,6 +11,7 @@ import {
   jsonb,
   uniqueIndex,
   index,
+  uuid,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -67,11 +68,10 @@ export const sections = pgTable(
   })
 );
 
-// Users
+// Users (linked to Supabase Auth)
 export const users = pgTable("users", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").primaryKey(), // Matches Supabase Auth UUID
   email: text("email").unique().notNull(),
-  passwordHash: text("password_hash").notNull(),
   displayName: text("display_name").notNull(),
   graduationYear: smallint("graduation_year"),
   major: text("major"),
@@ -83,7 +83,7 @@ export const reviews = pgTable(
   "reviews",
   {
     id: serial("id").primaryKey(),
-    userId: integer("user_id")
+    userId: uuid("user_id")
       .references(() => users.id)
       .notNull(),
     courseId: integer("course_id")
@@ -121,10 +121,10 @@ export const friendships = pgTable(
   "friendships",
   {
     id: serial("id").primaryKey(),
-    requesterId: integer("requester_id")
+    requesterId: uuid("requester_id")
       .references(() => users.id)
       .notNull(),
-    addresseeId: integer("addressee_id")
+    addresseeId: uuid("addressee_id")
       .references(() => users.id)
       .notNull(),
     status: varchar("status", { length: 10 }).default("pending").notNull(),
@@ -142,7 +142,7 @@ export const friendships = pgTable(
 // Course Lists
 export const courseLists = pgTable("course_lists", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id")
+  userId: uuid("user_id")
     .references(() => users.id)
     .notNull(),
   semester: varchar("semester", { length: 20 }).notNull(),

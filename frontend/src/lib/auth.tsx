@@ -6,6 +6,7 @@ import {
   useCallback,
 } from "react";
 import type { User } from "@betteratlas/shared";
+import { supabase } from "./supabase.js";
 import { api } from "../api/client.js";
 
 interface AuthContextType {
@@ -28,17 +29,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Set up auth state listener
   useEffect(() => {
-    api
-      .get<User>("/auth/me")
-      .then(setUser)
-      .catch(() => setUser(null))
-      .finally(() => setIsLoading(false));
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        fetchUser();
+      } else {
+        setIsLoading(false);
+      }
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        fetchUser();
+      } else {
+        setUser(null);
+        setIsLoading(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
+  const fetchUser = async () => {
+    try {
+      const userData = await api.get<User>("/auth/me");
+      setUser(userData);
+    } catch {
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const login = useCallback(async (email: string, password: string) => {
-    const u = await api.post<User>("/auth/login", { email, password });
-    setUser(u);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (data.user) {
+      // Fetch user profile from our API
+      const userData = await api.get<User>("/auth/me");
+      setUser(userData);
+    }
   }, []);
 
   const register = useCallback(
@@ -49,14 +91,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       graduationYear?: number;
       major?: string;
     }) => {
-      const u = await api.post<User>("/auth/register", data);
-      setUser(u);
+      // First sign up with Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: data.email,
+        password: data.password,
+      });
+
+      if (authError) {
+        throw new Error(authError.message);
+      }
+
+      if (authData.user) {
+        // Then create profile via our API
+        const userData = await api.post<User>("/auth/register", data);
+        setUser(userData);
+      }
     },
     []
   );
 
   const logout = useCallback(async () => {
-    await api.post("/auth/logout");
+    await supabase.auth.signOut();
     setUser(null);
   }, []);
 

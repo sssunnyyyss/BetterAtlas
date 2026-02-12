@@ -1,15 +1,27 @@
+import { supabase } from "../lib/supabase.js";
+
 const API_BASE = "/api";
 
 async function request<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  // Get current session token
+  const { data: { session } } = await supabase.auth.getSession();
+  
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...options?.headers as Record<string, string>,
+  };
+
+  // Add Authorization header if we have a session
+  if (session?.access_token) {
+    headers["Authorization"] = `Bearer ${session.access_token}`;
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
+    headers,
     ...options,
   });
 

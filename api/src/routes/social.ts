@@ -24,12 +24,12 @@ const router = Router();
 // ---- Friends ----
 
 router.get("/friends", requireAuth, async (req, res) => {
-  const friends = await getFriends(req.session.userId!);
+  const friends = await getFriends(req.user!.id);
   res.json(friends);
 });
 
 router.get("/friends/pending", requireAuth, async (req, res) => {
-  const pending = await getPendingRequests(req.session.userId!);
+  const pending = await getPendingRequests(req.user!.id);
   res.json(pending);
 });
 
@@ -40,7 +40,7 @@ router.post(
   async (req, res) => {
     try {
       const friendship = await sendFriendRequest(
-        req.session.userId!,
+        req.user!.id,
         req.body.addresseeId
       );
       res.status(201).json(friendship);
@@ -55,7 +55,7 @@ router.post("/friends/:id/accept", requireAuth, async (req, res) => {
   if (isNaN(friendshipId)) {
     return res.status(400).json({ error: "Invalid friendship ID" });
   }
-  const updated = await acceptFriendRequest(friendshipId, req.session.userId!);
+  const updated = await acceptFriendRequest(friendshipId, req.user!.id);
   if (!updated) {
     return res.status(404).json({ error: "Friend request not found" });
   }
@@ -67,16 +67,13 @@ router.delete("/friends/:id", requireAuth, async (req, res) => {
   if (isNaN(friendshipId)) {
     return res.status(400).json({ error: "Invalid friendship ID" });
   }
-  await removeFriend(friendshipId, req.session.userId!);
+  await removeFriend(friendshipId, req.user!.id);
   res.json({ message: "Friend removed" });
 });
 
 router.get("/friends/:id/courses", requireAuth, async (req, res) => {
-  const friendId = parseInt(req.params.id, 10);
-  if (isNaN(friendId)) {
-    return res.status(400).json({ error: "Invalid friend ID" });
-  }
-  const lists = await getFriendCourseLists(friendId, req.session.userId!);
+  const friendId = req.params.id; // UUID string
+  const lists = await getFriendCourseLists(friendId, req.user!.id);
   if (lists === null) {
     return res.status(403).json({ error: "Not friends with this user" });
   }
@@ -86,7 +83,7 @@ router.get("/friends/:id/courses", requireAuth, async (req, res) => {
 // ---- Course Lists ----
 
 router.get("/lists", requireAuth, async (req, res) => {
-  const lists = await getUserLists(req.session.userId!);
+  const lists = await getUserLists(req.user!.id);
   res.json(lists);
 });
 
@@ -95,7 +92,7 @@ router.post(
   requireAuth,
   validate(createListSchema),
   async (req, res) => {
-    const list = await createList(req.session.userId!, req.body);
+    const list = await createList(req.user!.id, req.body);
     res.status(201).json(list);
   }
 );
@@ -109,7 +106,7 @@ router.post(
     if (isNaN(listId)) {
       return res.status(400).json({ error: "Invalid list ID" });
     }
-    const item = await addItemToList(listId, req.session.userId!, req.body);
+    const item = await addItemToList(listId, req.user!.id, req.body);
     if (!item) {
       return res.status(404).json({ error: "List not found" });
     }
@@ -123,7 +120,7 @@ router.delete("/lists/:id/courses/:courseId", requireAuth, async (req, res) => {
   if (isNaN(listId) || isNaN(itemId)) {
     return res.status(400).json({ error: "Invalid ID" });
   }
-  const removed = await removeItemFromList(listId, itemId, req.session.userId!);
+  const removed = await removeItemFromList(listId, itemId, req.user!.id);
   if (!removed) {
     return res.status(404).json({ error: "List not found" });
   }

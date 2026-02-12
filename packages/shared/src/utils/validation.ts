@@ -48,7 +48,7 @@ export const updateReviewSchema = createReviewSchema.partial();
 
 // Social
 export const friendRequestSchema = z.object({
-  addresseeId: z.number().int().positive(),
+  addresseeId: z.string().uuid(), // UUID from Supabase Auth
 });
 
 export const createListSchema = z.object({

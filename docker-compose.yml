@@ -1,30 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: betteratlas
-      POSTGRES_USER: betteratlas
-      POSTGRES_PASSWORD: dev_password
-    ports:
-      - "5432:5432"
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U betteratlas -d betteratlas"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
   api:
     build:
       context: .
@@ -32,17 +6,19 @@ services:
       target: development
     ports:
       - "3001:3001"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
-      DATABASE_URL: postgres://betteratlas:dev_password@postgres:5432/betteratlas
-      REDIS_URL: redis://redis:6379
-      SESSION_SECRET: dev_secret_change_in_production
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      DATABASE_URL: ${DATABASE_URL}
+      CORS_ORIGIN: http://localhost:5173
       API_PORT: "3001"
       NODE_ENV: development
+    volumes:
+      - ./api/src:/app/api/src:cached
+      - ./packages/shared/src:/app/packages/shared/src:cached
+      - /app/api/node_modules
+      - /app/packages/shared/node_modules
 
   frontend:
     build:
@@ -54,7 +30,10 @@ services:
     depends_on:
       - api
     environment:
-      VITE_API_URL: http://api:3001
-
-volumes:
-  pgdata:
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+    volumes:
+      - ./frontend/src:/app/frontend/src:cached
+      - ./packages/shared/src:/app/packages/shared/src:cached
+      - /app/frontend/node_modules
+      - /app/packages/shared/node_modules

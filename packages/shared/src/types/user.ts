@@ -1,5 +1,5 @@
 export interface User {
-  id: number;
+  id: string; // UUID from Supabase Auth
   email: string;
   displayName: string;
   graduationYear: number | null;

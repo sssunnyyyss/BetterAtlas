@@ -1,17 +1,14 @@
-import bcrypt from "bcryptjs";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import type { RegisterInput } from "@betteratlas/shared";
 
-export async function createUser(input: RegisterInput) {
-  const passwordHash = await bcrypt.hash(input.password, 12);
-
+export async function createUserProfile(input: RegisterInput & { id: string }) {
   const [user] = await db
     .insert(users)
     .values({
+      id: input.id,
       email: input.email,
-      passwordHash,
       displayName: input.displayName,
       graduationYear: input.graduationYear ?? null,
       major: input.major ?? null,
@@ -28,29 +25,7 @@ export async function createUser(input: RegisterInput) {
   return user;
 }
 
-export async function verifyCredentials(email: string, password: string) {
-  const [user] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, email))
-    .limit(1);
-
-  if (!user) return null;
-
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) return null;
-
-  return {
-    id: user.id,
-    email: user.email,
-    displayName: user.displayName,
-    graduationYear: user.graduationYear,
-    major: user.major,
-    createdAt: user.createdAt?.toISOString() ?? "",
-  };
-}
-
-export async function getUserById(id: number) {
+export async function getUserById(id: string) {
   const [user] = await db
     .select({
       id: users.id,
@@ -68,7 +43,7 @@ export async function getUserById(id: number) {
 }
 
 export async function updateUser(
-  id: number,
+  id: string,
   data: { displayName?: string; graduationYear?: number; major?: string }
 ) {
   const [updated] = await db

@@ -5,7 +5,7 @@ import { getUserById, updateUser } from "../services/userService.js";
 const router = Router();
 
 router.get("/me", requireAuth, async (req, res) => {
-  const user = await getUserById(req.session.userId!);
+  const user = await getUserById(req.user!.id);
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
@@ -14,7 +14,7 @@ router.get("/me", requireAuth, async (req, res) => {
 
 router.patch("/me", requireAuth, async (req, res) => {
   const { displayName, graduationYear, major } = req.body;
-  const updated = await updateUser(req.session.userId!, {
+  const updated = await updateUser(req.user!.id, {
     displayName,
     graduationYear,
     major,

@@ -12,14 +12,14 @@ import type { CreateListInput, AddListItemInput } from "@betteratlas/shared";
 
 // ---- Friends ----
 
-export async function getFriends(userId: number) {
+export async function getFriends(userId: string) {
   const rows = await db
     .select({
       friendshipId: friendships.id,
       requesterId: friendships.requesterId,
       addresseeId: friendships.addresseeId,
       status: friendships.status,
-      friendId: sql<number>`CASE WHEN ${friendships.requesterId} = ${userId} THEN ${friendships.addresseeId} ELSE ${friendships.requesterId} END`,
+      friendId: sql<string>`CASE WHEN ${friendships.requesterId} = ${userId} THEN ${friendships.addresseeId} ELSE ${friendships.requesterId} END`,
       displayName: users.displayName,
       graduationYear: users.graduationYear,
       major: users.major,
@@ -51,7 +51,7 @@ export async function getFriends(userId: number) {
   }));
 }
 
-export async function getPendingRequests(userId: number) {
+export async function getPendingRequests(userId: string) {
   const rows = await db
     .select({
       friendshipId: friendships.id,
@@ -82,7 +82,7 @@ export async function getPendingRequests(userId: number) {
   }));
 }
 
-export async function sendFriendRequest(requesterId: number, addresseeId: number) {
+export async function sendFriendRequest(requesterId: string, addresseeId: string) {
   if (requesterId === addresseeId) {
     throw new Error("Cannot send a friend request to yourself");
   }
@@ -116,7 +116,7 @@ export async function sendFriendRequest(requesterId: number, addresseeId: number
   return friendship;
 }
 
-export async function acceptFriendRequest(friendshipId: number, userId: number) {
+export async function acceptFriendRequest(friendshipId: number, userId: string) {
   const [updated] = await db
     .update(friendships)
     .set({ status: "accepted" })
@@ -128,7 +128,7 @@ export async function acceptFriendRequest(friendshipId: number, userId: number) 
   return updated ?? null;
 }
 
-export async function removeFriend(friendshipId: number, userId: number) {
+export async function removeFriend(friendshipId: number, userId: string) {
   const result = await db
     .delete(friendships)
     .where(
@@ -146,7 +146,7 @@ export async function removeFriend(friendshipId: number, userId: number) {
 
 // ---- Course Lists ----
 
-export async function getUserLists(userId: number) {
+export async function getUserLists(userId: string) {
   const lists = await db
     .select()
     .from(courseLists)
@@ -189,7 +189,7 @@ export async function getUserLists(userId: number) {
   return result;
 }
 
-export async function createList(userId: number, input: CreateListInput) {
+export async function createList(userId: string, input: CreateListInput) {
   const [list] = await db
     .insert(courseLists)
     .values({
@@ -205,7 +205,7 @@ export async function createList(userId: number, input: CreateListInput) {
 
 export async function addItemToList(
   listId: number,
-  userId: number,
+  userId: string,
   input: AddListItemInput
 ) {
   // Verify ownership
@@ -232,7 +232,7 @@ export async function addItemToList(
 export async function removeItemFromList(
   listId: number,
   itemId: number,
-  userId: number
+  userId: string
 ) {
   // Verify ownership
   const [list] = await db
@@ -247,7 +247,7 @@ export async function removeItemFromList(
   return true;
 }
 
-export async function getFriendCourseLists(friendId: number, userId: number) {
+export async function getFriendCourseLists(friendId: string, userId: string) {
   // Check they're friends
   const [friendship] = await db
     .select()

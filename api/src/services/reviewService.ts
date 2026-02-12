@@ -41,7 +41,7 @@ export async function getReviewsForCourse(courseId: number) {
 }
 
 export async function createReview(
-  userId: number,
+  userId: string,
   courseId: number,
   input: CreateReviewInput
 ) {
@@ -65,7 +65,7 @@ export async function createReview(
 
 export async function updateReview(
   reviewId: number,
-  userId: number,
+  userId: string,
   input: UpdateReviewInput
 ) {
   const [existing] = await db
@@ -89,7 +89,7 @@ export async function updateReview(
   return updated;
 }
 
-export async function deleteReview(reviewId: number, userId: number) {
+export async function deleteReview(reviewId: number, userId: string) {
   const [existing] = await db
     .select()
     .from(reviews)
