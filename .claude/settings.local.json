@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(pnpm --filter @betteratlas/shared build:*)",
+      "Bash(npx tsc:*)",
+      "Bash(node -e:*)"
+    ]
+  }
+}
