@@ -1,4 +1,7 @@
 packages:
-  - "packages/*"
-  - "api"
-  - "frontend"
+  - packages/*
+  - api
+  - frontend
+
+ignoredBuiltDependencies:
+  - esbuild

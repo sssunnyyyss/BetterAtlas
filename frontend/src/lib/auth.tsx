@@ -91,21 +91,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       graduationYear?: number;
       major?: string;
     }) => {
-      // First sign up with Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Let the API handle both Auth signup and profile creation
+      const result = await api.post<{ user: User; session: any }>("/auth/register", data);
+
+      // Sign in with Supabase to establish the local session
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email: data.email,
         password: data.password,
       });
 
-      if (authError) {
-        throw new Error(authError.message);
+      if (signInError) {
+        throw new Error(signInError.message);
       }
 
-      if (authData.user) {
-        // Then create profile via our API
-        const userData = await api.post<User>("/auth/register", data);
-        setUser(userData);
-      }
+      setUser(result.user);
     },
     []
   );

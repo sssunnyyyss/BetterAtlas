@@ -4,7 +4,7 @@
   "scripts": {
     "dev:api": "pnpm --filter api dev",
     "dev:frontend": "pnpm --filter frontend dev",
-    "dev": "pnpm run --parallel dev:api dev:frontend",
+    "dev": "pnpm --filter api dev & pnpm --filter frontend dev",
     "build": "pnpm --filter @betteratlas/shared build && pnpm run --parallel build:api build:frontend",
     "build:api": "pnpm --filter api build",
     "build:frontend": "pnpm --filter frontend build",
