@@ -164,6 +164,25 @@ const COURSE_DATA: {
 ];
 
 const SEMESTERS = ["Fall 2024", "Spring 2025", "Fall 2025"];
+const GER_SAMPLE = [
+  "HAP",
+  "HSC",
+  "SNT",
+  "QTR",
+  "MER",
+  "HAPW",
+  "HAL",
+  "SBS",
+  "ETH",
+  "WRT",
+  "FSEM",
+  "PHED",
+  "INQ",
+  "CONT",
+];
+const CAMPUS_SAMPLE = ["Atlanta", "Oxford"];
+const COMPONENT_SAMPLE = ["LEC", "LAB", "SEM", "DIS", "IND", "RES", "FLD", "STU", "PRC"];
+const INSTRUCTION_METHOD_SAMPLE = ["P", "DL", "BL"];
 const DAYS_OPTIONS = [
   ["M", "W", "F"],
   ["T", "Th"],
@@ -216,6 +235,17 @@ async function seed() {
           description: c.description,
           credits: c.credits,
           departmentId: deptId,
+          // Give the UI something realistic to filter/display in dev seed data.
+          attributes:
+            Math.random() < 0.65
+              ? Array.from(
+                  new Set(
+                    Array.from({ length: 1 + Math.floor(Math.random() * 2) }).map(
+                      () => GER_SAMPLE[Math.floor(Math.random() * GER_SAMPLE.length)]
+                    )
+                  )
+                ).join(",")
+              : null,
         })
         .returning();
       totalCourses++;
@@ -262,6 +292,13 @@ async function seed() {
             instructorId: instructor.id,
             meetings,
             meetsDisplay: `${days.join("")} ${time.start}-${time.end}`,
+            campus: CAMPUS_SAMPLE[Math.floor(Math.random() * CAMPUS_SAMPLE.length)],
+            componentType:
+              COMPONENT_SAMPLE[Math.floor(Math.random() * COMPONENT_SAMPLE.length)],
+            instructionMethod:
+              INSTRUCTION_METHOD_SAMPLE[
+                Math.floor(Math.random() * INSTRUCTION_METHOD_SAMPLE.length)
+              ],
             enrollmentCap: 30 + Math.floor(Math.random() * 70),
             enrollmentCur: Math.floor(Math.random() * 30),
           });

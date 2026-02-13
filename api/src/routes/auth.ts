@@ -152,7 +152,47 @@ router.get("/me", requireAuth, async (req, res) => {
       .limit(1);
 
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      // Self-heal: if Auth user exists but profile row doesn't (e.g., legacy accounts),
+      // create a minimal profile so the client can proceed.
+      const displayName = req.user!.email
+        ? req.user!.email.split("@")[0]
+        : "User";
+
+      const [created] = await db
+        .insert(users)
+        .values({
+          id: req.user!.id,
+          email: req.user!.email || "",
+          displayName,
+        })
+        .onConflictDoNothing()
+        .returning({
+          id: users.id,
+          email: users.email,
+          displayName: users.displayName,
+          graduationYear: users.graduationYear,
+          major: users.major,
+          createdAt: users.createdAt,
+        });
+
+      if (created) return res.json(created);
+
+      // In case of a race where another request inserted the row, re-read once.
+      const [reloaded] = await db
+        .select({
+          id: users.id,
+          email: users.email,
+          displayName: users.displayName,
+          graduationYear: users.graduationYear,
+          major: users.major,
+          createdAt: users.createdAt,
+        })
+        .from(users)
+        .where(eq(users.id, req.user!.id))
+        .limit(1);
+
+      if (!reloaded) return res.status(404).json({ error: "User not found" });
+      return res.json(reloaded);
     }
 
     res.json(user);

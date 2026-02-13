@@ -7,7 +7,7 @@ import {
   terms,
   courseRatings,
 } from "../db/schema.js";
-import { eq, sql, and, gte, asc, desc, ilike } from "drizzle-orm";
+import { eq, sql, and, asc, desc, ilike, inArray } from "drizzle-orm";
 import type { CourseQuery, SearchQuery } from "@betteratlas/shared";
 
 function dayNumToAbbrev(day: number): string {
@@ -71,42 +71,37 @@ export async function listCourses(query: CourseQuery) {
   } = query;
   const offset = (page - 1) * limit;
 
-  const conditions: ReturnType<typeof eq>[] = [];
-  if (department) {
-    const dept = await db
-      .select({ id: departments.id })
-      .from(departments)
-      .where(eq(departments.code, department))
-      .limit(1);
-    if (dept.length > 0) {
-      conditions.push(eq(courses.departmentId, dept[0].id));
-    }
-  }
-  if (credits) {
-    conditions.push(eq(courses.credits, credits));
-  }
+  // Course listing is section-backed: filters and instructor display require joins.
+  // This also avoids listing catalog entries that have no active sections.
+  const conditions: any[] = [eq(sections.isActive, true)];
+
+  if (department) conditions.push(eq(departments.code, department));
+  if (semester) conditions.push(eq(terms.name, semester));
+  if (credits) conditions.push(eq(courses.credits, credits));
+
   if (minRating) {
-    conditions.push(gte(courseRatings.avgQuality, String(minRating)));
+    // avgQuality is NUMERIC and may be NULL for unrated courses; treat NULL as 0.
+    conditions.push(sql`coalesce(${courseRatings.avgQuality}, 0) >= ${minRating}`);
   }
+
   if (attributes) {
-    // Support comma-separated GER codes (e.g. "HAP,SNT")
-    const attrList = attributes.split(",").map((a) => a.trim()).filter(Boolean);
-    for (const attr of attrList) {
-      conditions.push(ilike(courses.attributes, `%${attr}%`));
+    // GER filter (Emory requirement designation), stored on sections.ger_codes as ",HA,CW,"
+    const gerList = attributes.split(",").map((a) => a.trim()).filter(Boolean);
+    if (gerList.length > 0) {
+      const parts = gerList.map((code) => sql`${sections.gerCodes} LIKE ${`%,${code},%`}`);
+      conditions.push(sql`(${sql.join(parts, sql` OR `)})`);
     }
   }
 
-  // Whether we need to join sections (for instructor/campus/componentType/instructionMethod filters)
-  const needSectionsJoin = !!(instructor || campus || componentType || instructionMethod);
-
-  if (campus) {
-    conditions.push(ilike(sections.campus, campus));
-  }
-  if (componentType) {
-    conditions.push(eq(sections.componentType, componentType));
-  }
+  if (campus) conditions.push(eq(sections.campus, campus));
+  if (componentType) conditions.push(eq(sections.componentType, componentType));
   if (instructionMethod) {
-    conditions.push(eq(sections.instructionMethod, instructionMethod));
+    // Back-compat: older UI used O/H, FOSE uses DL/BL.
+    const normalized =
+      instructionMethod === "O" ? "DL" :
+      instructionMethod === "H" ? "BL" :
+      instructionMethod;
+    conditions.push(eq(sections.instructionMethod, normalized));
   }
 
   let orderBy;
@@ -124,14 +119,9 @@ export async function listCourses(query: CourseQuery) {
       orderBy = asc(courses.code);
   }
 
-  // Build instructor filter condition separately since it needs its own join
-  if (instructor) {
-    conditions.push(ilike(instructors.name, `%${instructor}%`));
-  }
-
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-  let baseQuery = db
+  const baseQuery = db
     .select({
       id: courses.id,
       code: courses.code,
@@ -146,43 +136,76 @@ export async function listCourses(query: CourseQuery) {
       avgDifficulty: courseRatings.avgDifficulty,
       avgWorkload: courseRatings.avgWorkload,
       reviewCount: courseRatings.reviewCount,
+      instructors: sql<any>`coalesce(
+        json_agg(DISTINCT ${instructors.name})
+          FILTER (WHERE ${instructors.name} IS NOT NULL),
+        '[]'::json
+      )`,
+      gers: sql<any>`coalesce((
+        select json_agg(distinct code)
+        from (
+          select trim(code) as code
+          from sections s,
+            regexp_split_to_table(coalesce(trim(both ',' from s.ger_codes), ''), ',') as code
+          where s.course_id = ${courses.id}
+            and s.is_active = true
+            and s.ger_codes is not null
+        ) t
+        where code <> ''
+      ), '[]'::json)`,
     })
     .from(courses)
+    .innerJoin(sections, eq(courses.id, sections.courseId))
     .leftJoin(departments, eq(courses.departmentId, departments.id))
-    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId));
+    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
+    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+    .leftJoin(instructors, eq(sections.instructorId, instructors.id));
 
-  if (needSectionsJoin) {
-    baseQuery = baseQuery
-      .innerJoin(sections, eq(courses.id, sections.courseId)) as any;
-    if (instructor) {
-      baseQuery = (baseQuery as any)
-        .innerJoin(instructors, eq(sections.instructorId, instructors.id));
-    }
-  }
+  // Instructor name filter needs instructors join; we always join (left), so just apply it.
+  const filteredQuery = instructor
+    ? (where
+        ? baseQuery.where(and(where, ilike(instructors.name, `%${instructor}%`)))
+        : baseQuery.where(ilike(instructors.name, `%${instructor}%`)))
+    : (where ? baseQuery.where(where) : baseQuery);
 
-  const filteredQuery = where ? baseQuery.where(where) : baseQuery;
+  const groupedQuery = filteredQuery
+    .groupBy(
+      courses.id,
+      courses.code,
+      courses.title,
+      courses.description,
+      courses.credits,
+      courses.departmentId,
+      courses.attributes,
+      departments.code,
+      departments.name,
+      courseRatings.avgQuality,
+      courseRatings.avgDifficulty,
+      courseRatings.avgWorkload,
+      courseRatings.reviewCount
+    )
+    .orderBy(orderBy);
 
-  // Use DISTINCT when joining sections to avoid duplicate courses
-  const countQuery = needSectionsJoin
-    ? db
-        .select({ count: sql<number>`count(DISTINCT ${courses.id})` })
-        .from(courses)
-        .innerJoin(sections, eq(courses.id, sections.courseId))
-        .then((r) => r[0]?.count ?? 0)
-    : db
-        .select({ count: sql<number>`count(*)` })
-        .from(courses)
-        .then((r) => r[0]?.count ?? 0);
+  const dataQuery = groupedQuery.limit(limit).offset(offset);
 
-  const dataQuery = needSectionsJoin
-    ? filteredQuery.groupBy(
-        courses.id, courses.code, courses.title, courses.description,
-        courses.credits, courses.departmentId, courses.attributes,
-        departments.code, departments.name,
-        courseRatings.avgQuality, courseRatings.avgDifficulty,
-        courseRatings.avgWorkload, courseRatings.reviewCount,
-      ).orderBy(orderBy).limit(limit).offset(offset)
-    : filteredQuery.orderBy(orderBy).limit(limit).offset(offset);
+  const countBase = db
+    .select({ count: sql<number>`count(DISTINCT ${courses.id})` })
+    .from(courses)
+    .innerJoin(sections, eq(courses.id, sections.courseId))
+    .leftJoin(departments, eq(courses.departmentId, departments.id))
+    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
+    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+    .leftJoin(instructors, eq(sections.instructorId, instructors.id));
+
+  const countWhere = instructor
+    ? (where
+        ? and(where, ilike(instructors.name, `%${instructor}%`))
+        : ilike(instructors.name, `%${instructor}%`))
+    : where;
+
+  const countQuery = (countWhere ? countBase.where(countWhere) : countBase).then(
+    (r) => r[0]?.count ?? 0
+  );
 
   const [data, countResult] = await Promise.all([dataQuery, countQuery]);
 
@@ -195,6 +218,36 @@ export async function listCourses(query: CourseQuery) {
       credits: row.credits,
       departmentId: row.departmentId,
       attributes: row.attributes ?? null,
+      instructors: Array.isArray(row.instructors)
+        ? (row.instructors.filter((s: any) => typeof s === "string" && s.trim()) as string[])
+        : (() => {
+            if (typeof row.instructors === "string") {
+              try {
+                const parsed = JSON.parse(row.instructors);
+                return Array.isArray(parsed)
+                  ? (parsed.filter((s) => typeof s === "string" && s.trim()) as string[])
+                  : [];
+              } catch {
+                return [];
+              }
+            }
+            return [];
+          })(),
+      gers: Array.isArray(row.gers)
+        ? (row.gers.filter((s: any) => typeof s === "string" && s.trim()) as string[])
+        : (() => {
+            if (typeof row.gers === "string") {
+              try {
+                const parsed = JSON.parse(row.gers);
+                return Array.isArray(parsed)
+                  ? (parsed.filter((s) => typeof s === "string" && s.trim()) as string[])
+                  : [];
+              } catch {
+                return [];
+              }
+            }
+            return [];
+          })(),
       department: row.departmentCode
         ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
         : null,
@@ -261,6 +314,32 @@ export async function searchCourses(query: SearchQuery) {
     .limit(limit)
     .offset(offset);
 
+  const courseIds = data.map((r) => r.id);
+  const instructorsByCourse = new Map<number, string[]>();
+  if (courseIds.length > 0) {
+    const rows = await db
+      .select({
+        courseId: sections.courseId,
+        instructors: sql<any>`coalesce(
+          json_agg(DISTINCT ${instructors.name})
+            FILTER (WHERE ${instructors.name} IS NOT NULL),
+          '[]'::json
+        )`,
+      })
+      .from(sections)
+      .leftJoin(instructors, eq(sections.instructorId, instructors.id))
+      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)))
+      .groupBy(sections.courseId);
+
+    for (const r of rows) {
+      const v = Array.isArray(r.instructors) ? r.instructors : [];
+      instructorsByCourse.set(
+        r.courseId,
+        v.filter((s: any) => typeof s === "string" && s.trim())
+      );
+    }
+  }
+
   return {
     data: data.map((row) => ({
       id: row.id,
@@ -270,6 +349,7 @@ export async function searchCourses(query: SearchQuery) {
       credits: row.credits,
       departmentId: row.departmentId,
       attributes: row.attributes ?? null,
+      instructors: instructorsByCourse.get(row.id) ?? [],
       department: row.departmentCode
         ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
         : null,
@@ -290,6 +370,7 @@ export async function getCourseById(id: number) {
       title: courses.title,
       description: courses.description,
       credits: courses.credits,
+      gradeMode: courses.gradeMode,
       departmentId: courses.departmentId,
       attributes: courses.attributes,
       departmentCode: departments.code,
@@ -319,10 +400,19 @@ export async function getCourseById(id: number) {
       instructorEmail: instructors.email,
       instructorDepartmentId: instructors.departmentId,
       componentType: sections.componentType,
+      instructionMethod: sections.instructionMethod,
       campus: sections.campus,
-      meetings: sections.meetings,
+      enrollmentStatus: sections.enrollmentStatus,
+      waitlistCount: sections.waitlistCount,
+      waitlistCap: sections.waitlistCap,
       enrollmentCap: sections.enrollmentCap,
       enrollmentCur: sections.enrollmentCur,
+      seatsAvail: sections.seatsAvail,
+      startDate: sections.startDate,
+      endDate: sections.endDate,
+      gerDesignation: sections.gerDesignation,
+      gerCodes: sections.gerCodes,
+      meetings: sections.meetings,
       createdAt: sections.createdAt,
     })
     .from(sections)
@@ -336,6 +426,7 @@ export async function getCourseById(id: number) {
     title: course.title,
     description: course.description,
     credits: course.credits,
+    gradeMode: course.gradeMode ?? null,
     departmentId: course.departmentId,
     attributes: course.attributes ?? null,
     department: course.departmentCode
@@ -353,6 +444,10 @@ export async function getCourseById(id: number) {
       instructorId: s.instructorId,
       componentType: s.componentType ?? null,
       campus: s.campus ?? null,
+      instructionMethod: s.instructionMethod ?? null,
+      enrollmentStatus: s.enrollmentStatus ?? null,
+      waitlistCount: s.waitlistCount ?? 0,
+      waitlistCap: s.waitlistCap ?? null,
       instructor: s.instructorName
         ? {
             id: s.instructorId!,
@@ -364,6 +459,18 @@ export async function getCourseById(id: number) {
       schedule: scheduleFromMeetings(s.meetings),
       enrollmentCap: s.enrollmentCap,
       enrollmentCur: s.enrollmentCur ?? 0,
+      seatsAvail: s.seatsAvail ?? (s.enrollmentCap !== null ? Math.max(0, (s.enrollmentCap ?? 0) - (s.enrollmentCur ?? 0)) : null),
+      startDate: s.startDate ?? null,
+      endDate: s.endDate ?? null,
+      gerDesignation: s.gerDesignation ?? null,
+      gerCodes: (() => {
+        const raw = (s.gerCodes ?? "").trim();
+        if (!raw) return [];
+        return raw
+          .split(",")
+          .map((x) => x.trim())
+          .filter((x) => x && x !== "");
+      })(),
       createdAt: s.createdAt?.toISOString() ?? "",
     })),
   };

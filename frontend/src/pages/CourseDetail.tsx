@@ -5,7 +5,13 @@ import RatingBadge from "../components/course/RatingBadge.js";
 import ReviewCard from "../components/review/ReviewCard.js";
 import ReviewForm from "../components/review/ReviewForm.js";
 import type { Schedule } from "@betteratlas/shared";
-import { parseAttributes, GER_TAGS } from "@betteratlas/shared";
+import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
+
+const ENROLLMENT_STATUS_LABELS: Record<string, string> = {
+  O: "Open",
+  C: "Closed",
+  W: "Wait List",
+};
 
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -58,21 +64,16 @@ export default function CourseDetail() {
         {course.department && (
           <p className="text-sm text-gray-500 mt-1">{course.department.name}</p>
         )}
-        {(() => {
-          const gerTags = parseAttributes(course.attributes);
-          return gerTags.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {gerTags.map((tag) => (
-                <span
-                  key={tag}
-                  className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-medium"
-                >
-                  {GER_TAGS[tag] ?? tag}
-                </span>
-              ))}
-            </div>
-          ) : null;
-        })()}
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
+          <span>
+            <span className="font-medium text-gray-700">Credit Hours:</span>{" "}
+            {course.credits ?? "—"}
+          </span>
+          <span>
+            <span className="font-medium text-gray-700">Grading Mode:</span>{" "}
+            {course.gradeMode ?? "—"}
+          </span>
+        </div>
         {course.description && (
           <p className="text-gray-700 mt-3">{course.description}</p>
         )}
@@ -110,6 +111,11 @@ export default function CourseDetail() {
                         <span className="text-sm text-gray-500">
                           {section.semester}
                         </span>
+                        {section.campus && (
+                          <span className="text-xs text-gray-400">
+                            {section.campus}
+                          </span>
+                        )}
                       </div>
                       {section.instructor && (
                         <div className="mt-1.5">
@@ -137,9 +143,42 @@ export default function CourseDetail() {
                       {sched?.location && (
                         <div className="text-sm text-gray-600 mt-0.5">{sched.location}</div>
                       )}
-                      {section.enrollmentCap && (
-                        <div className="text-xs text-gray-400 mt-0.5">
-                          {section.enrollmentCur}/{section.enrollmentCap} enrolled
+                      {(section.startDate || section.endDate) && (
+                        <div className="text-xs text-gray-500 mt-1">
+                          Dates: {section.startDate ?? "?"} through {section.endDate ?? "?"}
+                        </div>
+                      )}
+                      {(section.enrollmentCap !== null || section.seatsAvail !== null) && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Seats: Maximum Enrollment: {section.enrollmentCap ?? "—"} / Seats Avail:{" "}
+                          {section.seatsAvail ?? (section.enrollmentCap !== null ? Math.max(0, (section.enrollmentCap ?? 0) - (section.enrollmentCur ?? 0)) : "—")}
+                        </div>
+                      )}
+                      {typeof section.waitlistCount === "number" && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Waitlist Total: {section.waitlistCount}
+                          {section.waitlistCap !== null && section.waitlistCap !== undefined
+                            ? ` of ${section.waitlistCap}`
+                            : ""}
+                        </div>
+                      )}
+                      {section.enrollmentStatus && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Enrollment Status:{" "}
+                          {ENROLLMENT_STATUS_LABELS[section.enrollmentStatus] ??
+                            section.enrollmentStatus}
+                        </div>
+                      )}
+                      {section.instructionMethod && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Instruction Method:{" "}
+                          {INSTRUCTION_METHOD_OPTIONS[section.instructionMethod] ??
+                            section.instructionMethod}
+                        </div>
+                      )}
+                      {section.gerDesignation && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Requirement Designation: {section.gerDesignation}
                         </div>
                       )}
                     </div>

@@ -31,20 +31,15 @@ export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
 
 export const GER_TAGS: Record<string, string> = {
-  HAP: "Health & PE",
-  HSC: "Health (Science)",
-  SNT: "Science/Nature/Tech",
-  QTR: "Quantitative Reasoning",
-  MER: "Math & Empirical Reasoning",
-  HAPW: "Writing Req",
-  HAL: "Humanities/Arts/Lang",
-  SBS: "Social/Behavioral Sci",
-  ETH: "Ethics",
-  WRT: "First-Year Writing",
-  FSEM: "First-Year Seminar",
-  PHED: "Physical Education",
-  INQ: "Inquiry",
-  CONT: "Continuing Writing",
+  HA: "Humanities & Arts",
+  NS: "Natural Science",
+  QR: "Quantitative Reasoning",
+  SS: "Social Science",
+  IC: "Intercultural Communication",
+  ETHN: "Race & Ethnicity",
+  FS: "First-Year Seminar",
+  FW: "First-Year Writing",
+  CW: "Continuing Communication & Writing",
 } as const;
 
 export const CAMPUS_OPTIONS = ["Atlanta", "Oxford"] as const;
@@ -63,8 +58,10 @@ export const COMPONENT_TYPE_OPTIONS: Record<string, string> = {
 
 export const INSTRUCTION_METHOD_OPTIONS: Record<string, string> = {
   P: "In Person",
-  O: "Online",
-  H: "Hybrid",
+  DL: "Online",
+  BL: "Hybrid",
+  FL: "Hyflex",
+  DR: "Directed Research",
 } as const;
 
 export function parseAttributes(attr: string | null | undefined): string[] {

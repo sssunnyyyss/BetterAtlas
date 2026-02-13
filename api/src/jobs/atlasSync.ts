@@ -1,7 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { db } from "../db/index.js";
-import { courses, departments, sections, terms } from "../db/schema.js";
+import { courses, departments, instructors, sections, terms } from "../db/schema.js";
 
 type FoseSearchRow = {
   key: string;
@@ -14,6 +14,8 @@ type FoseSearchRow = {
   meets?: string;
   meetingTimes?: string;
   instr?: string;
+  instmode?: string;
+  session?: string;
   start_date?: string;
   end_date?: string;
   enrl_stat?: string;
@@ -33,10 +35,15 @@ type FoseDetailsResponse = {
   crn?: string;
   description?: string;
   hours_html?: string;
+  seats?: string;
+  enrl_stat_html?: string;
+  dates_html?: string;
   registration_restrictions?: string;
   attributes?: string;
   grademode_code?: string;
   inst_method_code?: string;
+  clss_assoc_rqmnt_designt_html?: string;
+  instructordetail_html?: string;
 };
 
 const FOSE_BASE = "https://atlas.emory.edu/api/?page=fose";
@@ -50,6 +57,161 @@ function sleep(ms: number) {
 function jitter(ms: number) {
   const spread = Math.max(50, Math.floor(ms * 0.25));
   return ms + Math.floor((Math.random() - 0.5) * spread * 2);
+}
+
+function stripHtml(s: string): string {
+  return s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function titleCaseWords(s: string): string {
+  const cleaned = s.replace(/[_@]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned
+    .split(" ")
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : ""))
+    .join(" ");
+}
+
+function campusLabelFromCriteria(value: string | null): string | null {
+  if (!value) return null;
+  // "ATL@ATLANTA" -> "Atlanta"
+  const parts = value.split("@");
+  const raw = (parts[1] ?? parts[0] ?? "").trim();
+  if (!raw) return null;
+  if (raw.toUpperCase() === "ATLANTA") return "Atlanta";
+  if (raw.toUpperCase() === "OXFORD") return "Oxford";
+  return titleCaseWords(raw);
+}
+
+function parseInstructionMethodCode(raw: string | null | undefined): string | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  // Prefer FOSE codes when available (P/DL/BL/FL/DR).
+  if (["P", "DL", "BL", "FL", "DR"].includes(v)) return v;
+  // Details API returns human-readable strings like "In Person".
+  const norm = v.toLowerCase();
+  if (norm.includes("in person")) return "P";
+  if (norm.includes("hybrid")) return "BL";
+  if (norm.includes("hyflex")) return "FL";
+  if (norm.includes("online")) return "DL";
+  if (norm.includes("directed")) return "DR";
+  return null;
+}
+
+function parseInstructorName(raw: string | null | undefined): string | null {
+  const v = (raw ?? "").trim();
+  if (!v) return null;
+  const text = stripHtml(v);
+  if (!text) return null;
+  // Common separators for "multiple instructors".
+  const first = text.split(/;|\/|\||\s{2,}/)[0]?.trim() ?? "";
+  return first || null;
+}
+
+function uniqStrings(xs: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of xs) {
+    const v = x.trim();
+    if (!v) continue;
+    if (seen.has(v)) continue;
+    seen.add(v);
+    out.push(v);
+  }
+  return out;
+}
+
+function gerCodesFromDesignationText(text: string): string[] {
+  const t = text.toLowerCase();
+  const codes: string[] = [];
+
+  if (t.includes("humanities") && t.includes("arts")) codes.push("HA");
+  if (t.includes("natural science")) codes.push("NS");
+  if (t.includes("quantitative reasoning")) codes.push("QR");
+  if (t.includes("social science")) codes.push("SS");
+  if (t.includes("intercultural communication")) codes.push("IC");
+  if (t.includes("race") && t.includes("ethnic")) codes.push("ETHN");
+  if (t.includes("first-year seminar") || t.includes("first year seminar")) codes.push("FS");
+  if (t.includes("first-year writing") || t.includes("first year writing")) codes.push("FW");
+  if (
+    t.includes("continuing communication") ||
+    t.includes("continuing writing") ||
+    t.includes("c.comm") ||
+    t.includes("c. comm")
+  ) {
+    codes.push("CW");
+  }
+
+  return uniqStrings(codes);
+}
+
+function gerCodesToDbString(codes: string[]): string | null {
+  const uniq = uniqStrings(codes);
+  if (uniq.length === 0) return null;
+  return `,${uniq.join(",")},`;
+}
+
+function parseSeatsHtml(seatsHtml: string | null | undefined): {
+  enrollmentCap: number | null;
+  seatsAvail: number | null;
+  waitlistTotal: number | null;
+  waitlistCap: number | null;
+} {
+  const text = stripHtml(seatsHtml ?? "");
+  if (!text) {
+    return {
+      enrollmentCap: null,
+      seatsAvail: null,
+      waitlistTotal: null,
+      waitlistCap: null,
+    };
+  }
+
+  const capM = text.match(/Maximum Enrollment\s*:?\s*(\d+)/i);
+  const availM = text.match(/Seats Avail\s*:?\s*(\d+)/i);
+  const wlM = text.match(/Waitlist Total\s*:?\s*(\d+)(?:\s*of\s*(\d+))?/i);
+
+  const enrollmentCap = capM ? Number(capM[1]) : null;
+  const seatsAvail = availM ? Number(availM[1]) : null;
+  const waitlistTotal = wlM ? Number(wlM[1]) : null;
+  const waitlistCap = wlM && wlM[2] ? Number(wlM[2]) : null;
+
+  return { enrollmentCap, seatsAvail, waitlistTotal, waitlistCap };
+}
+
+function enrollmentStatusCodeFromHtml(label: string | null | undefined): string | null {
+  const t = stripHtml(label ?? "").toLowerCase();
+  if (!t) return null;
+  if (t.includes("wait")) return "W";
+  if (t.includes("open")) return "O";
+  if (t.includes("closed")) return "C";
+  return null;
+}
+
+function parseDatesHtml(
+  datesHtml: string | null | undefined
+): { start: string | null; end: string | null } {
+  const t = stripHtml(datesHtml ?? "");
+  if (!t) return { start: null, end: null };
+  const m = t.match(/(\d{4}-\d{2}-\d{2})\s+through\s+(\d{4}-\d{2}-\d{2})/i);
+  if (!m) return { start: null, end: null };
+  return { start: m[1], end: m[2] };
+}
+
+function parseInstructorDetail(
+  html: string | null | undefined
+): { name: string | null; email: string | null } {
+  const raw = String(html ?? "");
+  if (!raw.trim()) return { name: null, email: null };
+
+  const nameM =
+    raw.match(/data-provider="search-by-instructor"[^>]*>([^<]+)<\/a>/i) ??
+    raw.match(/<div class="instructor-name"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/i);
+  const emailM = raw.match(/mailto:([^"'>\s]+)/i);
+
+  const name = nameM ? stripHtml(nameM[1]) : null;
+  const email = emailM ? String(emailM[1]).trim() : null;
+  return { name: name || null, email: email || null };
 }
 
 async function fosePostJson<T>(
@@ -285,13 +447,45 @@ async function upsertCourse(input: {
   return row;
 }
 
+async function upsertInstructorByName(input: {
+  name: string;
+  email?: string | null;
+  departmentId: number | null;
+}) {
+  const name = input.name.trim();
+  const [existing] = await db
+    .select({ id: instructors.id, email: instructors.email })
+    .from(instructors)
+    .where(eq(instructors.name, name))
+    .limit(1);
+
+  if (existing) {
+    const nextEmail = (input.email ?? "").trim() || null;
+    if (nextEmail && !existing.email) {
+      await db.update(instructors).set({ email: nextEmail }).where(eq(instructors.id, existing.id));
+    }
+    return existing.id;
+  }
+
+  const [row] = await db
+    .insert(instructors)
+    .values({ name, email: (input.email ?? "").trim() || null, departmentId: input.departmentId })
+    .returning({ id: instructors.id });
+
+  return row.id;
+}
+
 async function upsertSection(input: {
   courseId: number;
   termCode: string;
   crn: string;
   atlasKey: string | null;
   sectionNumber: string | null;
+  instructorId: number | null;
   componentType: string | null;
+  instructionMethod: string | null;
+  campus: string | null;
+  session: string | null;
   enrollmentStatus: string | null;
   meetsDisplay: string | null;
   meetings: any[] | null;
@@ -307,7 +501,11 @@ async function upsertSection(input: {
       crn: input.crn,
       atlasKey: input.atlasKey,
       sectionNumber: input.sectionNumber,
+      instructorId: input.instructorId,
       componentType: input.componentType,
+      instructionMethod: input.instructionMethod,
+      campus: input.campus,
+      session: input.session,
       enrollmentStatus: input.enrollmentStatus,
       meetsDisplay: input.meetsDisplay,
       meetings: input.meetings,
@@ -323,7 +521,12 @@ async function upsertSection(input: {
         courseId: input.courseId,
         atlasKey: input.atlasKey,
         sectionNumber: input.sectionNumber,
+        // Don't wipe instructor/method fields if the search payload doesn't include them.
+        instructorId: sql`coalesce(${input.instructorId}, ${sections.instructorId})`,
         componentType: input.componentType,
+        instructionMethod: sql`coalesce(${input.instructionMethod}, ${sections.instructionMethod})`,
+        campus: sql`coalesce(${input.campus}, ${sections.campus})`,
+        session: sql`coalesce(${input.session}, ${sections.session})`,
         enrollmentStatus: input.enrollmentStatus,
         meetsDisplay: input.meetsDisplay,
         meetings: input.meetings,
@@ -478,6 +681,11 @@ async function main() {
           const sectionNumber = r.no ? String(r.no).trim() : null;
           const startDate = r.start_date ? String(r.start_date).trim() : null;
           const endDate = r.end_date ? String(r.end_date).trim() : null;
+          const campusLabel = campusLabelFromCriteria(campus);
+          const instructionMethod = parseInstructionMethodCode(r.instmode);
+          const session = r.session ? String(r.session).trim() : null;
+          // Prefer instructor info from details (`instructordetail_html`) to avoid short-name duplicates.
+          const instructorId = null;
 
           // Load previous snapshot for "sampled details" change detection.
           const [existing] = await db
@@ -486,6 +694,12 @@ async function main() {
               atlasKey: sections.atlasKey,
               meetsDisplay: sections.meetsDisplay,
               enrollmentStatus: sections.enrollmentStatus,
+              instructionMethod: sections.instructionMethod,
+              enrollmentCap: sections.enrollmentCap,
+              seatsAvail: sections.seatsAvail,
+              waitlistCap: sections.waitlistCap,
+              gerCodes: sections.gerCodes,
+              instructorId: sections.instructorId,
             })
             .from(sections)
             .where(and(eq(sections.crn, crn), eq(sections.termCode, termCode)))
@@ -497,7 +711,11 @@ async function main() {
             crn,
             atlasKey,
             sectionNumber,
+            instructorId,
             componentType,
+            instructionMethod,
+            campus: campusLabel,
+            session,
             enrollmentStatus,
             meetsDisplay,
             meetings,
@@ -506,7 +724,20 @@ async function main() {
             runStartedAt,
           });
 
-          if (detailsMode === "sampled") {
+          const needsSectionEnrichment =
+            !existing?.instructionMethod ||
+            existing?.enrollmentCap == null ||
+            existing?.seatsAvail == null ||
+            existing?.gerCodes == null ||
+            existing?.instructorId == null;
+
+          if (detailsMode === "all") {
+            detailsTasks.push({ courseId: courseRow.id, courseCode, crn, atlasKey });
+          } else if (detailsMode === "missing") {
+            if (needsSectionEnrichment) {
+              detailsTasks.push({ courseId: courseRow.id, courseCode, crn, atlasKey });
+            }
+          } else if (detailsMode === "sampled") {
             const isNew = !existing;
             const changed =
               !isNew &&
@@ -518,7 +749,7 @@ async function main() {
               !courseRow.description || !courseRow.prerequisites;
 
             const shouldEnrich =
-              isNew || changed || courseNeedsEnrichment;
+              isNew || changed || courseNeedsEnrichment || needsSectionEnrichment;
 
             if (shouldEnrich) {
               // Avoid scheduling redundant "course lacks description/prereqs" enrichments.
@@ -562,6 +793,14 @@ async function main() {
       const attributes = (details.attributes ?? "").trim();
       const gradeMode = (details.grademode_code ?? "").trim();
       const credits = (details.hours_html ?? "").trim();
+      const instMethod = parseInstructionMethodCode(details.inst_method_code);
+      const statusCode = enrollmentStatusCodeFromHtml(details.enrl_stat_html);
+      const dates = parseDatesHtml(details.dates_html);
+      const seatInfo = parseSeatsHtml(details.seats);
+      const gerDesignationRaw = stripHtml(details.clss_assoc_rqmnt_designt_html ?? "");
+      const gerDesignation = gerDesignationRaw ? gerDesignationRaw : null;
+      const gerCodes = gerDesignation ? gerCodesToDbString(gerCodesFromDesignationText(gerDesignation)) : null;
+      const instr = parseInstructorDetail(details.instructordetail_html);
 
       const set: Record<string, any> = {};
       if (description) set.description = description;
@@ -572,6 +811,39 @@ async function main() {
 
       if (Object.keys(set).length > 0) {
         await db.update(courses).set(set).where(eq(courses.id, t.courseId));
+      }
+
+      const sectionSet: Record<string, any> = {};
+      if (instMethod) sectionSet.instructionMethod = instMethod;
+      if (statusCode) sectionSet.enrollmentStatus = statusCode;
+      if (dates.start) sectionSet.startDate = dates.start;
+      if (dates.end) sectionSet.endDate = dates.end;
+
+      if (seatInfo.enrollmentCap !== null) sectionSet.enrollmentCap = seatInfo.enrollmentCap;
+      if (seatInfo.seatsAvail !== null) sectionSet.seatsAvail = seatInfo.seatsAvail;
+      if (seatInfo.waitlistTotal !== null) sectionSet.waitlistCount = seatInfo.waitlistTotal;
+      if (seatInfo.waitlistCap !== null) sectionSet.waitlistCap = seatInfo.waitlistCap;
+      if (seatInfo.enrollmentCap !== null && seatInfo.seatsAvail !== null) {
+        sectionSet.enrollmentCur = Math.max(0, seatInfo.enrollmentCap - seatInfo.seatsAvail);
+      }
+
+      if (gerDesignation) sectionSet.gerDesignation = gerDesignation;
+      if (gerCodes) sectionSet.gerCodes = gerCodes;
+
+      if (instr.name) {
+        const instructorId = await upsertInstructorByName({
+          name: instr.name,
+          email: instr.email,
+          departmentId: null,
+        });
+        sectionSet.instructorId = instructorId;
+      }
+
+      if (Object.keys(sectionSet).length > 0) {
+        await db
+          .update(sections)
+          .set(sectionSet)
+          .where(and(eq(sections.crn, t.crn), eq(sections.termCode, termCode)));
       }
     } catch (e) {
       console.error(

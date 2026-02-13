@@ -81,6 +81,8 @@ ALTER TABLE sections
   ADD COLUMN IF NOT EXISTS meetings JSONB,
   ADD COLUMN IF NOT EXISTS meets_display VARCHAR(100),
   ADD COLUMN IF NOT EXISTS waitlist_count INTEGER DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS waitlist_cap INTEGER,
+  ADD COLUMN IF NOT EXISTS seats_avail INTEGER,
   ADD COLUMN IF NOT EXISTS enrollment_status VARCHAR(5),
   ADD COLUMN IF NOT EXISTS component_type VARCHAR(5),
   ADD COLUMN IF NOT EXISTS instruction_method VARCHAR(5),
@@ -88,6 +90,10 @@ ALTER TABLE sections
   ADD COLUMN IF NOT EXISTS session VARCHAR(10),
   ADD COLUMN IF NOT EXISTS start_date VARCHAR(10),
   ADD COLUMN IF NOT EXISTS end_date VARCHAR(10),
+  -- Emory GER requirement designation (from `clss_assoc_rqmnt_designt_html`)
+  ADD COLUMN IF NOT EXISTS ger_designation TEXT,
+  -- Comma-delimited codes with leading/trailing commas, e.g. ",HA,CW,ETHN,"
+  ADD COLUMN IF NOT EXISTS ger_codes TEXT,
   ADD COLUMN IF NOT EXISTS atlas_key VARCHAR(20),
   ADD COLUMN IF NOT EXISTS last_synced TIMESTAMPTZ;
 

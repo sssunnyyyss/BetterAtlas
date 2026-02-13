@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useDepartments } from "../../hooks/useCourses.js";
+import { useInstructors } from "../../hooks/useInstructors.js";
 import {
   SEMESTERS,
   SORT_OPTIONS,
@@ -16,10 +17,10 @@ interface CourseFiltersProps {
 
 export default function CourseFilters({ filters, onChange }: CourseFiltersProps) {
   const { data: departments } = useDepartments();
+  const { data: instructors } = useInstructors();
   const [showAdvanced, setShowAdvanced] = useState(
     () =>
       !!(
-        filters.attributes ||
         filters.instructor ||
         filters.campus ||
         filters.componentType ||
@@ -77,6 +78,37 @@ export default function CourseFilters({ filters, onChange }: CourseFiltersProps)
             </option>
           ))}
         </select>
+      </div>
+
+      {/* GER Requirements */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+          GER Requirement
+        </label>
+        <div className="flex flex-wrap gap-1.5">
+          {Object.entries(GER_TAGS).map(([code]) => {
+            const active = selectedGers.includes(code);
+            return (
+              <button
+                key={code}
+                type="button"
+                onClick={() => toggleGer(code)}
+                className={`text-xs px-2 py-1 rounded-full border transition-colors ${
+                  active
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-white text-gray-600 border-gray-300 hover:border-indigo-400"
+                }`}
+              >
+                {code}
+              </button>
+            );
+          })}
+        </div>
+        {selectedGers.length > 0 && (
+          <p className="text-xs text-gray-500 mt-1">
+            {selectedGers.map((c) => GER_TAGS[c] ?? c).join(", ")}
+          </p>
+        )}
       </div>
 
       <div>
@@ -152,37 +184,6 @@ export default function CourseFilters({ filters, onChange }: CourseFiltersProps)
 
       {showAdvanced && (
         <div className="space-y-4 pl-2 border-l-2 border-gray-100">
-          {/* GER Requirements */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">
-              GER Requirement
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {Object.entries(GER_TAGS).map(([code]) => {
-                const active = selectedGers.includes(code);
-                return (
-                  <button
-                    key={code}
-                    type="button"
-                    onClick={() => toggleGer(code)}
-                    className={`text-xs px-2 py-1 rounded-full border transition-colors ${
-                      active
-                        ? "bg-indigo-600 text-white border-indigo-600"
-                        : "bg-white text-gray-600 border-gray-300 hover:border-indigo-400"
-                    }`}
-                  >
-                    {code}
-                  </button>
-                );
-              })}
-            </div>
-            {selectedGers.length > 0 && (
-              <p className="text-xs text-gray-500 mt-1">
-                {selectedGers.map((c) => GER_TAGS[c] ?? c).join(", ")}
-              </p>
-            )}
-          </div>
-
           {/* Instructor */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -193,8 +194,14 @@ export default function CourseFilters({ filters, onChange }: CourseFiltersProps)
               value={filters.instructor || ""}
               onChange={(e) => onChange("instructor", e.target.value)}
               placeholder="Search by name..."
+              list="betteratlas-instructor-list"
               className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
             />
+            <datalist id="betteratlas-instructor-list">
+              {(instructors ?? []).map((i) => (
+                <option key={i.id} value={i.name} />
+              ))}
+            </datalist>
           </div>
 
           {/* Campus */}

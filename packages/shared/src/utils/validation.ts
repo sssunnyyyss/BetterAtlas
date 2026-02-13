@@ -39,6 +39,11 @@ export const searchQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });
 
+export const instructorQuerySchema = z.object({
+  q: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(1000).default(500),
+});
+
 // Reviews
 export const createReviewSchema = z.object({
   semester: z.string().min(1),
@@ -82,6 +87,7 @@ export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type CourseQuery = z.infer<typeof courseQuerySchema>;
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
+export type InstructorQuery = z.infer<typeof instructorQuerySchema>;
 export type CreateReviewInput = z.infer<typeof createReviewSchema>;
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
 export type FriendRequestInput = z.infer<typeof friendRequestSchema>;

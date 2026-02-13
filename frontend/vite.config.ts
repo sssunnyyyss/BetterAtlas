@@ -9,7 +9,8 @@ export default defineConfig({
     allowedHosts: ["courses.sunworkstudios.com"],
     proxy: {
       "/api": {
-        target: "http://localhost:3001",
+        // In Docker Compose, the API is reachable by its service name.
+        target: "http://api:3001",
         changeOrigin: true,
       },
     },

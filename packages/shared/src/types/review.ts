@@ -1,6 +1,6 @@
 export interface Review {
   id: number;
-  userId: number;
+  userId: string;
   courseId: number;
   semester: string | null;
   ratingQuality: number;
