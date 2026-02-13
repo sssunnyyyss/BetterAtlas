@@ -6,7 +6,10 @@
       "Bash(pnpm --filter @betteratlas/shared build:*)",
       "Bash(npx tsc:*)",
       "Bash(node -e:*)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "mcp__plugin_playwright_playwright__browser_run_code",
+      "mcp__plugin_playwright_playwright__browser_network_requests"
     ]
   }
 }

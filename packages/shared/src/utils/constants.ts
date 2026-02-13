@@ -29,3 +29,48 @@ export function getRatingColor(rating: number | null): string {
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
+
+export const GER_TAGS: Record<string, string> = {
+  HAP: "Health & PE",
+  HSC: "Health (Science)",
+  SNT: "Science/Nature/Tech",
+  QTR: "Quantitative Reasoning",
+  MER: "Math & Empirical Reasoning",
+  HAPW: "Writing Req",
+  HAL: "Humanities/Arts/Lang",
+  SBS: "Social/Behavioral Sci",
+  ETH: "Ethics",
+  WRT: "First-Year Writing",
+  FSEM: "First-Year Seminar",
+  PHED: "Physical Education",
+  INQ: "Inquiry",
+  CONT: "Continuing Writing",
+} as const;
+
+export const CAMPUS_OPTIONS = ["Atlanta", "Oxford"] as const;
+
+export const COMPONENT_TYPE_OPTIONS: Record<string, string> = {
+  LEC: "Lecture",
+  LAB: "Lab",
+  SEM: "Seminar",
+  DIS: "Discussion",
+  IND: "Independent Study",
+  RES: "Research",
+  FLD: "Field Study",
+  STU: "Studio",
+  PRC: "Practicum",
+} as const;
+
+export const INSTRUCTION_METHOD_OPTIONS: Record<string, string> = {
+  P: "In Person",
+  O: "Online",
+  H: "Hybrid",
+} as const;
+
+export function parseAttributes(attr: string | null | undefined): string[] {
+  if (!attr) return [];
+  return attr
+    .split(/[,;\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}

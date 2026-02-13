@@ -18,6 +18,7 @@ export interface Course {
   description: string | null;
   credits: number | null;
   departmentId: number | null;
+  attributes: string | null;
 }
 
 export interface CourseWithRatings extends Course {

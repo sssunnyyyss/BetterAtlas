@@ -1,12 +1,19 @@
 import { Link } from "react-router-dom";
 import type { CourseWithRatings } from "@betteratlas/shared";
+import { parseAttributes, GER_TAGS } from "@betteratlas/shared";
 import RatingBadge from "./RatingBadge.js";
+
+const MAX_VISIBLE_TAGS = 3;
 
 interface CourseCardProps {
   course: CourseWithRatings;
 }
 
 export default function CourseCard({ course }: CourseCardProps) {
+  const gerTags = parseAttributes(course.attributes);
+  const visibleTags = gerTags.slice(0, MAX_VISIBLE_TAGS);
+  const overflowCount = gerTags.length - MAX_VISIBLE_TAGS;
+
   return (
     <Link
       to={`/catalog/${course.id}`}
@@ -31,6 +38,23 @@ export default function CourseCard({ course }: CourseCardProps) {
             <span className="text-xs text-gray-500">
               {course.department.name}
             </span>
+          )}
+          {gerTags.length > 0 && (
+            <div className="flex flex-wrap gap-1 mt-1">
+              {visibleTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="bg-indigo-100 text-indigo-700 text-xs px-1.5 py-0.5 rounded-full"
+                >
+                  {GER_TAGS[tag] ?? tag}
+                </span>
+              ))}
+              {overflowCount > 0 && (
+                <span className="text-xs text-gray-400 px-1 py-0.5">
+                  +{overflowCount} more
+                </span>
+              )}
+            </div>
           )}
         </div>
         <div className="flex gap-2 shrink-0">

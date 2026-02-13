@@ -65,7 +65,10 @@ function scheduleFromMeetings(meetings: unknown) {
 }
 
 export async function listCourses(query: CourseQuery) {
-  const { department, semester, minRating, credits, page, limit, sort } = query;
+  const {
+    department, semester, minRating, credits, page, limit, sort,
+    attributes, instructor, campus, componentType, instructionMethod,
+  } = query;
   const offset = (page - 1) * limit;
 
   const conditions: ReturnType<typeof eq>[] = [];
@@ -85,6 +88,26 @@ export async function listCourses(query: CourseQuery) {
   if (minRating) {
     conditions.push(gte(courseRatings.avgQuality, String(minRating)));
   }
+  if (attributes) {
+    // Support comma-separated GER codes (e.g. "HAP,SNT")
+    const attrList = attributes.split(",").map((a) => a.trim()).filter(Boolean);
+    for (const attr of attrList) {
+      conditions.push(ilike(courses.attributes, `%${attr}%`));
+    }
+  }
+
+  // Whether we need to join sections (for instructor/campus/componentType/instructionMethod filters)
+  const needSectionsJoin = !!(instructor || campus || componentType || instructionMethod);
+
+  if (campus) {
+    conditions.push(ilike(sections.campus, campus));
+  }
+  if (componentType) {
+    conditions.push(eq(sections.componentType, componentType));
+  }
+  if (instructionMethod) {
+    conditions.push(eq(sections.instructionMethod, instructionMethod));
+  }
 
   let orderBy;
   switch (sort) {
@@ -101,9 +124,14 @@ export async function listCourses(query: CourseQuery) {
       orderBy = asc(courses.code);
   }
 
+  // Build instructor filter condition separately since it needs its own join
+  if (instructor) {
+    conditions.push(ilike(instructors.name, `%${instructor}%`));
+  }
+
   const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const baseQuery = db
+  let baseQuery = db
     .select({
       id: courses.id,
       code: courses.code,
@@ -111,6 +139,7 @@ export async function listCourses(query: CourseQuery) {
       description: courses.description,
       credits: courses.credits,
       departmentId: courses.departmentId,
+      attributes: courses.attributes,
       departmentCode: departments.code,
       departmentName: departments.name,
       avgQuality: courseRatings.avgQuality,
@@ -122,24 +151,50 @@ export async function listCourses(query: CourseQuery) {
     .leftJoin(departments, eq(courses.departmentId, departments.id))
     .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId));
 
+  if (needSectionsJoin) {
+    baseQuery = baseQuery
+      .innerJoin(sections, eq(courses.id, sections.courseId)) as any;
+    if (instructor) {
+      baseQuery = (baseQuery as any)
+        .innerJoin(instructors, eq(sections.instructorId, instructors.id));
+    }
+  }
+
   const filteredQuery = where ? baseQuery.where(where) : baseQuery;
 
-  const [data, countResult] = await Promise.all([
-    filteredQuery.orderBy(orderBy).limit(limit).offset(offset),
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(courses)
-      .then((r) => r[0]?.count ?? 0),
-  ]);
+  // Use DISTINCT when joining sections to avoid duplicate courses
+  const countQuery = needSectionsJoin
+    ? db
+        .select({ count: sql<number>`count(DISTINCT ${courses.id})` })
+        .from(courses)
+        .innerJoin(sections, eq(courses.id, sections.courseId))
+        .then((r) => r[0]?.count ?? 0)
+    : db
+        .select({ count: sql<number>`count(*)` })
+        .from(courses)
+        .then((r) => r[0]?.count ?? 0);
+
+  const dataQuery = needSectionsJoin
+    ? filteredQuery.groupBy(
+        courses.id, courses.code, courses.title, courses.description,
+        courses.credits, courses.departmentId, courses.attributes,
+        departments.code, departments.name,
+        courseRatings.avgQuality, courseRatings.avgDifficulty,
+        courseRatings.avgWorkload, courseRatings.reviewCount,
+      ).orderBy(orderBy).limit(limit).offset(offset)
+    : filteredQuery.orderBy(orderBy).limit(limit).offset(offset);
+
+  const [data, countResult] = await Promise.all([dataQuery, countQuery]);
 
   return {
-    data: data.map((row) => ({
+    data: data.map((row: any) => ({
       id: row.id,
       code: row.code,
       title: row.title,
       description: row.description,
       credits: row.credits,
       departmentId: row.departmentId,
+      attributes: row.attributes ?? null,
       department: row.departmentCode
         ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
         : null,
@@ -171,6 +226,7 @@ export async function searchCourses(query: SearchQuery) {
       description: courses.description,
       credits: courses.credits,
       departmentId: courses.departmentId,
+      attributes: courses.attributes,
       departmentCode: departments.code,
       departmentName: departments.name,
       avgQuality: courseRatings.avgQuality,
@@ -213,6 +269,7 @@ export async function searchCourses(query: SearchQuery) {
       description: row.description,
       credits: row.credits,
       departmentId: row.departmentId,
+      attributes: row.attributes ?? null,
       department: row.departmentCode
         ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
         : null,
@@ -234,6 +291,7 @@ export async function getCourseById(id: number) {
       description: courses.description,
       credits: courses.credits,
       departmentId: courses.departmentId,
+      attributes: courses.attributes,
       departmentCode: departments.code,
       departmentName: departments.name,
       avgQuality: courseRatings.avgQuality,
@@ -258,6 +316,10 @@ export async function getCourseById(id: number) {
       sectionNumber: sections.sectionNumber,
       instructorId: sections.instructorId,
       instructorName: instructors.name,
+      instructorEmail: instructors.email,
+      instructorDepartmentId: instructors.departmentId,
+      componentType: sections.componentType,
+      campus: sections.campus,
       meetings: sections.meetings,
       enrollmentCap: sections.enrollmentCap,
       enrollmentCur: sections.enrollmentCur,
@@ -275,6 +337,7 @@ export async function getCourseById(id: number) {
     description: course.description,
     credits: course.credits,
     departmentId: course.departmentId,
+    attributes: course.attributes ?? null,
     department: course.departmentCode
       ? { id: course.departmentId!, code: course.departmentCode, name: course.departmentName! }
       : null,
@@ -288,8 +351,15 @@ export async function getCourseById(id: number) {
       semester: s.semester ?? s.termCode,
       sectionNumber: s.sectionNumber,
       instructorId: s.instructorId,
+      componentType: s.componentType ?? null,
+      campus: s.campus ?? null,
       instructor: s.instructorName
-        ? { id: s.instructorId!, name: s.instructorName, email: null, departmentId: null }
+        ? {
+            id: s.instructorId!,
+            name: s.instructorName,
+            email: s.instructorEmail ?? null,
+            departmentId: s.instructorDepartmentId ?? null,
+          }
         : undefined,
       schedule: scheduleFromMeetings(s.meetings),
       enrollmentCap: s.enrollmentCap,

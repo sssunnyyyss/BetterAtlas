@@ -5,6 +5,7 @@ import RatingBadge from "../components/course/RatingBadge.js";
 import ReviewCard from "../components/review/ReviewCard.js";
 import ReviewForm from "../components/review/ReviewForm.js";
 import type { Schedule } from "@betteratlas/shared";
+import { parseAttributes, GER_TAGS } from "@betteratlas/shared";
 
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
@@ -57,6 +58,21 @@ export default function CourseDetail() {
         {course.department && (
           <p className="text-sm text-gray-500 mt-1">{course.department.name}</p>
         )}
+        {(() => {
+          const gerTags = parseAttributes(course.attributes);
+          return gerTags.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {gerTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full font-medium"
+                >
+                  {GER_TAGS[tag] ?? tag}
+                </span>
+              ))}
+            </div>
+          ) : null;
+        })()}
         {course.description && (
           <p className="text-gray-700 mt-3">{course.description}</p>
         )}
@@ -83,35 +99,50 @@ export default function CourseDetail() {
               return (
                 <div
                   key={section.id}
-                  className="bg-white rounded-lg border border-gray-200 p-3 flex items-center justify-between"
+                  className="bg-white rounded-lg border border-gray-200 p-4"
                 >
-                  <div>
-                    <span className="text-sm font-medium text-gray-900">
-                      Section {section.sectionNumber}
-                    </span>
-                    <span className="text-sm text-gray-500 ml-3">
-                      {section.semester}
-                    </span>
-                    {section.instructor && (
-                      <span className="text-sm text-gray-600 ml-3">
-                        {section.instructor.name}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-right text-sm">
-                    {sched && (
-                      <div className="text-gray-600">
-                        {sched.days.join("/")} {sched.start}-{sched.end}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-gray-900">
+                          Section {section.sectionNumber}
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          {section.semester}
+                        </span>
                       </div>
-                    )}
-                    {sched?.location && (
-                      <div className="text-gray-400 text-xs">{sched.location}</div>
-                    )}
-                    {section.enrollmentCap && (
-                      <div className="text-xs text-gray-400">
-                        {section.enrollmentCur}/{section.enrollmentCap} enrolled
-                      </div>
-                    )}
+                      {section.instructor && (
+                        <div className="mt-1.5">
+                          <span className="text-sm font-medium text-gray-900">
+                            {section.instructor.name}
+                          </span>
+                          {section.instructor.email && (
+                            <a
+                              href={`mailto:${section.instructor.email}`}
+                              className="text-sm text-primary-600 hover:text-primary-800 ml-2"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {section.instructor.email}
+                            </a>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right text-sm shrink-0">
+                      {sched && (
+                        <div className="font-medium text-gray-700">
+                          {sched.days.join("/")} {sched.start}-{sched.end}
+                        </div>
+                      )}
+                      {sched?.location && (
+                        <div className="text-sm text-gray-600 mt-0.5">{sched.location}</div>
+                      )}
+                      {section.enrollmentCap && (
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {section.enrollmentCur}/{section.enrollmentCap} enrolled
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
