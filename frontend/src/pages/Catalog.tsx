@@ -32,7 +32,8 @@ export default function Catalog() {
         } else {
           prev.delete(key);
         }
-        prev.set("page", "1");
+        // Reset pagination when changing filters/search, but not when changing the page itself.
+        if (key !== "page") prev.set("page", "1");
         return prev;
       });
     },
@@ -66,11 +67,13 @@ export default function Catalog() {
               if (e.target.value) {
                 setSearchParams((prev) => {
                   prev.set("q", e.target.value);
+                  prev.set("page", "1");
                   return prev;
                 });
               } else {
                 setSearchParams((prev) => {
                   prev.delete("q");
+                  prev.set("page", "1");
                   return prev;
                 });
               }

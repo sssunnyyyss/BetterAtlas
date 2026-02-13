@@ -1,7 +1,8 @@
 import { db } from "../db/index.js";
-import { reviews, courseRatings, users } from "../db/schema.js";
+import { reviews, courseRatings, users, terms } from "../db/schema.js";
 import { eq, and, sql, desc } from "drizzle-orm";
 import type { CreateReviewInput, UpdateReviewInput } from "@betteratlas/shared";
+import { resolveTermCode } from "./termLookup.js";
 
 export async function getReviewsForCourse(courseId: number) {
   const data = await db
@@ -9,7 +10,8 @@ export async function getReviewsForCourse(courseId: number) {
       id: reviews.id,
       userId: reviews.userId,
       courseId: reviews.courseId,
-      semester: reviews.semester,
+      termCode: reviews.termCode,
+      termName: terms.name,
       ratingQuality: reviews.ratingQuality,
       ratingDifficulty: reviews.ratingDifficulty,
       ratingWorkload: reviews.ratingWorkload,
@@ -21,6 +23,7 @@ export async function getReviewsForCourse(courseId: number) {
     })
     .from(reviews)
     .leftJoin(users, eq(reviews.userId, users.id))
+    .leftJoin(terms, eq(reviews.termCode, terms.srcdb))
     .where(eq(reviews.courseId, courseId))
     .orderBy(desc(reviews.createdAt));
 
@@ -28,7 +31,7 @@ export async function getReviewsForCourse(courseId: number) {
     id: r.id,
     userId: r.userId,
     courseId: r.courseId,
-    semester: r.semester,
+    semester: r.termName ?? r.termCode,
     ratingQuality: r.ratingQuality,
     ratingDifficulty: r.ratingDifficulty,
     ratingWorkload: r.ratingWorkload,
@@ -45,12 +48,13 @@ export async function createReview(
   courseId: number,
   input: CreateReviewInput
 ) {
+  const termCode = await resolveTermCode(input.semester);
   const [review] = await db
     .insert(reviews)
     .values({
       userId,
       courseId,
-      semester: input.semester,
+      termCode,
       ratingQuality: input.ratingQuality,
       ratingDifficulty: input.ratingDifficulty,
       ratingWorkload: input.ratingWorkload,
@@ -76,10 +80,17 @@ export async function updateReview(
 
   if (!existing) return null;
 
+  const termCode = input.semester ? await resolveTermCode(input.semester) : undefined;
+
   const [updated] = await db
     .update(reviews)
     .set({
-      ...input,
+      termCode: termCode ?? undefined,
+      ratingQuality: input.ratingQuality ?? undefined,
+      ratingDifficulty: input.ratingDifficulty ?? undefined,
+      ratingWorkload: input.ratingWorkload ?? undefined,
+      comment: input.comment ?? undefined,
+      isAnonymous: input.isAnonymous ?? undefined,
       updatedAt: new Date(),
     })
     .where(eq(reviews.id, reviewId))

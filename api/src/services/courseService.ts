@@ -4,10 +4,65 @@ import {
   sections,
   departments,
   instructors,
+  terms,
   courseRatings,
 } from "../db/schema.js";
 import { eq, sql, and, gte, asc, desc, ilike } from "drizzle-orm";
 import type { CourseQuery, SearchQuery } from "@betteratlas/shared";
+
+function dayNumToAbbrev(day: number): string {
+  switch (day) {
+    case 0:
+      return "M";
+    case 1:
+      return "T";
+    case 2:
+      return "W";
+    case 3:
+      return "Th";
+    case 4:
+      return "F";
+    case 5:
+      return "Sa";
+    case 6:
+      return "Su";
+    default:
+      return String(day);
+  }
+}
+
+function hhmmToColon(t: string): string {
+  const digits = t.replace(/[^0-9]/g, "");
+  if (digits.length !== 4) return t;
+  return `${digits.slice(0, 2)}:${digits.slice(2)}`;
+}
+
+function scheduleFromMeetings(meetings: unknown) {
+  if (!Array.isArray(meetings) || meetings.length === 0) return null;
+
+  const parsed = meetings
+    .map((m: any) => ({
+      day: typeof m?.day === "string" ? Number(m.day) : m?.day,
+      startTime: String(m?.startTime ?? m?.start_time ?? ""),
+      endTime: String(m?.endTime ?? m?.end_time ?? ""),
+      location: String(m?.location ?? ""),
+    }))
+    .filter((m) => Number.isFinite(m.day) && m.startTime && m.endTime);
+
+  if (parsed.length === 0) return null;
+
+  const days = Array.from(new Set(parsed.map((m) => m.day)))
+    .sort((a, b) => a - b)
+    .map(dayNumToAbbrev);
+
+  const starts = parsed.map((m) => m.startTime).sort();
+  const ends = parsed.map((m) => m.endTime).sort();
+  const start = hhmmToColon(starts[0]);
+  const end = hhmmToColon(ends[ends.length - 1]);
+  const location = parsed.find((m) => m.location)?.location ?? "";
+
+  return { days, start, end, location };
+}
 
 export async function listCourses(query: CourseQuery) {
   const { department, semester, minRating, credits, page, limit, sort } = query;
@@ -198,18 +253,20 @@ export async function getCourseById(id: number) {
     .select({
       id: sections.id,
       courseId: sections.courseId,
-      semester: sections.semester,
+      termCode: sections.termCode,
+      semester: terms.name,
       sectionNumber: sections.sectionNumber,
       instructorId: sections.instructorId,
       instructorName: instructors.name,
-      schedule: sections.schedule,
+      meetings: sections.meetings,
       enrollmentCap: sections.enrollmentCap,
       enrollmentCur: sections.enrollmentCur,
       createdAt: sections.createdAt,
     })
     .from(sections)
     .leftJoin(instructors, eq(sections.instructorId, instructors.id))
-    .where(eq(sections.courseId, id));
+    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+    .where(and(eq(sections.courseId, id), eq(sections.isActive, true)));
 
   return {
     id: course.id,
@@ -228,13 +285,13 @@ export async function getCourseById(id: number) {
     sections: courseSections.map((s) => ({
       id: s.id,
       courseId: s.courseId,
-      semester: s.semester,
+      semester: s.semester ?? s.termCode,
       sectionNumber: s.sectionNumber,
       instructorId: s.instructorId,
       instructor: s.instructorName
         ? { id: s.instructorId!, name: s.instructorName, email: null, departmentId: null }
         : undefined,
-      schedule: s.schedule as any,
+      schedule: scheduleFromMeetings(s.meetings),
       enrollmentCap: s.enrollmentCap,
       enrollmentCur: s.enrollmentCur ?? 0,
       createdAt: s.createdAt?.toISOString() ?? "",

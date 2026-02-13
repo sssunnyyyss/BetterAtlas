@@ -7,8 +7,10 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "atlas:sync": "tsx src/jobs/atlasSync.ts",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
+    "db:apply-schema-migration": "tsx src/db/applySchemaMigration.ts",
     "db:seed": "tsx src/db/seed.ts"
   },
   "dependencies": {

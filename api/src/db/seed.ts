@@ -4,8 +4,15 @@ import {
   instructors,
   courses,
   sections,
+  terms,
   courseRatings,
 } from "./schema.js";
+
+const TERMS = [
+  { srcdb: "5249", name: "Fall 2024", season: "Fall", year: 2024, isActive: false },
+  { srcdb: "5251", name: "Spring 2025", season: "Spring", year: 2025, isActive: false },
+  { srcdb: "5259", name: "Fall 2025", season: "Fall", year: 2025, isActive: true },
+] as const;
 
 const DEPARTMENTS = [
   { code: "CS", name: "Computer Science" },
@@ -178,6 +185,9 @@ const BUILDINGS = ["Science Hall", "Arts Building", "Main Hall", "Library", "Eng
 async function seed() {
   console.log("Seeding database...");
 
+  // Terms
+  await db.insert(terms).values(TERMS as any).onConflictDoNothing();
+
   // Departments
   const deptRows = await db.insert(departments).values(DEPARTMENTS).returning();
   const deptMap = new Map(deptRows.map((d) => [d.code, d.id]));
@@ -212,6 +222,12 @@ async function seed() {
 
       // Insert sections for each semester
       for (const semester of SEMESTERS) {
+        const termCode =
+          TERMS.find((t) => t.name === semester)?.srcdb ??
+          (() => {
+            throw new Error(`missing term mapping for ${semester}`);
+          })();
+
         const numSections = Math.ceil(Math.random() * 2);
         for (let s = 1; s <= numSections; s++) {
           const days = DAYS_OPTIONS[Math.floor(Math.random() * DAYS_OPTIONS.length)];
@@ -219,17 +235,33 @@ async function seed() {
           const building = BUILDINGS[Math.floor(Math.random() * BUILDINGS.length)];
           const room = Math.floor(Math.random() * 400) + 100;
 
+          const dayToNum: Record<string, number> = {
+            M: 0,
+            T: 1,
+            W: 2,
+            Th: 3,
+            R: 3,
+            F: 4,
+          };
+
+          const startTime = time.start.replace(":", "");
+          const endTime = time.end.replace(":", "");
+          const location = `${building} ${room}`;
+          const meetings = days.map((d) => ({
+            day: dayToNum[d] ?? 0,
+            startTime,
+            endTime,
+            location,
+          }));
+
           await db.insert(sections).values({
             courseId: course.id,
-            semester,
+            termCode,
+            crn: String(10000 + totalSections),
             sectionNumber: String(s).padStart(3, "0"),
             instructorId: instructor.id,
-            schedule: {
-              days,
-              start: time.start,
-              end: time.end,
-              location: `${building} ${room}`,
-            },
+            meetings,
+            meetsDisplay: `${days.join("")} ${time.start}-${time.end}`,
             enrollmentCap: 30 + Math.floor(Math.random() * 70),
             enrollmentCur: Math.floor(Math.random() * 30),
           });

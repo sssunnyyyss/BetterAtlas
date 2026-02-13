@@ -17,12 +17,13 @@ CREATE TABLE IF NOT EXISTS terms (
 );
 
 INSERT INTO terms (srcdb, name, season, year, is_active) VALUES
-  ('5266', 'Summer 2026', 'Summer', 2026, true),
+  -- Keep exactly one "active" term by default; the nightly sync expects a single active term.
+  ('5266', 'Summer 2026', 'Summer', 2026, false),
   ('5261', 'Spring 2026', 'Spring', 2026, true),
-  ('5259', 'Fall 2025',   'Fall',   2025, true),
-  ('5256', 'Summer 2025', 'Summer', 2025, true),
-  ('5251', 'Spring 2025', 'Spring', 2025, true),
-  ('5249', 'Fall 2024',   'Fall',   2024, true),
+  ('5259', 'Fall 2025',   'Fall',   2025, false),
+  ('5256', 'Summer 2025', 'Summer', 2025, false),
+  ('5251', 'Spring 2025', 'Spring', 2025, false),
+  ('5249', 'Fall 2024',   'Fall',   2024, false),
   ('5246', 'Summer 2024', 'Summer', 2024, false),
   ('5241', 'Spring 2024', 'Spring', 2024, false),
   ('5239', 'Fall 2023',   'Fall',   2023, false),
@@ -74,6 +75,9 @@ ALTER TABLE courses
 ALTER TABLE sections
   ADD COLUMN IF NOT EXISTS crn VARCHAR(10),
   ADD COLUMN IF NOT EXISTS term_code VARCHAR(10),
+  -- Soft-stale support (nightly Atlas sync)
+  ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true,
+  ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS meetings JSONB,
   ADD COLUMN IF NOT EXISTS meets_display VARCHAR(100),
   ADD COLUMN IF NOT EXISTS waitlist_count INTEGER DEFAULT 0,
@@ -86,6 +90,15 @@ ALTER TABLE sections
   ADD COLUMN IF NOT EXISTS end_date VARCHAR(10),
   ADD COLUMN IF NOT EXISTS atlas_key VARCHAR(20),
   ADD COLUMN IF NOT EXISTS last_synced TIMESTAMPTZ;
+
+-- 5a.1 Backfill soft-stale fields for existing rows
+UPDATE sections
+SET is_active = true
+WHERE is_active IS DISTINCT FROM true;
+
+UPDATE sections
+SET last_seen_at = NOW()
+WHERE last_seen_at IS NULL;
 
 -- 5b. Migrate existing semester text → term_code
 UPDATE sections SET term_code = '5249' WHERE semester = 'Fall 2024';
@@ -109,9 +122,10 @@ ALTER TABLE sections
 CREATE INDEX IF NOT EXISTS idx_sections_term ON sections (term_code);
 CREATE INDEX IF NOT EXISTS idx_sections_status ON sections (enrollment_status);
 
+-- NOTE: Do not make this a partial index; the sync job uses `ON CONFLICT (crn, term_code)`
+-- which requires a predicate-free unique index/constraint to match.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sections_crn_term
-  ON sections (crn, term_code)
-  WHERE crn IS NOT NULL;
+  ON sections (crn, term_code);
 
 -- 5f. Drop old semester column
 ALTER TABLE sections DROP COLUMN IF EXISTS semester;

@@ -6,9 +6,11 @@ import {
   courseListItems,
   sections,
   courses,
+  terms,
 } from "../db/schema.js";
 import { eq, and, or, sql } from "drizzle-orm";
 import type { CreateListInput, AddListItemInput } from "@betteratlas/shared";
+import { resolveTermCode } from "./termLookup.js";
 
 // ---- Friends ----
 
@@ -148,8 +150,17 @@ export async function removeFriend(friendshipId: number, userId: string) {
 
 export async function getUserLists(userId: string) {
   const lists = await db
-    .select()
+    .select({
+      id: courseLists.id,
+      userId: courseLists.userId,
+      termCode: courseLists.termCode,
+      termName: terms.name,
+      name: courseLists.name,
+      isPublic: courseLists.isPublic,
+      createdAt: courseLists.createdAt,
+    })
     .from(courseLists)
+    .leftJoin(terms, eq(courseLists.termCode, terms.srcdb))
     .where(eq(courseLists.userId, userId));
 
   const result = [];
@@ -164,15 +175,21 @@ export async function getUserLists(userId: string) {
         courseCode: courses.code,
         courseTitle: courses.title,
         sectionNumber: sections.sectionNumber,
-        semester: sections.semester,
+        termCode: sections.termCode,
+        semester: terms.name,
       })
       .from(courseListItems)
       .innerJoin(sections, eq(courseListItems.sectionId, sections.id))
       .innerJoin(courses, eq(sections.courseId, courses.id))
+      .leftJoin(terms, eq(sections.termCode, terms.srcdb))
       .where(eq(courseListItems.listId, list.id));
 
     result.push({
-      ...list,
+      id: list.id,
+      userId: list.userId,
+      semester: list.termName ?? list.termCode,
+      name: list.name,
+      isPublic: list.isPublic ?? false,
       createdAt: list.createdAt?.toISOString() ?? "",
       items: items.map((i) => ({
         id: i.id,
@@ -181,7 +198,7 @@ export async function getUserLists(userId: string) {
         color: i.color,
         addedAt: i.addedAt?.toISOString() ?? "",
         course: { code: i.courseCode, title: i.courseTitle },
-        section: { sectionNumber: i.sectionNumber, semester: i.semester },
+        section: { sectionNumber: i.sectionNumber, semester: i.semester ?? i.termCode },
       })),
     });
   }
@@ -190,17 +207,27 @@ export async function getUserLists(userId: string) {
 }
 
 export async function createList(userId: string, input: CreateListInput) {
+  const termCode = await resolveTermCode(input.semester);
   const [list] = await db
     .insert(courseLists)
     .values({
       userId,
-      semester: input.semester,
+      termCode,
       name: input.name,
       isPublic: input.isPublic,
     })
     .returning();
 
-  return list;
+  const [term] = await db
+    .select({ name: terms.name })
+    .from(terms)
+    .where(eq(terms.srcdb, termCode))
+    .limit(1);
+
+  return {
+    ...list,
+    semester: term?.name ?? termCode,
+  };
 }
 
 export async function addItemToList(
@@ -273,8 +300,17 @@ export async function getFriendCourseLists(friendId: string, userId: string) {
 
   // Only return public lists
   const lists = await db
-    .select()
+    .select({
+      id: courseLists.id,
+      userId: courseLists.userId,
+      termCode: courseLists.termCode,
+      termName: terms.name,
+      name: courseLists.name,
+      isPublic: courseLists.isPublic,
+      createdAt: courseLists.createdAt,
+    })
     .from(courseLists)
+    .leftJoin(terms, eq(courseLists.termCode, terms.srcdb))
     .where(
       and(eq(courseLists.userId, friendId), eq(courseLists.isPublic, true))
     );
@@ -291,15 +327,21 @@ export async function getFriendCourseLists(friendId: string, userId: string) {
         courseCode: courses.code,
         courseTitle: courses.title,
         sectionNumber: sections.sectionNumber,
-        semester: sections.semester,
+        termCode: sections.termCode,
+        semester: terms.name,
       })
       .from(courseListItems)
       .innerJoin(sections, eq(courseListItems.sectionId, sections.id))
       .innerJoin(courses, eq(sections.courseId, courses.id))
+      .leftJoin(terms, eq(sections.termCode, terms.srcdb))
       .where(eq(courseListItems.listId, list.id));
 
     result.push({
-      ...list,
+      id: list.id,
+      userId: list.userId,
+      semester: list.termName ?? list.termCode,
+      name: list.name,
+      isPublic: list.isPublic ?? false,
       createdAt: list.createdAt?.toISOString() ?? "",
       items: items.map((i) => ({
         id: i.id,
@@ -308,7 +350,7 @@ export async function getFriendCourseLists(friendId: string, userId: string) {
         color: i.color,
         addedAt: i.addedAt?.toISOString() ?? "",
         course: { code: i.courseCode, title: i.courseTitle },
-        section: { sectionNumber: i.sectionNumber, semester: i.semester },
+        section: { sectionNumber: i.sectionNumber, semester: i.semester ?? i.termCode },
       })),
     });
   }
