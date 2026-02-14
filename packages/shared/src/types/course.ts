@@ -16,6 +16,7 @@ export interface Course {
   code: string;
   title: string;
   description: string | null;
+  prerequisites?: string | null;
   credits: number | null;
   gradeMode?: string | null;
   departmentId: number | null;
@@ -28,6 +29,8 @@ export interface CourseWithRatings extends Course {
   avgDifficulty: number | null;
   avgWorkload: number | null;
   reviewCount: number;
+  // "Class" score: aggregate of professor scores for instructors teaching this course.
+  classScore?: number | null;
   // Aggregated from sections/instructors (often filtered by selected semester).
   instructors?: string[];
   // Emory GER requirement codes aggregated from active sections.
@@ -62,9 +65,26 @@ export interface Section {
   endDate?: string | null;
   gerDesignation?: string | null;
   gerCodes?: string[];
+  registrationRestrictions?: string | null;
+  avgQuality?: number | null;
+  avgDifficulty?: number | null;
+  avgWorkload?: number | null;
+  reviewCount?: number;
+  instructorAvgQuality?: number | null;
+  instructorReviewCount?: number;
   createdAt: string;
 }
 
 export interface CourseDetail extends CourseWithRatings {
   sections: Section[];
+  professors?: Array<{
+    id: number;
+    name: string;
+    email: string | null;
+    departmentId: number | null;
+    avgQuality: number | null;
+    avgDifficulty: number | null;
+    avgWorkload: number | null;
+    reviewCount: number;
+  }>;
 }

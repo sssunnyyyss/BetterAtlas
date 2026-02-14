@@ -87,6 +87,7 @@ export const sections = pgTable(
     endDate: varchar("end_date", { length: 10 }),
     gerDesignation: text("ger_designation"),
     gerCodes: text("ger_codes"),
+    registrationRestrictions: text("registration_restrictions"),
     atlasKey: varchar("atlas_key", { length: 20 }),
     lastSynced: timestamp("last_synced", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
@@ -108,6 +109,7 @@ export const sections = pgTable(
 export const users = pgTable("users", {
   id: uuid("id").primaryKey(), // Matches Supabase Auth UUID
   email: text("email").unique().notNull(),
+  username: varchar("username", { length: 30 }).unique().notNull(),
   displayName: text("display_name").notNull(),
   graduationYear: smallint("graduation_year"),
   major: text("major"),
@@ -125,6 +127,8 @@ export const reviews = pgTable(
     courseId: integer("course_id")
       .references(() => courses.id)
       .notNull(),
+    instructorId: integer("instructor_id").references(() => instructors.id),
+    sectionId: integer("section_id").references(() => sections.id),
     termCode: varchar("term_code", { length: 10 }).references(() => terms.srcdb),
     ratingQuality: smallint("rating_quality").notNull(),
     ratingDifficulty: smallint("rating_difficulty").notNull(),
@@ -135,8 +139,14 @@ export const reviews = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    userCourseUnique: uniqueIndex("reviews_user_course_unique").on(table.userId, table.courseId),
+    // One review per user per section.
+    userSectionUnique: uniqueIndex("reviews_user_section_unique").on(
+      table.userId,
+      table.sectionId
+    ),
     courseIdx: index("idx_reviews_course").on(table.courseId),
+    instructorIdx: index("idx_reviews_instructor").on(table.instructorId),
+    sectionIdx: index("idx_reviews_section").on(table.sectionId),
   })
 );
 
@@ -148,6 +158,51 @@ export const courseRatings = pgTable("course_ratings", {
   avgQuality: numeric("avg_quality", { precision: 3, scale: 2 }),
   avgDifficulty: numeric("avg_difficulty", { precision: 3, scale: 2 }),
   avgWorkload: numeric("avg_workload", { precision: 3, scale: 2 }),
+  reviewCount: integer("review_count").default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Course + Instructor Ratings (aggregate cache)
+export const courseInstructorRatings = pgTable(
+  "course_instructor_ratings",
+  {
+    courseId: integer("course_id")
+      .notNull()
+      .references(() => courses.id),
+    instructorId: integer("instructor_id")
+      .notNull()
+      .references(() => instructors.id),
+    avgQuality: numeric("avg_quality", { precision: 3, scale: 2 }),
+    avgDifficulty: numeric("avg_difficulty", { precision: 3, scale: 2 }),
+    avgWorkload: numeric("avg_workload", { precision: 3, scale: 2 }),
+    reviewCount: integer("review_count").default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    pk: uniqueIndex("course_instructor_ratings_pk").on(table.courseId, table.instructorId),
+    courseIdx: index("idx_cir_course").on(table.courseId),
+    instructorIdx: index("idx_cir_instructor").on(table.instructorId),
+  })
+);
+
+// Section Ratings (aggregate cache)
+export const sectionRatings = pgTable("section_ratings", {
+  sectionId: integer("section_id")
+    .primaryKey()
+    .references(() => sections.id),
+  avgQuality: numeric("avg_quality", { precision: 3, scale: 2 }),
+  avgDifficulty: numeric("avg_difficulty", { precision: 3, scale: 2 }),
+  avgWorkload: numeric("avg_workload", { precision: 3, scale: 2 }),
+  reviewCount: integer("review_count").default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+// Instructor Ratings (aggregate cache across all courses)
+export const instructorRatings = pgTable("instructor_ratings", {
+  instructorId: integer("instructor_id")
+    .primaryKey()
+    .references(() => instructors.id),
+  avgQuality: numeric("avg_quality", { precision: 3, scale: 2 }),
   reviewCount: integer("review_count").default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

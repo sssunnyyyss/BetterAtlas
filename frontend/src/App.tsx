@@ -4,8 +4,10 @@ import Navbar from "./components/layout/Navbar.js";
 import Landing from "./pages/Landing.js";
 import Catalog from "./pages/Catalog.js";
 import CourseDetail from "./pages/CourseDetail.js";
+import ProfessorDetail from "./pages/ProfessorDetail.js";
 import Profile from "./pages/Profile.js";
 import Friends from "./pages/Friends.js";
+import Schedule from "./pages/Schedule.js";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -45,6 +47,14 @@ export default function App() {
           }
         />
         <Route
+          path="/professors/:id"
+          element={
+            <ProtectedRoute>
+              <ProfessorDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/profile"
           element={
             <ProtectedRoute>
@@ -57,6 +67,14 @@ export default function App() {
           element={
             <ProtectedRoute>
               <Friends />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/schedule"
+          element={
+            <ProtectedRoute>
+              <Schedule />
             </ProtectedRoute>
           }
         />

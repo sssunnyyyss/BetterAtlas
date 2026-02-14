@@ -8,15 +8,18 @@ import instructorRoutes from "./routes/instructors.js";
 import reviewRoutes from "./routes/reviews.js";
 import userRoutes from "./routes/users.js";
 import socialRoutes from "./routes/social.js";
+import scheduleRoutes from "./routes/schedule.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
 
 // Middleware
+// Needed for express-rate-limit when requests are proxied (e.g. dev server, reverse proxy).
+app.set("trust proxy", 1);
 app.use(helmet());
 app.use(
   cors({
-    origin: env.corsOrigin,
+    origin: env.corsOrigins,
     credentials: true,
   })
 );
@@ -30,6 +33,7 @@ app.use("/api/departments", departmentsRouter);
 app.use("/api/instructors", instructorRoutes);
 app.use("/api", reviewRoutes);
 app.use("/api", socialRoutes);
+app.use("/api", scheduleRoutes);
 app.use("/api/users", userRoutes);
 
 // Health check

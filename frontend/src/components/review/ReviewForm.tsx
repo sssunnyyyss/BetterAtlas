@@ -1,10 +1,17 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SEMESTERS } from "@betteratlas/shared";
 import RatingStars from "./RatingStars.js";
 
 interface ReviewFormProps {
+  sections: Array<{
+    id: number;
+    sectionNumber: string | null;
+    semester: string;
+    instructorName: string | null;
+  }>;
   onSubmit: (data: {
     semester: string;
+    sectionId: number;
     ratingQuality: number;
     ratingDifficulty: number;
     ratingWorkload: number;
@@ -14,22 +21,51 @@ interface ReviewFormProps {
   isLoading?: boolean;
 }
 
-export default function ReviewForm({ onSubmit, isLoading }: ReviewFormProps) {
+export default function ReviewForm({ sections, onSubmit, isLoading }: ReviewFormProps) {
   const [semester, setSemester] = useState<string>(SEMESTERS[SEMESTERS.length - 1]);
+  const [sectionId, setSectionId] = useState<number>(sections[0]?.id ?? 0);
   const [ratingQuality, setRatingQuality] = useState(0);
   const [ratingDifficulty, setRatingDifficulty] = useState(0);
   const [ratingWorkload, setRatingWorkload] = useState(0);
   const [comment, setComment] = useState("");
   const [isAnonymous, setIsAnonymous] = useState(true);
 
+  const sectionById = useMemo(() => {
+    const m = new Map<number, ReviewFormProps["sections"][number]>();
+    for (const s of sections) m.set(s.id, s);
+    return m;
+  }, [sections]);
+
+  const selectedSection = sectionById.get(sectionId) ?? null;
+
+  useEffect(() => {
+    // Keep selection stable if still present; otherwise default to first available section.
+    if (sections.length === 0) {
+      setSectionId(0);
+      return;
+    }
+    if (!sections.some((s) => s.id === sectionId)) {
+      setSectionId(sections[0]!.id);
+    }
+  }, [sections, sectionId]);
+
+  useEffect(() => {
+    if (selectedSection?.semester) setSemester(selectedSection.semester);
+  }, [selectedSection?.semester]);
+
   const canSubmit =
-    ratingQuality > 0 && ratingDifficulty > 0 && ratingWorkload > 0 && semester;
+    ratingQuality > 0 &&
+    ratingDifficulty > 0 &&
+    ratingWorkload > 0 &&
+    semester &&
+    sectionId > 0;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit) return;
     onSubmit({
       semester,
+      sectionId,
       ratingQuality,
       ratingDifficulty,
       ratingWorkload,
@@ -49,12 +85,39 @@ export default function ReviewForm({ onSubmit, isLoading }: ReviewFormProps) {
 
       <div>
         <label className="block text-sm font-medium text-gray-700 mb-1">
+          Select Section
+        </label>
+        <select
+          value={String(sectionId || "")}
+          onChange={(e) => setSectionId(parseInt(e.target.value, 10) || 0)}
+          required
+          className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+          disabled={sections.length === 0}
+        >
+          {sections.length === 0 && <option value="">No sections listed</option>}
+          {sections.map((s) => (
+            <option key={s.id} value={String(s.id)}>
+              {s.sectionNumber ? `Section ${s.sectionNumber}` : "Section"} · {s.semester}
+              {s.instructorName ? ` · ${s.instructorName}` : ""}
+            </option>
+          ))}
+        </select>
+        {selectedSection?.instructorName && (
+          <p className="text-xs text-gray-500 mt-1">
+            Professor: {selectedSection.instructorName}
+          </p>
+        )}
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
           Semester Taken
         </label>
         <select
           value={semester}
           onChange={(e) => setSemester(e.target.value)}
           className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+          disabled={!!selectedSection?.semester}
         >
           {SEMESTERS.map((s) => (
             <option key={s} value={s}>{s}</option>
@@ -65,7 +128,7 @@ export default function ReviewForm({ onSubmit, isLoading }: ReviewFormProps) {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Quality
+            Professor
           </label>
           <RatingStars value={ratingQuality} onChange={setRatingQuality} />
         </div>

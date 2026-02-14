@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client.js";
-import type { Instructor } from "@betteratlas/shared";
+import type { Instructor, ProfessorDetail } from "@betteratlas/shared";
 
 export function useInstructors(params?: { q?: string; limit?: number }) {
   const qs = new URLSearchParams();
@@ -16,3 +16,10 @@ export function useInstructors(params?: { q?: string; limit?: number }) {
   });
 }
 
+export function useProfessorDetail(id: number) {
+  return useQuery({
+    queryKey: ["professor", id],
+    queryFn: () => api.get<ProfessorDetail>(`/instructors/${id}`),
+    enabled: id > 0,
+  });
+}

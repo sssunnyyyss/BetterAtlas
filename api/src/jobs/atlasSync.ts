@@ -442,7 +442,7 @@ async function upsertCourse(input: {
         departmentId: input.departmentId,
       },
     })
-    .returning({ id: courses.id, description: courses.description, prerequisites: courses.prerequisites });
+    .returning({ id: courses.id, description: courses.description });
 
   return row;
 }
@@ -700,6 +700,7 @@ async function main() {
               waitlistCap: sections.waitlistCap,
               gerCodes: sections.gerCodes,
               instructorId: sections.instructorId,
+              registrationRestrictions: sections.registrationRestrictions,
             })
             .from(sections)
             .where(and(eq(sections.crn, crn), eq(sections.termCode, termCode)))
@@ -729,7 +730,8 @@ async function main() {
             existing?.enrollmentCap == null ||
             existing?.seatsAvail == null ||
             existing?.gerCodes == null ||
-            existing?.instructorId == null;
+            existing?.instructorId == null ||
+            existing?.registrationRestrictions == null;
 
           if (detailsMode === "all") {
             detailsTasks.push({ courseId: courseRow.id, courseCode, crn, atlasKey });
@@ -745,14 +747,13 @@ async function main() {
                 (existing.meetsDisplay ?? null) !== (meetsDisplay ?? null) ||
                 (existing.enrollmentStatus ?? null) !== (enrollmentStatus ?? null));
 
-            const courseNeedsEnrichment =
-              !courseRow.description || !courseRow.prerequisites;
+            const courseNeedsEnrichment = !courseRow.description;
 
             const shouldEnrich =
               isNew || changed || courseNeedsEnrichment || needsSectionEnrichment;
 
             if (shouldEnrich) {
-              // Avoid scheduling redundant "course lacks description/prereqs" enrichments.
+              // Avoid scheduling redundant "course lacks description" enrichments.
               if (courseNeedsEnrichment) {
                 if (!courseDetailScheduled.has(courseRow.id)) {
                   courseDetailScheduled.add(courseRow.id);
@@ -789,7 +790,8 @@ async function main() {
       const details = await fosePostJson<FoseDetailsResponse>(FOSE_DETAILS_URL, body, opts);
 
       const description = (details.description ?? "").trim();
-      const prerequisites = (details.registration_restrictions ?? "").trim();
+      const registrationRestrictionsRaw = stripHtml(details.registration_restrictions ?? "");
+      const registrationRestrictions = registrationRestrictionsRaw ? registrationRestrictionsRaw : null;
       const attributes = (details.attributes ?? "").trim();
       const gradeMode = (details.grademode_code ?? "").trim();
       const credits = (details.hours_html ?? "").trim();
@@ -804,7 +806,6 @@ async function main() {
 
       const set: Record<string, any> = {};
       if (description) set.description = description;
-      if (prerequisites) set.prerequisites = prerequisites;
       if (attributes) set.attributes = attributes;
       if (gradeMode) set.gradeMode = gradeMode;
       if (credits && /^[0-9]+$/.test(credits)) set.credits = Number(credits);
@@ -818,6 +819,7 @@ async function main() {
       if (statusCode) sectionSet.enrollmentStatus = statusCode;
       if (dates.start) sectionSet.startDate = dates.start;
       if (dates.end) sectionSet.endDate = dates.end;
+      if (registrationRestrictions) sectionSet.registrationRestrictions = registrationRestrictions;
 
       if (seatInfo.enrollmentCap !== null) sectionSet.enrollmentCap = seatInfo.enrollmentCap;
       if (seatInfo.seatsAvail !== null) sectionSet.seatsAvail = seatInfo.seatsAvail;

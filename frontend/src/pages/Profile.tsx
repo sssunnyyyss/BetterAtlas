@@ -1,28 +1,42 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useAuth } from "../lib/auth.js";
 import { api } from "../api/client.js";
-import type { User } from "@betteratlas/shared";
+import type { User, UserReview } from "@betteratlas/shared";
+import { Link } from "react-router-dom";
+import { useMyReviews, useUpdateReview, useDeleteReview } from "../hooks/useReviews.js";
+import { useCourseDetail } from "../hooks/useCourses.js";
+import ReviewCard from "../components/review/ReviewCard.js";
+import EditReviewModal from "../components/review/EditReviewModal.js";
 
 export default function Profile() {
-  const { user, logout } = useAuth();
+  const { user, logout, refresh } = useAuth();
   const [editing, setEditing] = useState(false);
-  const [displayName, setDisplayName] = useState(user?.displayName || "");
+  const [username, setUsername] = useState(user?.username || "");
+  const [fullName, setFullName] = useState(user?.fullName || "");
   const [graduationYear, setGraduationYear] = useState(
     user?.graduationYear?.toString() || ""
   );
   const [major, setMajor] = useState(user?.major || "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const { data: myReviews, isLoading: myReviewsLoading } = useMyReviews();
+  const deleteReview = useDeleteReview();
+  const [editingReview, setEditingReview] = useState<UserReview | null>(null);
+  const closeEditModal = useCallback(() => setEditingReview(null), []);
+  const updateReview = useUpdateReview(editingReview?.courseId ?? 0);
+  const { data: editingCourse } = useCourseDetail(editingReview?.courseId ?? 0);
 
   async function handleSave() {
     setSaving(true);
     setMessage("");
     try {
       await api.patch<User>("/users/me", {
-        displayName,
+        username,
+        fullName,
         graduationYear: graduationYear ? parseInt(graduationYear) : undefined,
         major: major || undefined,
       });
+      await refresh();
       setMessage("Profile updated");
       setEditing(false);
     } catch (err: any) {
@@ -35,7 +49,7 @@ export default function Profile() {
   if (!user) return null;
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
+    <div className="max-w-4xl mx-auto p-6">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Profile</h1>
 
       {message && (
@@ -52,17 +66,36 @@ export default function Profile() {
 
         <div>
           <label className="block text-sm font-medium text-gray-500">
-            Display Name
+            Username
+          </label>
+          {editing ? (
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-gray-500 select-none">@</span>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+              />
+            </div>
+          ) : (
+            <p className="text-gray-900">@{user.username}</p>
+          )}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-500">
+            Full Name
           </label>
           {editing ? (
             <input
               type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
               className="mt-1 w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
             />
           ) : (
-            <p className="text-gray-900">{user.displayName}</p>
+            <p className="text-gray-900">{user.fullName}</p>
           )}
         </div>
 
@@ -137,6 +170,80 @@ export default function Profile() {
           Sign out
         </button>
       </div>
+
+      <div className="mt-10">
+        <h2 className="text-xl font-semibold text-gray-900">My Reviews</h2>
+
+        {myReviewsLoading && (
+          <div className="mt-3 text-sm text-gray-500">Loading your reviews...</div>
+        )}
+
+        {!myReviewsLoading && (myReviews?.length ?? 0) === 0 && (
+          <div className="mt-3 text-sm text-gray-500">
+            You have not written any reviews yet.
+          </div>
+        )}
+
+        <div className="space-y-4 mt-4">
+          {(myReviews ?? []).map((r) => (
+            <div key={r.id}>
+              <div className="flex items-center justify-between mb-2">
+                <div className="min-w-0">
+                  <Link
+                    to={`/catalog/${r.course.id}`}
+                    className="text-sm font-medium text-primary-700 hover:underline"
+                  >
+                    {r.course.code}: {r.course.title}
+                  </Link>
+                  {r.section?.sectionNumber && (
+                    <div className="text-xs text-gray-500">
+                      Section {r.section.sectionNumber}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <ReviewCard
+                review={r}
+                onEdit={(review) => setEditingReview(review as UserReview)}
+                onDelete={(id) =>
+                  deleteReview.mutate({
+                    reviewId: id,
+                    courseId: r.courseId,
+                    sectionId: r.sectionId,
+                  })
+                }
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <EditReviewModal
+        isOpen={!!editingReview}
+        review={editingReview}
+        sections={(editingCourse?.sections ?? []).map((s) => ({
+          id: s.id,
+          sectionNumber: s.sectionNumber,
+          semester: s.semester,
+          instructorName: s.instructor?.name ?? null,
+        }))}
+        isLoading={updateReview.isPending}
+        error={
+          updateReview.isError
+            ? ((updateReview.error as any)?.message || "Failed to update review")
+            : null
+        }
+        onClose={closeEditModal}
+        onSubmit={(data, prevSectionId) =>
+          editingReview
+            ? updateReview.mutate(
+                { reviewId: editingReview.id, data, prevSectionId },
+                { onSuccess: () => closeEditModal() }
+              )
+            : undefined
+        }
+      />
     </div>
   );
 }

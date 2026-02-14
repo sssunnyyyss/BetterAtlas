@@ -11,6 +11,7 @@ import {
   getPendingRequests,
   sendFriendRequest,
   acceptFriendRequest,
+  declineFriendRequest,
   removeFriend,
   getFriendCourseLists,
   getUserLists,
@@ -41,7 +42,7 @@ router.post(
     try {
       const friendship = await sendFriendRequest(
         req.user!.id,
-        req.body.addresseeId
+        req.body.username
       );
       res.status(201).json(friendship);
     } catch (err: any) {
@@ -56,6 +57,18 @@ router.post("/friends/:id/accept", requireAuth, async (req, res) => {
     return res.status(400).json({ error: "Invalid friendship ID" });
   }
   const updated = await acceptFriendRequest(friendshipId, req.user!.id);
+  if (!updated) {
+    return res.status(404).json({ error: "Friend request not found" });
+  }
+  res.json(updated);
+});
+
+router.post("/friends/:id/decline", requireAuth, async (req, res) => {
+  const friendshipId = parseInt(req.params.id, 10);
+  if (isNaN(friendshipId)) {
+    return res.status(400).json({ error: "Invalid friendship ID" });
+  }
+  const updated = await declineFriendRequest(friendshipId, req.user!.id);
   if (!updated) {
     return res.status(404).json({ error: "Friend request not found" });
   }

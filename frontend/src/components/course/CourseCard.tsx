@@ -1,9 +1,7 @@
 import { Link } from "react-router-dom";
 import type { CourseWithRatings } from "@betteratlas/shared";
-import { GER_TAGS } from "@betteratlas/shared";
 import RatingBadge from "./RatingBadge.js";
-
-const MAX_VISIBLE_TAGS = 3;
+import GerPills from "./GerPills.js";
 
 interface CourseCardProps {
   course: CourseWithRatings;
@@ -11,9 +9,6 @@ interface CourseCardProps {
 
 export default function CourseCard({ course }: CourseCardProps) {
   const instructors = course.instructors ?? [];
-  const gerTags = course.gers ?? [];
-  const visibleTags = gerTags.slice(0, MAX_VISIBLE_TAGS);
-  const overflowCount = gerTags.length - MAX_VISIBLE_TAGS;
 
   return (
     <Link
@@ -35,37 +30,16 @@ export default function CourseCard({ course }: CourseCardProps) {
           <h3 className="font-medium text-gray-900 mt-0.5 truncate">
             {course.title}
           </h3>
-          {course.department && (
-            <span className="text-xs text-gray-500">
-              {course.department.name}
-            </span>
-          )}
           {instructors.length > 0 && (
             <div className="text-xs text-gray-500 mt-0.5 truncate">
               {instructors.slice(0, 2).join(", ")}
               {instructors.length > 2 ? ` +${instructors.length - 2}` : ""}
             </div>
           )}
-          {gerTags.length > 0 && (
-            <div className="flex flex-wrap gap-1 mt-1">
-              {visibleTags.map((tag) => (
-                <span
-                  key={tag}
-                  className="bg-indigo-100 text-indigo-700 text-xs px-1.5 py-0.5 rounded-full"
-                >
-                  {GER_TAGS[tag] ?? tag}
-                </span>
-              ))}
-              {overflowCount > 0 && (
-                <span className="text-xs text-gray-400 px-1 py-0.5">
-                  +{overflowCount} more
-                </span>
-              )}
-            </div>
-          )}
+          <GerPills gers={course.gers} />
         </div>
         <div className="flex gap-2 shrink-0">
-          <RatingBadge value={course.avgQuality} label="Quality" />
+          <RatingBadge value={course.classScore ?? null} label="Class" />
           <RatingBadge value={course.avgDifficulty} label="Diff" />
         </div>
       </div>

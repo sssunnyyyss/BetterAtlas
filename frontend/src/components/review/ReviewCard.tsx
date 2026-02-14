@@ -5,9 +5,10 @@ import { useAuth } from "../../lib/auth.js";
 interface ReviewCardProps {
   review: ReviewWithAuthor;
   onDelete?: (id: number) => void;
+  onEdit?: (review: ReviewWithAuthor) => void;
 }
 
-export default function ReviewCard({ review, onDelete }: ReviewCardProps) {
+export default function ReviewCard({ review, onDelete, onEdit }: ReviewCardProps) {
   const { user } = useAuth();
   const isOwner = user?.id === review.userId;
 
@@ -16,21 +17,38 @@ export default function ReviewCard({ review, onDelete }: ReviewCardProps) {
       <div className="flex justify-between items-start">
         <div>
           <span className="text-sm font-medium text-gray-900">
-            {review.author ? review.author.displayName : "Anonymous"}
+            {review.author ? `@${review.author.username}` : "Anonymous"}
           </span>
           {review.semester && (
             <span className="text-xs text-gray-500 ml-2">
               {review.semester}
             </span>
           )}
+          {review.instructor?.name && (
+            <span className="text-xs text-gray-500 ml-2">
+              {review.instructor.name}
+            </span>
+          )}
         </div>
-        {isOwner && onDelete && (
-          <button
-            onClick={() => onDelete(review.id)}
-            className="text-xs text-red-500 hover:text-red-700"
-          >
-            Delete
-          </button>
+        {isOwner && (
+          <div className="flex items-center gap-2">
+            {onEdit && (
+              <button
+                onClick={() => onEdit(review)}
+                className="text-xs text-gray-600 hover:text-gray-900"
+              >
+                Edit
+              </button>
+            )}
+            {onDelete && (
+              <button
+                onClick={() => onDelete(review.id)}
+                className="text-xs text-red-500 hover:text-red-700"
+              >
+                Delete
+              </button>
+            )}
+          </div>
         )}
       </div>
 

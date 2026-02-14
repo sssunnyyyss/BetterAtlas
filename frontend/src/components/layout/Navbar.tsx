@@ -3,6 +3,7 @@ import { useAuth } from "../../lib/auth.js";
 
 const NAV_ITEMS = [
   { label: "Catalog", path: "/catalog" },
+  { label: "My Schedule", path: "/schedule" },
   { label: "Friends", path: "/friends" },
   { label: "Profile", path: "/profile" },
 ];
@@ -38,7 +39,7 @@ export default function Navbar() {
           <div className="flex items-center gap-4">
             {user && (
               <>
-                <span className="text-sm text-gray-600">{user.displayName}</span>
+                <span className="text-sm text-gray-600">@{user.username}</span>
                 <button
                   onClick={logout}
                   className="text-sm text-gray-500 hover:text-gray-700"

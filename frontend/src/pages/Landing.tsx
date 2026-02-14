@@ -6,7 +6,8 @@ export default function Landing() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [displayName, setDisplayName] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [username, setUsername] = useState("");
   const [graduationYear, setGraduationYear] = useState("");
   const [major, setMajor] = useState("");
   const [error, setError] = useState("");
@@ -23,7 +24,8 @@ export default function Landing() {
         await register({
           email,
           password,
-          displayName,
+          fullName,
+          username,
           graduationYear: graduationYear ? parseInt(graduationYear) : undefined,
           major: major || undefined,
         });
@@ -115,15 +117,34 @@ export default function Landing() {
               <>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Display Name
+                    Full Name
                   </label>
                   <input
                     type="text"
                     required
-                    value={displayName}
-                    onChange={(e) => setDisplayName(e.target.value)}
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
                     className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Username
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-500 select-none">@</span>
+                    <input
+                      type="text"
+                      required
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="your_handle"
+                      className="flex-1 w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Letters, numbers, and underscores only.
+                  </p>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>

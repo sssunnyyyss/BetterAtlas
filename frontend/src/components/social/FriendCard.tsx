@@ -2,7 +2,7 @@ import type { FriendWithProfile } from "@betteratlas/shared";
 
 interface FriendCardProps {
   friend: FriendWithProfile;
-  onViewCourses?: (friendId: number) => void;
+  onViewCourses?: (friendId: string) => void;
   onRemove?: (friendshipId: number) => void;
 }
 
@@ -15,8 +15,9 @@ export default function FriendCard({
     <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
       <div>
         <h4 className="font-medium text-gray-900">
-          {friend.user.displayName}
+          @{friend.user.username}
         </h4>
+        <div className="text-xs text-gray-500 mt-0.5">{friend.user.fullName}</div>
         <div className="flex gap-3 text-xs text-gray-500 mt-0.5">
           {friend.user.major && <span>{friend.user.major}</span>}
           {friend.user.graduationYear && (

@@ -185,6 +185,70 @@ ALTER TABLE reviews
 ALTER TABLE reviews DROP COLUMN IF EXISTS semester;
 
 -- ============================================================
+-- 6b. ALTER reviews — add instructor_id + section_id for professor/section-specific ratings
+-- ============================================================
+ALTER TABLE reviews
+  ADD COLUMN IF NOT EXISTS instructor_id INTEGER;
+
+ALTER TABLE reviews
+  ADD CONSTRAINT fk_reviews_instructor
+  FOREIGN KEY (instructor_id) REFERENCES instructors(id);
+
+ALTER TABLE reviews
+  ADD COLUMN IF NOT EXISTS section_id INTEGER;
+
+ALTER TABLE reviews
+  ADD CONSTRAINT fk_reviews_section
+  FOREIGN KEY (section_id) REFERENCES sections(id);
+
+DROP INDEX IF EXISTS reviews_user_course_unique;
+DROP INDEX IF EXISTS reviews_user_section_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_section_unique
+  ON reviews (user_id, section_id);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_instructor
+  ON reviews (instructor_id);
+
+CREATE INDEX IF NOT EXISTS idx_reviews_section
+  ON reviews (section_id);
+
+-- ============================================================
+-- 6c. CREATE course_instructor_ratings TABLE (aggregate cache)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS course_instructor_ratings (
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  instructor_id INTEGER NOT NULL REFERENCES instructors(id),
+  avg_quality NUMERIC(3,2),
+  avg_difficulty NUMERIC(3,2),
+  avg_workload NUMERIC(3,2),
+  review_count INTEGER DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (course_id, instructor_id)
+);
+
+-- ============================================================
+-- 6d. CREATE section_ratings TABLE (aggregate cache)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS section_ratings (
+  section_id INTEGER PRIMARY KEY REFERENCES sections(id),
+  avg_quality NUMERIC(3,2),
+  avg_difficulty NUMERIC(3,2),
+  avg_workload NUMERIC(3,2),
+  review_count INTEGER DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
+-- 6e. CREATE instructor_ratings TABLE (aggregate cache across all courses)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS instructor_ratings (
+  instructor_id INTEGER PRIMARY KEY REFERENCES instructors(id),
+  avg_quality NUMERIC(3,2),
+  review_count INTEGER DEFAULT 0,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================
 -- 7. ALTER course_lists — semester text → term_code FK
 -- ============================================================
 ALTER TABLE course_lists
@@ -209,5 +273,49 @@ ALTER TABLE course_lists DROP COLUMN IF EXISTS semester;
 -- 8. DROP old indexes that reference removed columns
 -- ============================================================
 DROP INDEX IF EXISTS idx_sections_semester;
+
+-- ============================================================
+-- 9. ALTER users — add username (for @handle identity)
+-- ============================================================
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS username VARCHAR(30);
+
+-- Backfill missing usernames from email prefix.
+UPDATE users
+SET username = LEFT(
+  LOWER(REGEXP_REPLACE(SPLIT_PART(email, '@', 1), '[^a-zA-Z0-9_]+', '_', 'g')),
+  30
+)
+WHERE (username IS NULL OR username = '')
+  AND email IS NOT NULL
+  AND email <> '';
+
+-- Resolve duplicates by appending _<n>.
+WITH ranked AS (
+  SELECT
+    id,
+    username,
+    ROW_NUMBER() OVER (PARTITION BY username ORDER BY created_at NULLS LAST, id) AS rn
+  FROM users
+  WHERE username IS NOT NULL
+)
+UPDATE users u
+SET username = LEFT(r.username || '_' || (r.rn - 1)::text, 30)
+FROM ranked r
+WHERE u.id = r.id
+  AND r.rn > 1;
+
+-- Enforce uniqueness.
+ALTER TABLE users
+  ALTER COLUMN username SET NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique
+  ON users (username);
+
+-- ============================================================
+-- 10. ALTER sections — add per-section registration restrictions
+-- ============================================================
+ALTER TABLE sections
+  ADD COLUMN IF NOT EXISTS registration_restrictions TEXT;
 
 COMMIT;

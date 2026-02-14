@@ -9,7 +9,13 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 1000 * 60 * 5, // 5 minutes
-      retry: 1,
+      retry: (failureCount, error: any) => {
+        // Don't retry on server rate limiting.
+        if (error && typeof error.status === "number" && error.status === 429) {
+          return false;
+        }
+        return failureCount < 1;
+      },
     },
   },
 });

@@ -11,13 +11,14 @@ services:
       SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
       DATABASE_URL: ${DATABASE_URL_DOCKER}
-      CORS_ORIGIN: http://localhost:5173
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       API_PORT: "3001"
       NODE_ENV: development
     volumes:
       - ./api/src:/app/api/src:cached
       - ./packages/shared/src:/app/packages/shared/src:cached
       - ./packages/shared/dist:/app/packages/shared/dist:cached
+      - ./schema-migration.sql:/app/schema-migration.sql:cached
       - /app/api/node_modules
       - /app/packages/shared/node_modules
 

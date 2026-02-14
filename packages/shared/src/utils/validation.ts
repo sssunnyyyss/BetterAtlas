@@ -7,7 +7,16 @@ export const registerSchema = z.object({
     .email()
     .refine((e) => e.endsWith(".edu"), "Must be a .edu email"),
   password: z.string().min(8, "Password must be at least 8 characters"),
-  displayName: z.string().min(1).max(100),
+  fullName: z.string().min(1).max(100),
+  username: z
+    .string()
+    .min(1)
+    .max(30)
+    .transform((u) => u.trim().replace(/^@/, "").toLowerCase())
+    .refine(
+      (u) => /^[a-z0-9_]+$/.test(u),
+      "Username can only contain letters, numbers, and underscores"
+    ),
   graduationYear: z.number().int().min(2000).max(2040).optional(),
   major: z.string().max(100).optional(),
 });
@@ -47,6 +56,7 @@ export const instructorQuerySchema = z.object({
 // Reviews
 export const createReviewSchema = z.object({
   semester: z.string().min(1),
+  sectionId: z.number().int().positive(),
   ratingQuality: z.number().int().min(1).max(5),
   ratingDifficulty: z.number().int().min(1).max(5),
   ratingWorkload: z.number().int().min(1).max(5),
@@ -58,7 +68,15 @@ export const updateReviewSchema = createReviewSchema.partial();
 
 // Social
 export const friendRequestSchema = z.object({
-  addresseeId: z.string().uuid(), // UUID from Supabase Auth
+  username: z
+    .string()
+    .min(1)
+    .max(30)
+    .transform((u) => u.trim().replace(/^@/, "").toLowerCase())
+    .refine(
+      (u) => /^[a-z0-9_]+$/.test(u),
+      "Username can only contain letters, numbers, and underscores"
+    ),
 });
 
 export const createListSchema = z.object({

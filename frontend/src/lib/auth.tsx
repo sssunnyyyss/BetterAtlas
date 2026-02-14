@@ -16,10 +16,12 @@ interface AuthContextType {
   register: (data: {
     email: string;
     password: string;
-    displayName: string;
+    fullName: string;
+    username: string;
     graduationYear?: number;
     major?: string;
   }) => Promise<void>;
+  refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -66,6 +68,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const refresh = useCallback(async () => {
+    setIsLoading(true);
+    await fetchUser();
+  }, []);
+
   const login = useCallback(async (email: string, password: string) => {
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -87,7 +94,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     async (data: {
       email: string;
       password: string;
-      displayName: string;
+      fullName: string;
+      username: string;
       graduationYear?: number;
       major?: string;
     }) => {
@@ -115,7 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isLoading, login, register, refresh, logout }}>
       {children}
     </AuthContext.Provider>
   );

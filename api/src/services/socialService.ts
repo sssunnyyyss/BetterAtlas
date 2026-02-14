@@ -22,7 +22,8 @@ export async function getFriends(userId: string) {
       addresseeId: friendships.addresseeId,
       status: friendships.status,
       friendId: sql<string>`CASE WHEN ${friendships.requesterId} = ${userId} THEN ${friendships.addresseeId} ELSE ${friendships.requesterId} END`,
-      displayName: users.displayName,
+      username: users.username,
+      fullName: users.displayName,
       graduationYear: users.graduationYear,
       major: users.major,
     })
@@ -45,7 +46,8 @@ export async function getFriends(userId: string) {
     friendshipId: r.friendshipId,
     user: {
       id: r.friendId,
-      displayName: r.displayName,
+      username: r.username ?? "",
+      fullName: r.fullName,
       graduationYear: r.graduationYear,
       major: r.major,
     },
@@ -58,7 +60,8 @@ export async function getPendingRequests(userId: string) {
     .select({
       friendshipId: friendships.id,
       requesterId: friendships.requesterId,
-      displayName: users.displayName,
+      username: users.username,
+      fullName: users.displayName,
       graduationYear: users.graduationYear,
       major: users.major,
       createdAt: friendships.createdAt,
@@ -76,7 +79,8 @@ export async function getPendingRequests(userId: string) {
     friendshipId: r.friendshipId,
     user: {
       id: r.requesterId,
-      displayName: r.displayName,
+      username: r.username ?? "",
+      fullName: r.fullName,
       graduationYear: r.graduationYear,
       major: r.major,
     },
@@ -84,7 +88,19 @@ export async function getPendingRequests(userId: string) {
   }));
 }
 
-export async function sendFriendRequest(requesterId: string, addresseeId: string) {
+export async function sendFriendRequest(requesterId: string, addresseeUsername: string) {
+  const username = addresseeUsername.trim().replace(/^@/, "").toLowerCase();
+  const [addressee] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.username, username))
+    .limit(1);
+
+  if (!addressee) {
+    throw new Error("User not found");
+  }
+
+  const addresseeId = addressee.id;
   if (requesterId === addresseeId) {
     throw new Error("Cannot send a friend request to yourself");
   }
@@ -122,6 +138,18 @@ export async function acceptFriendRequest(friendshipId: number, userId: string) 
   const [updated] = await db
     .update(friendships)
     .set({ status: "accepted" })
+    .where(
+      and(eq(friendships.id, friendshipId), eq(friendships.addresseeId, userId))
+    )
+    .returning();
+
+  return updated ?? null;
+}
+
+export async function declineFriendRequest(friendshipId: number, userId: string) {
+  const [updated] = await db
+    .update(friendships)
+    .set({ status: "rejected" })
     .where(
       and(eq(friendships.id, friendshipId), eq(friendships.addresseeId, userId))
     )

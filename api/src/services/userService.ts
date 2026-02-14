@@ -9,14 +9,16 @@ export async function createUserProfile(input: RegisterInput & { id: string }) {
     .values({
       id: input.id,
       email: input.email,
-      displayName: input.displayName,
+      username: input.username,
+      displayName: input.fullName,
       graduationYear: input.graduationYear ?? null,
       major: input.major ?? null,
     })
     .returning({
       id: users.id,
       email: users.email,
-      displayName: users.displayName,
+      username: users.username,
+      fullName: users.displayName,
       graduationYear: users.graduationYear,
       major: users.major,
       createdAt: users.createdAt,
@@ -30,7 +32,8 @@ export async function getUserById(id: string) {
     .select({
       id: users.id,
       email: users.email,
-      displayName: users.displayName,
+      username: users.username,
+      fullName: users.displayName,
       graduationYear: users.graduationYear,
       major: users.major,
       createdAt: users.createdAt,
@@ -44,16 +47,22 @@ export async function getUserById(id: string) {
 
 export async function updateUser(
   id: string,
-  data: { displayName?: string; graduationYear?: number; major?: string }
+  data: { username?: string; fullName?: string; graduationYear?: number; major?: string }
 ) {
   const [updated] = await db
     .update(users)
-    .set(data)
+    .set({
+      ...(data.username !== undefined ? { username: data.username } : {}),
+      ...(data.fullName !== undefined ? { displayName: data.fullName } : {}),
+      ...(data.graduationYear !== undefined ? { graduationYear: data.graduationYear } : {}),
+      ...(data.major !== undefined ? { major: data.major } : {}),
+    })
     .where(eq(users.id, id))
     .returning({
       id: users.id,
       email: users.email,
-      displayName: users.displayName,
+      username: users.username,
+      fullName: users.displayName,
       graduationYear: users.graduationYear,
       major: users.major,
       createdAt: users.createdAt,

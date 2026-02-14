@@ -19,5 +19,9 @@ export const env = {
     process.env.DATABASE_URL ||
     "postgres://betteratlas:dev_password@localhost:5432/betteratlas",
   
-  corsOrigin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  // Comma-separated list of allowed origins (e.g. "http://localhost:5173,https://betteratlas.net").
+  corsOrigins: (process.env.CORS_ORIGIN || "http://localhost:5173")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean),
 } as const;

@@ -11,7 +11,17 @@ const router = Router();
 
 router.post("/register", authLimiter, validate(registerSchema), async (req, res) => {
   try {
-    const { email, password, displayName, graduationYear, major } = req.body;
+    const { email, password, fullName, username, graduationYear, major } = req.body;
+
+    // Pre-check username uniqueness for a clean 409 response.
+    const [usernameTaken] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+    if (usernameTaken) {
+      return res.status(409).json({ error: "Username already taken" });
+    }
     
     // Create user in Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -36,14 +46,16 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
       .values({
         id: authData.user.id,
         email,
-        displayName,
+        username,
+        displayName: fullName,
         graduationYear: graduationYear ?? null,
         major: major ?? null,
       })
       .returning({
         id: users.id,
         email: users.email,
-        displayName: users.displayName,
+        username: users.username,
+        fullName: users.displayName,
         graduationYear: users.graduationYear,
         major: users.major,
         createdAt: users.createdAt,
@@ -55,6 +67,9 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
     });
   } catch (err: any) {
     console.error("Registration error:", err);
+    if (String(err?.message || "").toLowerCase().includes("username")) {
+      return res.status(409).json({ error: "Username already taken" });
+    }
     res.status(500).json({ error: err.message || "Registration failed" });
   }
 });
@@ -77,7 +92,8 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
       .select({
         id: users.id,
         email: users.email,
-        displayName: users.displayName,
+        username: users.username,
+        fullName: users.displayName,
         graduationYear: users.graduationYear,
         major: users.major,
         createdAt: users.createdAt,
@@ -88,17 +104,30 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
 
     if (!user) {
       // Create profile if missing (edge case)
+      const base = (authData.user.email || email).split("@")[0].toLowerCase();
+      let derivedUsername = base.replace(/[^a-z0-9_]+/g, "_").slice(0, 30);
+      for (let i = 0; i < 5; i++) {
+        const [taken] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.username, derivedUsername))
+          .limit(1);
+        if (!taken) break;
+        derivedUsername = `${base}_${i + 1}`.replace(/[^a-z0-9_]+/g, "_").slice(0, 30);
+      }
       const [newUser] = await db
         .insert(users)
         .values({
           id: authData.user.id,
           email: authData.user.email!,
+          username: derivedUsername,
           displayName: authData.user.user_metadata?.display_name || email.split("@")[0],
         })
         .returning({
           id: users.id,
           email: users.email,
-          displayName: users.displayName,
+          username: users.username,
+          fullName: users.displayName,
           graduationYear: users.graduationYear,
           major: users.major,
           createdAt: users.createdAt,
@@ -108,6 +137,27 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
         user: newUser,
         session: authData.session,
       });
+    }
+
+    if (!user.username) {
+      const base = (authData.user.email || email).split("@")[0].toLowerCase();
+      const derivedUsername = base.replace(/[^a-z0-9_]+/g, "_").slice(0, 30);
+      const [updated] = await db
+        .update(users)
+        .set({ username: derivedUsername })
+        .where(eq(users.id, authData.user.id))
+        .returning({
+          id: users.id,
+          email: users.email,
+          username: users.username,
+          fullName: users.displayName,
+          graduationYear: users.graduationYear,
+          major: users.major,
+          createdAt: users.createdAt,
+        });
+      if (updated) {
+        return res.json({ user: updated, session: authData.session });
+      }
     }
 
     res.json({
@@ -142,7 +192,8 @@ router.get("/me", requireAuth, async (req, res) => {
       .select({
         id: users.id,
         email: users.email,
-        displayName: users.displayName,
+        username: users.username,
+        fullName: users.displayName,
         graduationYear: users.graduationYear,
         major: users.major,
         createdAt: users.createdAt,
@@ -157,19 +208,32 @@ router.get("/me", requireAuth, async (req, res) => {
       const displayName = req.user!.email
         ? req.user!.email.split("@")[0]
         : "User";
+      const base = (req.user!.email || "user").split("@")[0].toLowerCase();
+      let derivedUsername = base.replace(/[^a-z0-9_]+/g, "_").slice(0, 30);
+      for (let i = 0; i < 5; i++) {
+        const [taken] = await db
+          .select({ id: users.id })
+          .from(users)
+          .where(eq(users.username, derivedUsername))
+          .limit(1);
+        if (!taken) break;
+        derivedUsername = `${base}_${i + 1}`.replace(/[^a-z0-9_]+/g, "_").slice(0, 30);
+      }
 
       const [created] = await db
         .insert(users)
         .values({
           id: req.user!.id,
           email: req.user!.email || "",
+          username: derivedUsername,
           displayName,
         })
         .onConflictDoNothing()
         .returning({
           id: users.id,
           email: users.email,
-          displayName: users.displayName,
+          username: users.username,
+          fullName: users.displayName,
           graduationYear: users.graduationYear,
           major: users.major,
           createdAt: users.createdAt,
@@ -182,7 +246,8 @@ router.get("/me", requireAuth, async (req, res) => {
         .select({
           id: users.id,
           email: users.email,
-          displayName: users.displayName,
+          username: users.username,
+          fullName: users.displayName,
           graduationYear: users.graduationYear,
           major: users.major,
           createdAt: users.createdAt,
@@ -193,6 +258,25 @@ router.get("/me", requireAuth, async (req, res) => {
 
       if (!reloaded) return res.status(404).json({ error: "User not found" });
       return res.json(reloaded);
+    }
+
+    if (!user.username) {
+      const base = (req.user!.email || "user").split("@")[0].toLowerCase();
+      const derivedUsername = base.replace(/[^a-z0-9_]+/g, "_").slice(0, 30);
+      const [updated] = await db
+        .update(users)
+        .set({ username: derivedUsername })
+        .where(eq(users.id, req.user!.id))
+        .returning({
+          id: users.id,
+          email: users.email,
+          username: users.username,
+          fullName: users.displayName,
+          graduationYear: users.graduationYear,
+          major: users.major,
+          createdAt: users.createdAt,
+        });
+      if (updated) return res.json(updated);
     }
 
     res.json(user);

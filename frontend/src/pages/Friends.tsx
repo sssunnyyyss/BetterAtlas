@@ -7,8 +7,8 @@ import CourseListCard from "../components/social/CourseListCard.js";
 
 export default function Friends() {
   const queryClient = useQueryClient();
-  const [friendIdInput, setFriendIdInput] = useState("");
-  const [viewingFriendId, setViewingFriendId] = useState<number | null>(null);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [viewingFriendId, setViewingFriendId] = useState<string | null>(null);
 
   const { data: friends, isLoading: loadingFriends } = useQuery({
     queryKey: ["friends"],
@@ -30,15 +30,33 @@ export default function Friends() {
   });
 
   const sendRequest = useMutation({
-    mutationFn: (addresseeId: number) =>
-      api.post("/friends/request", { addresseeId }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["friends"] }),
+    mutationFn: (username: string) =>
+      api.post("/friends/request", { username }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["friends"] }),
+        queryClient.invalidateQueries({ queryKey: ["friends", "pending"] }),
+      ]),
   });
 
   const acceptRequest = useMutation({
     mutationFn: (friendshipId: number) =>
       api.post(`/friends/${friendshipId}/accept`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["friends"] }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["friends"] }),
+        queryClient.invalidateQueries({ queryKey: ["friends", "pending"] }),
+      ]),
+  });
+
+  const declineRequest = useMutation({
+    mutationFn: (friendshipId: number) =>
+      api.post(`/friends/${friendshipId}/decline`),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["friends"] }),
+        queryClient.invalidateQueries({ queryKey: ["friends", "pending"] }),
+      ]),
   });
 
   const removeFriend = useMutation({
@@ -49,11 +67,10 @@ export default function Friends() {
 
   function handleSendRequest(e: React.FormEvent) {
     e.preventDefault();
-    const id = parseInt(friendIdInput);
-    if (id > 0) {
-      sendRequest.mutate(id);
-      setFriendIdInput("");
-    }
+    const u = usernameInput.trim().replace(/^@/, "").toLowerCase();
+    if (!u) return;
+    sendRequest.mutate(u);
+    setUsernameInput("");
   }
 
   return (
@@ -65,10 +82,10 @@ export default function Friends() {
         <h3 className="font-medium text-gray-900 mb-2">Add a Friend</h3>
         <form onSubmit={handleSendRequest} className="flex gap-2">
           <input
-            type="number"
-            value={friendIdInput}
-            onChange={(e) => setFriendIdInput(e.target.value)}
-            placeholder="Enter user ID"
+            type="text"
+            value={usernameInput}
+            onChange={(e) => setUsernameInput(e.target.value)}
+            placeholder="Enter @username"
             className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
           />
           <button
@@ -100,7 +117,10 @@ export default function Friends() {
               >
                 <div>
                   <span className="font-medium text-gray-900">
-                    {p.user.displayName}
+                    @{p.user.username}
+                  </span>
+                  <span className="text-xs text-gray-500 ml-2">
+                    {p.user.fullName}
                   </span>
                   {p.user.major && (
                     <span className="text-xs text-gray-500 ml-2">
@@ -108,12 +128,20 @@ export default function Friends() {
                     </span>
                   )}
                 </div>
-                <button
-                  onClick={() => acceptRequest.mutate(p.friendshipId)}
-                  className="bg-primary-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-primary-700"
-                >
-                  Accept
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => acceptRequest.mutate(p.friendshipId)}
+                    className="bg-primary-600 text-white px-3 py-1.5 rounded-md text-sm font-medium hover:bg-primary-700"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => declineRequest.mutate(p.friendshipId)}
+                    className="px-3 py-1.5 rounded-md text-sm font-medium border border-gray-300 hover:bg-gray-50"
+                  >
+                    Decline
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -155,7 +183,9 @@ export default function Friends() {
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold text-gray-900">
               {friends?.find((f) => f.user.id === viewingFriendId)?.user
-                .displayName || "Friend"}
+                .username
+                ? `@${friends?.find((f) => f.user.id === viewingFriendId)?.user.username}`
+                : "Friend"}
               's Courses
             </h2>
             <button

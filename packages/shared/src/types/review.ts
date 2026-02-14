@@ -3,6 +3,9 @@ export interface Review {
   userId: string;
   courseId: number;
   semester: string | null;
+  sectionId: number | null;
+  instructorId: number | null;
+  instructor: { id: number; name: string } | null;
   ratingQuality: number;
   ratingDifficulty: number;
   ratingWorkload: number;
@@ -14,8 +17,13 @@ export interface Review {
 
 export interface ReviewWithAuthor extends Review {
   author: {
-    displayName: string;
+    username: string;
   } | null;
+}
+
+export interface UserReview extends ReviewWithAuthor {
+  course: { id: number; code: string; title: string };
+  section: { id: number; sectionNumber: string | null; semester: string | null } | null;
 }
 
 export interface CourseRatings {

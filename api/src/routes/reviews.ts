@@ -4,6 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { createReviewSchema, updateReviewSchema } from "@betteratlas/shared";
 import {
   getReviewsForCourse,
+  getReviewsForSection,
   createReview,
   updateReview,
   deleteReview,
@@ -21,6 +22,16 @@ router.get("/courses/:id/reviews", async (req, res) => {
   res.json(reviews);
 });
 
+// GET /api/sections/:id/reviews
+router.get("/sections/:id/reviews", async (req, res) => {
+  const sectionId = parseInt(req.params.id, 10);
+  if (isNaN(sectionId)) {
+    return res.status(400).json({ error: "Invalid section ID" });
+  }
+  const reviews = await getReviewsForSection(sectionId);
+  res.json(reviews);
+});
+
 // POST /api/courses/:id/reviews
 router.post(
   "/courses/:id/reviews",
@@ -35,10 +46,13 @@ router.post(
       const review = await createReview(req.user!.id, courseId, req.body);
       res.status(201).json(review);
     } catch (err: any) {
+      if (err?.message && String(err.message).includes("Selected section does not belong")) {
+        return res.status(400).json({ error: err.message });
+      }
       if (err?.code === "23505") {
         return res
           .status(409)
-          .json({ error: "You have already reviewed this course" });
+          .json({ error: "You have already reviewed this section" });
       }
       throw err;
     }

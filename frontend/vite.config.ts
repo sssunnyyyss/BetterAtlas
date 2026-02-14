@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    allowedHosts: ["courses.sunworkstudios.com"],
+    allowedHosts: ["betteratlas.net", "www.betteratlas.net", "localhost", "127.0.0.1"],
     proxy: {
       "/api": {
         // In Docker Compose, the API is reachable by its service name.

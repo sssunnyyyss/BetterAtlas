@@ -2,8 +2,8 @@ export type FriendshipStatus = "pending" | "accepted" | "rejected";
 
 export interface Friendship {
   id: number;
-  requesterId: number;
-  addresseeId: number;
+  requesterId: string;
+  addresseeId: string;
   status: FriendshipStatus;
   createdAt: string;
 }
@@ -11,8 +11,9 @@ export interface Friendship {
 export interface FriendWithProfile {
   friendshipId: number;
   user: {
-    id: number;
-    displayName: string;
+    id: string; // UUID
+    username: string;
+    fullName: string;
     graduationYear: number | null;
     major: string | null;
   };
