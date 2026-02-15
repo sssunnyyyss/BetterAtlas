@@ -1,4 +1,4 @@
-import { Router } from "express";
+﻿import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middleware/validate.js";
 import { requireAuth } from "../middleware/auth.js";
@@ -49,7 +49,7 @@ const modelResponseSchema = z.object({
 
 function truncate(str: string, max: number) {
   if (str.length <= max) return str;
-  return str.slice(0, Math.max(0, max - 1)).trimEnd() + "…";
+  return str.slice(0, Math.max(0, max - 1)).trimEnd() + "...";
 }
 
 function normalizeSearchQuery(text: string) {
@@ -165,7 +165,7 @@ function deriveAiSearchTerms(text: string) {
   // the catalog search yields weak matches. Pull out a few meaningful keywords instead.
   const tokens = cleaned
     .toLowerCase()
-    .replace(/['’]/g, "")
+    .replace(/'/g, "")
     .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
@@ -409,7 +409,7 @@ router.post(
           {
             role: "assistant" as const,
             content:
-              "Hi. Tell me what you want in a class (interests, workload, credits, semester) and I’ll recommend courses.",
+              "Hi. Tell me what you want in a class (interests, workload, credits, semester) and I'll recommend courses.",
           },
         ]);
         const totalMs = Date.now() - tStart;
@@ -424,8 +424,8 @@ router.post(
         }
         return res.json({
           assistantMessage:
-            "Tell me what you want in a class (interests, workload, credits, semester) and I’ll recommend courses.",
-          followUpQuestion: "What are 2-3 topics you’d actually be excited to learn right now?",
+            "Tell me what you want in a class (interests, workload, credits, semester) and I'll recommend courses.",
+          followUpQuestion: "What are 2-3 topics you'd actually be excited to learn right now?",
           recommendations: [],
         });
       }
@@ -476,7 +476,9 @@ router.post(
       ]);
 
       // Keep context bounded for cost + latency.
-      const candidates = interleaveByDepartment(Array.from(courseMap.values()), 36, 6);
+      let candidates = interleaveByDepartment(Array.from(courseMap.values()), 36, 6);
+      // Put described courses first so the model can make better judgments from text.
+      candidates = candidates.sort((a, b) => Number(Boolean(b.description)) - Number(Boolean(a.description)));
 
       const modelCandidates = candidates.map((c) => ({
         id: c.id,
@@ -484,20 +486,15 @@ router.post(
         title: c.title,
         credits: c.credits ?? null,
         department: c.department?.code ?? null,
-        instructors: (c.instructors ?? []).slice(0, 3),
         gers: (c.gers ?? []).slice(0, 6),
-        classScore: c.classScore ?? null,
-        avgDifficulty: c.avgDifficulty ?? null,
-        avgWorkload: c.avgWorkload ?? null,
-        reviewCount: c.reviewCount ?? 0,
-        description: c.description ? truncate(c.description.replace(/\s+/g, " ").trim(), 260) : null,
+        description: c.description ? truncate(c.description.replace(/\s+/g, " ").trim(), 420) : null,
       }));
 
       const systemPrompt = [
         "You are BetterAtlas AI, an academic counselor inside a course catalog.",
         "Goal: recommend courses that match the student's interests and intentions.",
         "The student's major is a hint, not a constraint.",
-        "Prioritize fit to the course title and description. Use ratings/difficulty/workload only as secondary signals.",
+        "Prioritize fit to the course title and description.",
         "Do NOT default to CS/tech courses unless the student asks for them or the course clearly matches their described interests.",
         "Unless the student explicitly asks for one department, diversify: pick from at least 3 departments when possible and avoid recommending more than 3 courses from any single department.",
         "You must ONLY recommend courses from the provided candidate list, using their numeric id.",
@@ -531,12 +528,7 @@ router.post(
             `[${c.id}] ${c.code} - ${c.title}`,
             c.department ? `dept ${c.department}` : null,
             c.credits != null ? `${c.credits}cr` : null,
-            c.classScore != null ? `class ${Number(c.classScore).toFixed(1)}` : null,
-            c.avgDifficulty != null ? `diff ${Number(c.avgDifficulty).toFixed(1)}` : null,
-            c.avgWorkload != null ? `work ${Number(c.avgWorkload).toFixed(1)}` : null,
-            c.reviewCount ? `${c.reviewCount} reviews` : null,
             c.gers && c.gers.length ? `GER ${c.gers.slice(0, 3).join(",")}` : null,
-            c.instructors && c.instructors.length ? `instructors ${c.instructors.slice(0, 2).join(", ")}` : null,
             c.description ? `desc: ${c.description}` : null,
           ].filter(Boolean);
           return parts.join(" | ");
@@ -561,6 +553,8 @@ router.post(
         messages: openAiMessages,
         model: env.openaiModel,
         temperature: 0.2,
+        maxTokens: 700,
+        responseFormat: { type: "json_object" },
       });
       const openaiMs = Date.now() - tOpenAiStart;
 
@@ -614,6 +608,12 @@ router.post(
         });
       }
 
+      const deptCounts: Record<string, number> = {};
+      for (const c of candidates) {
+        const k = c.department?.code ?? "OTHER";
+        deptCounts[k] = (deptCounts[k] ?? 0) + 1;
+      }
+
       return res.json({
         assistantMessage: modelResult.assistant_message,
         followUpQuestion: modelResult.follow_up_question ?? null,
@@ -629,6 +629,11 @@ router.post(
                 searchTerms,
                 candidateCount: candidates.length,
                 hadFillers: needFillers,
+                userMajor: user?.major ?? null,
+                deptCode,
+                searchUniqueCount: searchUnique.length,
+                candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
+                deptCounts,
               },
             }
           : {}),
@@ -641,3 +646,5 @@ router.post(
 );
 
 export default router;
+
+

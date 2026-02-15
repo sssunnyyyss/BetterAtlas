@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+﻿import { useState, useEffect, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
 import { useAiCourseRecommendations, type AiMessage } from "../hooks/useAi.js";
@@ -110,6 +110,11 @@ export default function Catalog() {
         searchTerms?: string[];
         candidateCount?: number;
         hadFillers?: boolean;
+        userMajor?: string | null;
+        deptCode?: string | null;
+        searchUniqueCount?: number;
+        candidatesWithDescription?: number;
+        deptCounts?: Record<string, number>;
       }
     | undefined;
 
@@ -148,7 +153,8 @@ export default function Catalog() {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
-    setAiMessages((cur) => [...cur, { role: "user", content: trimmed }]);
+    const nextMessages = [...aiMessages, { role: "user" as const, content: trimmed }].slice(-12);
+    setAiMessages(nextMessages);
     setSearchParams((prev) => {
       prev.set("mode", "ai");
       prev.set("prompt", trimmed);
@@ -156,7 +162,7 @@ export default function Catalog() {
     });
 
     aiRec.mutate(
-      { prompt: trimmed },
+      { messages: nextMessages },
       {
         onSuccess: (r) => {
           const assistantContent = [
@@ -165,7 +171,9 @@ export default function Catalog() {
           ]
             .filter(Boolean)
             .join("\n\n");
-          setAiMessages((cur) => [...cur, { role: "assistant", content: assistantContent }]);
+          setAiMessages((cur) =>
+            [...cur, { role: "assistant" as const, content: assistantContent }].slice(-12)
+          );
         },
       }
     );
@@ -294,7 +302,7 @@ export default function Catalog() {
               {mode === "ai" ? (
                 <span className="inline-flex items-center gap-2">
                   {aiRec.isPending && <Spinner className="text-white/90" />}
-                  {aiRec.isPending ? "Asking…" : "Ask"}
+                  {aiRec.isPending ? "Asking..." : "Ask"}
                 </span>
               ) : (
                 "Search"
@@ -322,7 +330,7 @@ export default function Catalog() {
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-gray-900">BetterAtlas AI</div>
                     <div className="text-sm text-gray-700">
-                      Thinking… scanning course titles and descriptions.
+                      Thinking... scanning course titles and descriptions.
                     </div>
                   </div>
                 </div>
@@ -352,6 +360,15 @@ export default function Catalog() {
                 {aiDebug.candidatesMs != null ? `, ${Math.round(aiDebug.candidatesMs)}ms catalog` : ""}
                 {aiDebug.openaiMs != null ? `, ${Math.round(aiDebug.openaiMs)}ms OpenAI` : ""}
                 {aiDebug.model ? ` (${aiDebug.model})` : ""}
+                {aiDebug.searchTerms && aiDebug.searchTerms.length > 0
+                  ? ` | terms: ${aiDebug.searchTerms.join(", ")}`
+                  : ""}
+                {aiDebug.candidateCount != null ? ` | candidates: ${aiDebug.candidateCount}` : ""}
+                {aiDebug.candidatesWithDescription != null && aiDebug.candidateCount != null
+                  ? ` | desc: ${aiDebug.candidatesWithDescription}/${aiDebug.candidateCount}`
+                  : ""}
+                {aiDebug.hadFillers != null ? ` | fillers: ${aiDebug.hadFillers ? "yes" : "no"}` : ""}
+                {aiDebug.deptCode ? ` | deptHint: ${aiDebug.deptCode}` : ""}
               </div>
             )}
 
@@ -438,7 +455,7 @@ export default function Catalog() {
 
             {!aiData && (
               <div className="text-sm text-gray-500">
-                Toggle “Ask AI”, describe what you want, and hit Ask.
+                Toggle "Ask AI", describe what you want, and hit Ask.
               </div>
             )}
           </>
@@ -482,3 +499,5 @@ export default function Catalog() {
     </div>
   );
 }
+
+

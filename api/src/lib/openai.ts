@@ -5,6 +5,8 @@ export type OpenAiChatMessage = {
   content: string;
 };
 
+type OpenAiResponseFormat = { type: "json_object" };
+
 function tryParseJson(text: string) {
   try {
     return JSON.parse(text);
@@ -33,43 +35,80 @@ export async function openAiChatJson({
   messages,
   model = env.openaiModel,
   temperature,
+  maxTokens,
+  responseFormat,
+  timeoutMs = 35_000,
 }: {
   messages: OpenAiChatMessage[];
   model?: string;
   temperature?: number;
+  maxTokens?: number;
+  responseFormat?: OpenAiResponseFormat;
+  timeoutMs?: number;
 }): Promise<{ raw: string; parsed: unknown }> {
   if (!env.openaiApiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
   }
 
   async function doRequest(payload: any) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.openaiApiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-    const bodyText = await res.text();
-    return { res, bodyText };
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      const bodyText = await res.text();
+      return { res, bodyText };
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        throw new Error(`OpenAI request timed out after ${timeoutMs}ms`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(t);
+    }
   }
 
   const payload: any = { model, messages };
   if (temperature !== undefined) payload.temperature = temperature;
+  if (maxTokens !== undefined) payload.max_tokens = maxTokens;
+  if (responseFormat) payload.response_format = responseFormat;
 
   let { res, bodyText } = await doRequest(payload);
 
-  // Some models only support the default temperature and reject explicit values.
-  if (!res.ok && res.status === 400 && payload.temperature !== undefined) {
+  function isUnsupportedParam(paramName: string) {
     const err = tryParseJson(bodyText);
     const param = err?.error?.param;
     const code = err?.error?.code;
-    const msg = String(err?.error?.message || "");
-    if (param === "temperature" || (code === "unsupported_value" && msg.toLowerCase().includes("temperature"))) {
-      delete payload.temperature;
-      ({ res, bodyText } = await doRequest(payload));
-    }
+    const msg = String(err?.error?.message || "").toLowerCase();
+    return (
+      param === paramName ||
+      (code === "unsupported_value" && msg.includes(paramName.replace("_", " "))) ||
+      (code === "unknown_parameter" && msg.includes(paramName))
+    );
+  }
+
+  // Some models reject optional parameters; retry without them.
+  if (!res.ok && res.status === 400 && payload.temperature !== undefined && isUnsupportedParam("temperature")) {
+    delete payload.temperature;
+    ({ res, bodyText } = await doRequest(payload));
+  }
+
+  if (!res.ok && res.status === 400 && payload.response_format && isUnsupportedParam("response_format")) {
+    delete payload.response_format;
+    ({ res, bodyText } = await doRequest(payload));
+  }
+
+  if (!res.ok && res.status === 400 && payload.max_tokens !== undefined && isUnsupportedParam("max_tokens")) {
+    delete payload.max_tokens;
+    ({ res, bodyText } = await doRequest(payload));
   }
 
   if (!res.ok) {
