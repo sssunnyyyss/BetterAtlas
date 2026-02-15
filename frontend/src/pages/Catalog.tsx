@@ -6,6 +6,27 @@ import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
 
+function Spinner({ className = "" }: { className?: string }) {
+  return (
+    <svg
+      className={`animate-spin ${className}`}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+    >
+      <path
+        d="M12 2a10 10 0 0 1 10 10"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
 export default function Catalog() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialMode =
@@ -79,6 +100,18 @@ export default function Catalog() {
 
   const isAiMode = mode === "ai";
   const aiData = aiRec.data;
+  const aiDebug = (aiData as any)?.debug as
+    | {
+        model?: string;
+        totalMs?: number;
+        depsMs?: number;
+        candidatesMs?: number;
+        openaiMs?: number;
+        searchTerms?: string[];
+        candidateCount?: number;
+        hadFillers?: boolean;
+      }
+    | undefined;
 
   function setModeAndUrl(next: "search" | "ai") {
     setMode(next);
@@ -258,7 +291,14 @@ export default function Catalog() {
                   : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
               }`}
             >
-              {mode === "ai" ? (aiRec.isPending ? "Asking…" : "Ask") : "Search"}
+              {mode === "ai" ? (
+                <span className="inline-flex items-center gap-2">
+                  {aiRec.isPending && <Spinner className="text-white/90" />}
+                  {aiRec.isPending ? "Asking…" : "Ask"}
+                </span>
+              ) : (
+                "Search"
+              )}
             </button>
           </form>
         </div>
@@ -268,6 +308,24 @@ export default function Catalog() {
             {aiRec.isError && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-4 text-sm">
                 {(aiRec.error as any)?.message || "AI request failed"}
+              </div>
+            )}
+
+            {aiRec.isPending && (
+              <div className="mb-5">
+                <div className="bg-white rounded-lg border border-primary-200 p-4 flex items-center gap-3">
+                  <div className="shrink-0">
+                    <div className="h-9 w-9 rounded-full bg-primary-50 border border-primary-200 flex items-center justify-center text-primary-700">
+                      <Spinner className="text-primary-700" />
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-gray-900">BetterAtlas AI</div>
+                    <div className="text-sm text-gray-700">
+                      Thinking… scanning course titles and descriptions.
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -285,6 +343,15 @@ export default function Catalog() {
                     </p>
                   )}
                 </div>
+              </div>
+            )}
+
+            {aiDebug?.totalMs != null && (
+              <div className="mb-4 text-xs text-gray-500">
+                AI timings: {Math.round(aiDebug.totalMs)}ms total
+                {aiDebug.candidatesMs != null ? `, ${Math.round(aiDebug.candidatesMs)}ms catalog` : ""}
+                {aiDebug.openaiMs != null ? `, ${Math.round(aiDebug.openaiMs)}ms OpenAI` : ""}
+                {aiDebug.model ? ` (${aiDebug.model})` : ""}
               </div>
             )}
 
@@ -348,6 +415,26 @@ export default function Catalog() {
                 </div>
               ))}
             </div>
+
+            {aiRec.isPending && !aiData && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="bg-white rounded-lg border border-gray-200 p-4"
+                    aria-hidden="true"
+                  >
+                    <div className="animate-pulse">
+                      <div className="h-4 bg-gray-200 rounded w-1/3 mb-2" />
+                      <div className="h-5 bg-gray-200 rounded w-5/6 mb-3" />
+                      <div className="h-3 bg-gray-200 rounded w-2/3 mb-2" />
+                      <div className="h-3 bg-gray-200 rounded w-3/5 mb-2" />
+                      <div className="h-3 bg-gray-200 rounded w-1/2" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {!aiData && (
               <div className="text-sm text-gray-500">

@@ -59,6 +59,133 @@ function normalizeSearchQuery(text: string) {
   return truncate(cleaned, 200);
 }
 
+const AI_SEARCH_STOPWORDS = new Set(
+  [
+    "i",
+    "im",
+    "ive",
+    "id",
+    "me",
+    "my",
+    "mine",
+    "we",
+    "our",
+    "us",
+    "you",
+    "your",
+    "a",
+    "an",
+    "the",
+    "and",
+    "or",
+    "but",
+    "if",
+    "then",
+    "than",
+    "so",
+    "because",
+    "as",
+    "to",
+    "of",
+    "in",
+    "on",
+    "for",
+    "with",
+    "without",
+    "from",
+    "at",
+    "want",
+    "wants",
+    "wanted",
+    "need",
+    "needs",
+    "needed",
+    "looking",
+    "find",
+    "finding",
+    "recommend",
+    "recommendations",
+    "suggest",
+    "suggestions",
+    "take",
+    "taking",
+    "taken",
+    "class",
+    "classes",
+    "course",
+    "courses",
+    "prof",
+    "profs",
+    "professor",
+    "semester",
+    "credits",
+    "credit",
+    "fulfill",
+    "fulfilling",
+    "requirement",
+    "requirements",
+    "ger",
+    "gers",
+    "easy",
+    "easier",
+    "hard",
+    "harder",
+    "chill",
+    "fun",
+    "interesting",
+    "good",
+    "bad",
+    "best",
+    "really",
+    "very",
+    "kinda",
+    "sorta",
+    "please",
+    "help",
+  ].map((s) => s.toLowerCase())
+);
+
+function deriveAiSearchTerms(text: string) {
+  const cleaned = normalizeSearchQuery(text);
+  if (!cleaned) return [] as string[];
+
+  // If the user typed a course code-ish thing, keep it intact (works well with existing search).
+  // Examples: "CS 170", "QTM110", "BIOL 141L"
+  const courseCodeM = cleaned.match(/\b([A-Za-z]{2,8})\s*-?\s*(\d{3,4}[A-Za-z]?)\b/);
+  if (courseCodeM) {
+    return [`${courseCodeM[1]} ${courseCodeM[2]}`.toUpperCase()];
+  }
+
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length <= 2 && cleaned.length <= 28) {
+    return [cleaned];
+  }
+
+  // For AI prompts, the raw query is usually a whole sentence; passing it straight into
+  // the catalog search yields weak matches. Pull out a few meaningful keywords instead.
+  const tokens = cleaned
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of tokens) {
+    if (AI_SEARCH_STOPWORDS.has(t)) continue;
+    if (t.length < 3 && !/^[a-z]{2,4}$/.test(t) && !/^\d{3,4}$/.test(t)) continue;
+    if (seen.has(t)) continue;
+    seen.add(t);
+
+    // Preserve dept-code-like tokens in uppercase, everything else can stay lowercase.
+    out.push(/^[a-z]{2,4}$/.test(t) ? t.toUpperCase() : t);
+    if (out.length >= 4) break;
+  }
+
+  return out;
+}
+
 const MEMORY_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 const MEMORY_MAX_MESSAGES = 6; // last N user/assistant messages (keep context small for latency)
 const memoryByUser = new Map<string, { messages: AiMessage[]; updatedAt: number }>();
@@ -304,28 +431,52 @@ router.post(
       }
 
       const candidateQuery = normalizeSearchQuery(latestUser);
+      const searchTerms = deriveAiSearchTerms(latestUser).slice(0, 3);
 
       const tCandidatesStart = Date.now();
-      const [search, topRated, majorRated] = await Promise.all([
-        // Full-text search can be expensive and not very helpful for vague prompts.
-        candidateQuery.length >= 3
-          ? searchCourses({ q: candidateQuery, page: 1, limit: 24 })
+      let searchCoursesRaw: CourseWithRatings[] = [];
+      if (searchTerms.length > 0) {
+        // 1) Try a single "combined" query first (cheap and often good enough).
+        const primary = await searchCourses({
+          q: searchTerms.join(" "),
+          page: 1,
+          limit: 24,
+        });
+        searchCoursesRaw = primary.data ?? [];
+
+        // 2) If that was too strict (common with AND semantics), broaden by searching per-keyword.
+        if (searchCoursesRaw.length < 18 && searchTerms.length > 1) {
+          const perTerm = await Promise.all(
+            searchTerms.map((t) => searchCourses({ q: t, page: 1, limit: 12 }))
+          );
+          searchCoursesRaw = [
+            ...searchCoursesRaw,
+            ...perTerm.flatMap((r) => r.data ?? []),
+          ];
+        }
+      }
+      const searchUnique = Array.from(dedupeCourses(searchCoursesRaw).values());
+
+      // Only pay for fillers (top-rated, major-rated) when search isn't providing enough options.
+      const needFillers = searchUnique.length < 24 && candidateQuery.length >= 3;
+      const [topRated, majorRated] = await Promise.all([
+        needFillers
+          ? getTopRatedCached().then((data) => ({ data, meta: { page: 1, limit: data.length, total: data.length, totalPages: 1 } }))
           : Promise.resolve({ data: [] as CourseWithRatings[], meta: { page: 1, limit: 0, total: 0, totalPages: 1 } }),
-        getTopRatedCached().then((data) => ({ data, meta: { page: 1, limit: data.length, total: data.length, totalPages: 1 } })),
-        deptCode
+        needFillers && deptCode
           ? getMajorRatedCached(deptCode).then((data) => ({ data, meta: { page: 1, limit: data.length, total: data.length, totalPages: 1 } }))
           : Promise.resolve({ data: [] as CourseWithRatings[], meta: { page: 1, limit: 0, total: 0, totalPages: 1 } }),
       ]);
       const candidatesMs = Date.now() - tCandidatesStart;
 
       const courseMap = dedupeCourses([
-        ...(search.data ?? []),
+        ...searchUnique,
         ...(topRated.data ?? []),
         ...(majorRated.data ?? []),
       ]);
 
       // Keep context bounded for cost + latency.
-      const candidates = interleaveByDepartment(Array.from(courseMap.values()), 30, 3);
+      const candidates = interleaveByDepartment(Array.from(courseMap.values()), 36, 6);
 
       const modelCandidates = candidates.map((c) => ({
         id: c.id,
@@ -339,17 +490,20 @@ router.post(
         avgDifficulty: c.avgDifficulty ?? null,
         avgWorkload: c.avgWorkload ?? null,
         reviewCount: c.reviewCount ?? 0,
-        description: c.description ? truncate(c.description.replace(/\s+/g, " ").trim(), 90) : null,
+        description: c.description ? truncate(c.description.replace(/\s+/g, " ").trim(), 260) : null,
       }));
 
       const systemPrompt = [
         "You are BetterAtlas AI, an academic counselor inside a course catalog.",
         "Goal: recommend courses that match the student's interests and intentions.",
         "The student's major is a hint, not a constraint.",
+        "Prioritize fit to the course title and description. Use ratings/difficulty/workload only as secondary signals.",
+        "Do NOT default to CS/tech courses unless the student asks for them or the course clearly matches their described interests.",
         "Unless the student explicitly asks for one department, diversify: pick from at least 3 departments when possible and avoid recommending more than 3 courses from any single department.",
         "You must ONLY recommend courses from the provided candidate list, using their numeric id.",
         "If the student's request is vague, make reasonable assumptions and include exactly ONE concise follow-up question.",
         "Keep output concise and helpful. No moralizing. No long disclaimers.",
+        "In each recommendation's `why` bullets, reference at least one concrete keyword from the course title or `desc:` snippet provided (no hallucinated details).",
         "",
         "Return ONLY valid JSON (no markdown, no code fences) matching this shape:",
         "{",
@@ -406,6 +560,7 @@ router.post(
       const { parsed } = await openAiChatJson({
         messages: openAiMessages,
         model: env.openaiModel,
+        temperature: 0.2,
       });
       const openaiMs = Date.now() - tOpenAiStart;
 
@@ -463,6 +618,20 @@ router.post(
         assistantMessage: modelResult.assistant_message,
         followUpQuestion: modelResult.follow_up_question ?? null,
         recommendations,
+        ...(env.nodeEnv !== "production"
+          ? {
+              debug: {
+                model: env.openaiModel,
+                totalMs,
+                depsMs,
+                candidatesMs,
+                openaiMs,
+                searchTerms,
+                candidateCount: candidates.length,
+                hadFillers: needFillers,
+              },
+            }
+          : {}),
       });
     } catch (err: any) {
       console.error("AI recommend error:", err);
