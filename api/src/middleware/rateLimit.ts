@@ -21,3 +21,12 @@ export const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+export const aiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  // AI calls are expensive; keep tighter in prod.
+  max: isDev ? 1_000 : 30,
+  message: { error: "Too many AI requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});

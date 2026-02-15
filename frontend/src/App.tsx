@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "./lib/auth.js";
 import Navbar from "./components/layout/Navbar.js";
 import Landing from "./pages/Landing.js";
+import Home from "./pages/Home.js";
 import Catalog from "./pages/Catalog.js";
 import CourseDetail from "./pages/CourseDetail.js";
 import ProfessorDetail from "./pages/ProfessorDetail.js";
@@ -23,13 +24,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      </div>
+    );
+  }
 
   return (
     <BrowserRouter>
       {user && <Navbar />}
       <Routes>
-        <Route path="/" element={user ? <Navigate to="/catalog" replace /> : <Landing />} />
+        <Route path="/" element={user ? <Home /> : <Landing />} />
         <Route
           path="/catalog"
           element={

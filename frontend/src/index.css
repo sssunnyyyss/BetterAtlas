@@ -2,6 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --ba-font-display: "Crimson Pro", ui-serif, Georgia, serif;
+  /* Keep a single type voice across the app. */
+  --ba-font-sans: var(--ba-font-display);
+}
+
 body {
+  font-family: var(--ba-font-sans);
   @apply bg-gray-50 text-gray-900 antialiased;
+}
+
+/* Match the home page "display" font for headings app-wide. */
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--ba-font-display);
 }

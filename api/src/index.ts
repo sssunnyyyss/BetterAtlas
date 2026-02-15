@@ -9,6 +9,7 @@ import reviewRoutes from "./routes/reviews.js";
 import userRoutes from "./routes/users.js";
 import socialRoutes from "./routes/social.js";
 import scheduleRoutes from "./routes/schedule.js";
+import aiRoutes from "./routes/ai.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
@@ -35,6 +36,7 @@ app.use("/api", reviewRoutes);
 app.use("/api", socialRoutes);
 app.use("/api", scheduleRoutes);
 app.use("/api/users", userRoutes);
+app.use("/api", aiRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {

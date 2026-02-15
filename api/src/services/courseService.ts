@@ -285,9 +285,38 @@ export async function searchCourses(query: SearchQuery) {
   const { q, page, limit } = query;
   const offset = (page - 1) * limit;
 
-  const searchQuery = q.trim().split(/\s+/).join(" & ");
+  const term = q.trim();
+  const tsQuery = sql`plainto_tsquery('english', ${term})`;
 
-  const data = await db
+  const courseVector = sql`(
+    setweight(to_tsvector('english', coalesce(${courses.code}, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(${courses.title}, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(${courses.description}, '')), 'B')
+  )`;
+
+  // This search is intentionally "anything-ish":
+  // - course code/title/description via FTS + ILIKE
+  // - department code/name via ILIKE
+  // - instructor name via ILIKE (section-backed, active sections only)
+  const where = sql`(
+    ${courseVector} @@ ${tsQuery}
+    OR ${courses.code} ILIKE ${"%" + term + "%"}
+    OR ${courses.title} ILIKE ${"%" + term + "%"}
+    OR ${departments.code} ILIKE ${"%" + term + "%"}
+    OR ${departments.name} ILIKE ${"%" + term + "%"}
+    OR ${instructors.name} ILIKE ${"%" + term + "%"}
+  )`;
+
+  const rankExpr = sql<number>`max(
+    ts_rank(${courseVector}, ${tsQuery})
+    + (case when ${courses.code} ILIKE ${"%" + term + "%"} then 0.12 else 0 end)
+    + (case when ${courses.title} ILIKE ${"%" + term + "%"} then 0.08 else 0 end)
+    + (case when ${departments.code} ILIKE ${"%" + term + "%"} then 0.07 else 0 end)
+    + (case when ${departments.name} ILIKE ${"%" + term + "%"} then 0.06 else 0 end)
+    + (case when ${instructors.name} ILIKE ${"%" + term + "%"} then 0.18 else 0 end)
+  )`;
+
+  const base = db
     .select({
       id: courses.id,
       code: courses.code,
@@ -302,33 +331,39 @@ export async function searchCourses(query: SearchQuery) {
       avgDifficulty: courseRatings.avgDifficulty,
       avgWorkload: courseRatings.avgWorkload,
       reviewCount: courseRatings.reviewCount,
-      rank: sql<number>`ts_rank(
-        setweight(to_tsvector('english', coalesce(${courses.code}, '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(${courses.title}, '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(${courses.description}, '')), 'B'),
-        to_tsquery('english', ${searchQuery})
-      )`,
+      rank: rankExpr,
     })
     .from(courses)
+    .innerJoin(sections, and(eq(courses.id, sections.courseId), eq(sections.isActive, true)))
     .leftJoin(departments, eq(courses.departmentId, departments.id))
     .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
-    .where(
-      sql`(
-        setweight(to_tsvector('english', coalesce(${courses.code}, '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(${courses.title}, '')), 'A') ||
-        setweight(to_tsvector('english', coalesce(${courses.description}, '')), 'B')
-      ) @@ to_tsquery('english', ${searchQuery})
-      OR ${courses.code} ILIKE ${"%" + q + "%"}
-      OR ${courses.title} ILIKE ${"%" + q + "%"}`
-    )
-    .orderBy(sql`ts_rank(
-      setweight(to_tsvector('english', coalesce(${courses.code}, '')), 'A') ||
-      setweight(to_tsvector('english', coalesce(${courses.title}, '')), 'A') ||
-      setweight(to_tsvector('english', coalesce(${courses.description}, '')), 'B'),
-      to_tsquery('english', ${searchQuery})
-    ) DESC`)
+    .leftJoin(instructors, eq(sections.instructorId, instructors.id))
+    .where(where)
+    .groupBy(
+      courses.id,
+      courses.code,
+      courses.title,
+      courses.description,
+      courses.credits,
+      courses.departmentId,
+      courses.attributes,
+      departments.code,
+      departments.name,
+      courseRatings.avgQuality,
+      courseRatings.avgDifficulty,
+      courseRatings.avgWorkload,
+      courseRatings.reviewCount
+    );
+
+  const data = await base
+    .orderBy(desc(rankExpr), asc(courses.code))
     .limit(limit)
     .offset(offset);
+
+  const total = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(base.as("t"))
+    .then((r) => r[0]?.count ?? 0);
 
   const courseIds = data.map((r) => r.id);
   const instructorsByCourse = new Map<number, string[]>();
@@ -393,7 +428,12 @@ export async function searchCourses(query: SearchQuery) {
       reviewCount: row.reviewCount ?? 0,
       classScore: classScoreByCourse.get(row.id) ?? null,
     })),
-    meta: { page, limit, total: data.length, totalPages: 1 },
+    meta: {
+      page,
+      limit,
+      total: Number(total),
+      totalPages: Math.ceil(Number(total) / limit) || 1,
+    },
   };
 }
 

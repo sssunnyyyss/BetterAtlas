@@ -7,7 +7,7 @@ interface PaginatedResponse<T> {
   meta: { page: number; limit: number; total: number; totalPages: number };
 }
 
-export function useCourses(params: Record<string, string>) {
+export function useCourses(params: Record<string, string>, enabled = true) {
   const queryString = new URLSearchParams(params).toString();
   return useQuery({
     queryKey: ["courses", params],
@@ -15,17 +15,18 @@ export function useCourses(params: Record<string, string>) {
       api.get<PaginatedResponse<CourseWithRatings>>(
         `/courses?${queryString}`
       ),
+    enabled,
   });
 }
 
-export function useCourseSearch(q: string, page = 1) {
+export function useCourseSearch(q: string, page = 1, enabled = true) {
   return useQuery({
     queryKey: ["courses", "search", q, page],
     queryFn: () =>
       api.get<PaginatedResponse<CourseWithRatings>>(
         `/courses/search?q=${encodeURIComponent(q)}&page=${page}`
       ),
-    enabled: q.length > 0,
+    enabled: enabled && q.length > 0,
   });
 }
 
