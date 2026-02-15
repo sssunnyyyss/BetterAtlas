@@ -87,6 +87,7 @@ export async function listCourses(query: CourseQuery) {
       code: courses.code,
       title: courses.title,
       description: courses.description,
+      prerequisites: courses.prerequisites,
       credits: courses.credits,
       departmentId: courses.departmentId,
       attributes: courses.attributes,
@@ -102,6 +103,15 @@ export async function listCourses(query: CourseQuery) {
           FILTER (WHERE ${instructors.name} IS NOT NULL),
         '[]'::json
       )`,
+      campuses: sql<any>`coalesce(
+        json_agg(DISTINCT ${sections.campus})
+          FILTER (WHERE ${sections.campus} IS NOT NULL),
+        '[]'::json
+      )`,
+      requirements: sql<any>`(
+        array_agg(${sections.registrationRestrictions} ORDER BY length(${sections.registrationRestrictions}) DESC NULLS LAST)
+          FILTER (WHERE ${sections.registrationRestrictions} IS NOT NULL)
+      )[1]`,
       gers: sql<any>`coalesce((
         select json_agg(distinct code)
         from (
@@ -136,6 +146,7 @@ export async function listCourses(query: CourseQuery) {
       courses.code,
       courses.title,
       courses.description,
+      courses.prerequisites,
       courses.credits,
       courses.departmentId,
       courses.attributes,
@@ -230,6 +241,7 @@ export async function listCourses(query: CourseQuery) {
       code: row.code,
       title: row.title,
       description: row.description,
+      prerequisites: row.prerequisites ?? null,
       credits: row.credits,
       departmentId: row.departmentId,
       attributes: row.attributes ?? null,
@@ -248,6 +260,28 @@ export async function listCourses(query: CourseQuery) {
             }
             return [];
           })(),
+      campuses: Array.isArray((row as any).campuses)
+        ? (((row as any).campuses as any[]).filter((s: any) => typeof s === "string" && s.trim()) as string[])
+        : (() => {
+            const v = (row as any).campuses;
+            if (typeof v === "string") {
+              try {
+                const parsed = JSON.parse(v);
+                return Array.isArray(parsed)
+                  ? (parsed.filter((s) => typeof s === "string" && s.trim()) as string[])
+                  : [];
+              } catch {
+                return [];
+              }
+            }
+            return [];
+          })(),
+      requirements: (() => {
+        const v = (row as any).requirements;
+        if (typeof v !== "string") return null;
+        const t = v.trim();
+        return t ? t : null;
+      })(),
       gers: Array.isArray(row.gers)
         ? (row.gers.filter((s: any) => typeof s === "string" && s.trim()) as string[])
         : (() => {
@@ -322,6 +356,7 @@ export async function searchCourses(query: SearchQuery) {
       code: courses.code,
       title: courses.title,
       description: courses.description,
+      prerequisites: courses.prerequisites,
       credits: courses.credits,
       departmentId: courses.departmentId,
       attributes: courses.attributes,
@@ -344,6 +379,7 @@ export async function searchCourses(query: SearchQuery) {
       courses.code,
       courses.title,
       courses.description,
+      courses.prerequisites,
       courses.credits,
       courses.departmentId,
       courses.attributes,
@@ -368,6 +404,9 @@ export async function searchCourses(query: SearchQuery) {
   const courseIds = data.map((r) => r.id);
   const instructorsByCourse = new Map<number, string[]>();
   const classScoreByCourse = new Map<number, number | null>();
+  const campusesByCourse = new Map<number, string[]>();
+  const gersByCourse = new Map<number, string[]>();
+  const requirementsByCourse = new Map<number, string | null>();
   if (courseIds.length > 0) {
     const rows = await db
       .select({
@@ -389,6 +428,51 @@ export async function searchCourses(query: SearchQuery) {
         r.courseId,
         v.filter((s: any) => typeof s === "string" && s.trim())
       );
+    }
+
+    const detailRows = await db
+      .select({
+        courseId: sections.courseId,
+        campus: sections.campus,
+        gerCodes: sections.gerCodes,
+        requirements: sections.registrationRestrictions,
+      })
+      .from(sections)
+      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)));
+
+    const campusSets = new Map<number, Set<string>>();
+    const gerSets = new Map<number, Set<string>>();
+    for (const r of detailRows as any[]) {
+      const id = r.courseId as number;
+      if (typeof r.campus === "string" && r.campus.trim()) {
+        const s = campusSets.get(id) ?? new Set<string>();
+        s.add(r.campus.trim());
+        campusSets.set(id, s);
+      }
+
+      const rawGer = typeof r.gerCodes === "string" ? r.gerCodes.trim() : "";
+      if (rawGer) {
+        const s = gerSets.get(id) ?? new Set<string>();
+        for (const code of rawGer.split(",")) {
+          const v = code.trim();
+          if (v) s.add(v);
+        }
+        gerSets.set(id, s);
+      }
+
+      const reqText = typeof r.requirements === "string" ? r.requirements.trim() : "";
+      if (reqText) {
+        const prev = requirementsByCourse.get(id) ?? null;
+        if (!prev || reqText.length > prev.length) {
+          requirementsByCourse.set(id, reqText);
+        }
+      }
+    }
+
+    for (const id of courseIds) {
+      campusesByCourse.set(id, Array.from(campusSets.get(id) ?? new Set<string>()));
+      gersByCourse.set(id, Array.from(gerSets.get(id) ?? new Set<string>()));
+      if (!requirementsByCourse.has(id)) requirementsByCourse.set(id, null);
     }
 
     const scoreRows = await db
@@ -415,10 +499,14 @@ export async function searchCourses(query: SearchQuery) {
       code: row.code,
       title: row.title,
       description: row.description,
+      prerequisites: (row as any).prerequisites ?? null,
       credits: row.credits,
       departmentId: row.departmentId,
       attributes: row.attributes ?? null,
       instructors: instructorsByCourse.get(row.id) ?? [],
+      campuses: campusesByCourse.get(row.id) ?? [],
+      gers: gersByCourse.get(row.id) ?? [],
+      requirements: requirementsByCourse.get(row.id) ?? null,
       department: row.departmentCode
         ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
         : null,

@@ -35,6 +35,10 @@ export interface CourseWithRatings extends Course {
   instructors?: string[];
   // Emory GER requirement codes aggregated from active sections.
   gers?: string[];
+  // Distinct campus labels aggregated from active sections (e.g. "Atlanta", "Oxford").
+  campuses?: string[];
+  // Section-backed requirements/restrictions text (often includes prereqs); may be null/empty.
+  requirements?: string | null;
 }
 
 export interface Schedule {

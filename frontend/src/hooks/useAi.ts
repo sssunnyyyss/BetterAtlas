@@ -21,8 +21,8 @@ export type AiCourseRecommendationsResponse = {
 };
 
 export type AiCourseRecommendationsRequest =
-  | { prompt: string; reset?: boolean }
-  | { messages: AiMessage[]; reset?: boolean }
+  | { prompt: string; reset?: boolean; excludeCourseIds?: number[] }
+  | { messages: AiMessage[]; reset?: boolean; excludeCourseIds?: number[] }
   | { reset: true };
 
 export function useAiCourseRecommendations() {

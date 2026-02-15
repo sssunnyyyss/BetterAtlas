@@ -24,6 +24,8 @@ const recommendSchema = z
     prompt: z.string().min(1).max(4000).optional(),
     // Back-compat: client may send the whole message list.
     messages: z.array(aiMessageSchema).min(1).max(12).optional(),
+    // Avoid recommending already-shown courses (used by "Generate more").
+    excludeCourseIds: z.array(z.number().int().positive()).max(200).optional(),
     // Clear per-user memory.
     reset: z.boolean().optional(),
   })
@@ -44,7 +46,7 @@ const modelResponseSchema = z.object({
       })
     )
     .min(1)
-    .max(10),
+    .max(16),
 });
 
 function truncate(str: string, max: number) {
@@ -142,10 +144,17 @@ const AI_SEARCH_STOPWORDS = new Set(
     "sorta",
     "please",
     "help",
+    "give",
+    "some",
+    "random",
+    "randomly",
+    "anything",
+    "something",
+    "whatever",
   ].map((s) => s.toLowerCase())
 );
 
-function deriveAiSearchTerms(text: string) {
+function deriveAiSearchTerms(text: string, deps?: DepartmentMini[]) {
   const cleaned = normalizeSearchQuery(text);
   if (!cleaned) return [] as string[];
 
@@ -172,14 +181,16 @@ function deriveAiSearchTerms(text: string) {
 
   const out: string[] = [];
   const seen = new Set<string>();
+  const deptCodeSet = deps ? new Set(deps.map((d) => d.code.toLowerCase())) : null;
   for (const t of tokens) {
     if (AI_SEARCH_STOPWORDS.has(t)) continue;
     if (t.length < 3 && !/^[a-z]{2,4}$/.test(t) && !/^\d{3,4}$/.test(t)) continue;
     if (seen.has(t)) continue;
     seen.add(t);
 
-    // Preserve dept-code-like tokens in uppercase, everything else can stay lowercase.
-    out.push(/^[a-z]{2,4}$/.test(t) ? t.toUpperCase() : t);
+    // Preserve *known* dept-code-like tokens in uppercase, everything else can stay lowercase.
+    const isDeptToken = /^[a-z]{2,4}$/.test(t) && deptCodeSet && deptCodeSet.has(t);
+    out.push(isDeptToken ? t.toUpperCase() : t);
     if (out.length >= 4) break;
   }
 
@@ -370,8 +381,11 @@ router.post(
         return res.status(500).json({ error: "AI is not configured on the server" });
       }
 
-      const { messages, prompt, reset } = req.body as z.infer<typeof recommendSchema>;
+      const { messages, prompt, reset, excludeCourseIds } = req.body as z.infer<typeof recommendSchema>;
       const user = await getUserById(req.user!.id);
+      const excludeSet = new Set<number>(
+        (excludeCourseIds ?? []).filter((id) => typeof id === "number" && Number.isFinite(id))
+      );
 
       const tDepsStart = Date.now();
       const deps = await getDepartmentsCached();
@@ -431,7 +445,7 @@ router.post(
       }
 
       const candidateQuery = normalizeSearchQuery(latestUser);
-      const searchTerms = deriveAiSearchTerms(latestUser).slice(0, 3);
+      const searchTerms = deriveAiSearchTerms(latestUser, deps).slice(0, 3);
 
       const tCandidatesStart = Date.now();
       let searchCoursesRaw: CourseWithRatings[] = [];
@@ -476,7 +490,8 @@ router.post(
       ]);
 
       // Keep context bounded for cost + latency.
-      let candidates = interleaveByDepartment(Array.from(courseMap.values()), 36, 6);
+      const pool = Array.from(courseMap.values()).filter((c) => !excludeSet.has(c.id));
+      let candidates = interleaveByDepartment(pool, 42, 6);
       // Put described courses first so the model can make better judgments from text.
       candidates = candidates.sort((a, b) => Number(Boolean(b.description)) - Number(Boolean(a.description)));
 
@@ -486,8 +501,16 @@ router.post(
         title: c.title,
         credits: c.credits ?? null,
         department: c.department?.code ?? null,
+        campuses: (c.campuses ?? []).slice(0, 3),
+        instructors: (c.instructors ?? []).slice(0, 3),
         gers: (c.gers ?? []).slice(0, 6),
-        description: c.description ? truncate(c.description.replace(/\s+/g, " ").trim(), 420) : null,
+        prerequisites: c.prerequisites
+          ? truncate(String(c.prerequisites).replace(/\s+/g, " ").trim(), 160)
+          : null,
+        requirements: c.requirements
+          ? truncate(String(c.requirements).replace(/\s+/g, " ").trim(), 220)
+          : null,
+        description: c.description ? truncate(c.description.replace(/\s+/g, " ").trim(), 360) : null,
       }));
 
       const systemPrompt = [
@@ -497,7 +520,9 @@ router.post(
         "Prioritize fit to the course title and description.",
         "Do NOT default to CS/tech courses unless the student asks for them or the course clearly matches their described interests.",
         "Unless the student explicitly asks for one department, diversify: pick from at least 3 departments when possible and avoid recommending more than 3 courses from any single department.",
+        "Use course details when helpful: instructors, campuses, GERs, prerequisites, and requirements/restrictions.",
         "You must ONLY recommend courses from the provided candidate list, using their numeric id.",
+        "Never recommend any excluded course_id values provided in context.",
         "If the student's request is vague, make reasonable assumptions and include exactly ONE concise follow-up question.",
         "Keep output concise and helpful. No moralizing. No long disclaimers.",
         "In each recommendation's `why` bullets, reference at least one concrete keyword from the course title or `desc:` snippet provided (no hallucinated details).",
@@ -513,7 +538,7 @@ router.post(
         '      "why": string[] (2-4 short bullets),',
         '      "cautions": string[] (0-2 short bullets)',
         "    }",
-        "  ] (5-6 items)",
+        "  ] (8 items; minimum 6)",
         "}",
       ].join("\n");
 
@@ -521,18 +546,10 @@ router.post(
         `Student major: ${user?.major ?? "unknown"}`,
         `Student graduationYear: ${user?.graduationYear ?? "unknown"}`,
         `Student deptCode (hint): ${deptCode ?? "unknown"}`,
+        `Excluded course IDs: ${excludeSet.size > 0 ? Array.from(excludeSet).slice(0, 200).join(", ") : "(none)"}`,
         "",
-        "Candidates (ONLY recommend from these IDs):",
-        ...modelCandidates.map((c) => {
-          const parts = [
-            `[${c.id}] ${c.code} - ${c.title}`,
-            c.department ? `dept ${c.department}` : null,
-            c.credits != null ? `${c.credits}cr` : null,
-            c.gers && c.gers.length ? `GER ${c.gers.slice(0, 3).join(",")}` : null,
-            c.description ? `desc: ${c.description}` : null,
-          ].filter(Boolean);
-          return parts.join(" | ");
-        }),
+        "Candidates JSON (ONLY recommend from these ids):",
+        JSON.stringify(modelCandidates),
       ].join("\n");
 
       const openAiMessages = [
@@ -571,21 +588,81 @@ router.post(
       const byId = new Map<number, CourseWithRatings>();
       for (const c of candidates) byId.set(c.id, c);
 
+      const TARGET_RECS = 8;
+      const MIN_RECS = 6;
+
       const seen = new Set<number>();
-      const recommendations = modelResult.recommendations
+      let recommendations = modelResult.recommendations
         .filter((r) => byId.has(r.course_id))
+        .filter((r) => !excludeSet.has(r.course_id))
         .filter((r) => {
           if (seen.has(r.course_id)) return false;
           seen.add(r.course_id);
           return true;
         })
-        .slice(0, 8)
+        .slice(0, 16)
         .map((r) => ({
           course: byId.get(r.course_id)!,
           fitScore: r.fit_score,
           why: r.why,
           cautions: r.cautions ?? [],
         }));
+
+      if (recommendations.length < MIN_RECS) {
+        const existingIds = new Set<number>(recommendations.map((r) => r.course.id));
+        const perDept = new Map<string, number>();
+        for (const r of recommendations) {
+          const dept = r.course.department?.code ?? "OTHER";
+          perDept.set(dept, (perDept.get(dept) ?? 0) + 1);
+        }
+
+        const termsLower = searchTerms.map((t) => t.toLowerCase());
+        function scoreCourse(c: CourseWithRatings) {
+          const text = `${c.code} ${c.title} ${c.description ?? ""}`.toLowerCase();
+          let score = 0;
+          for (const t of termsLower) {
+            if (!t) continue;
+            if (text.includes(t)) score += 1;
+          }
+          if (c.description) score += 1;
+          return score;
+        }
+
+        const fill = candidates
+          .filter((c) => !excludeSet.has(c.id))
+          .filter((c) => !existingIds.has(c.id))
+          .slice()
+          .sort((a, b) => scoreCourse(b) - scoreCourse(a));
+
+        for (const c of fill) {
+          if (recommendations.length >= MIN_RECS) break;
+          const dept = c.department?.code ?? "OTHER";
+          if ((perDept.get(dept) ?? 0) >= 3) continue;
+
+          const text = `${c.code} ${c.title} ${c.description ?? ""}`.toLowerCase();
+          const matched = termsLower.filter((t) => t && text.includes(t)).slice(0, 3);
+
+          const why: string[] = [];
+          if (matched.length > 0) why.push(`Title/description mentions: ${matched.join(", ")}`);
+          if (c.gers && c.gers.length > 0) why.push(`GER: ${c.gers.slice(0, 3).join(", ")}`);
+          if (why.length < 2) why.push("Looks relevant based on the catalog description.");
+
+          const cautions: string[] = [];
+          const req = (c.requirements ?? c.prerequisites ?? "").trim();
+          if (req) cautions.push(truncate(`Requirements: ${req.replace(/\s+/g, " ").trim()}`, 160));
+
+          recommendations.push({
+            course: c,
+            fitScore: Math.max(4, Math.min(8, 4 + scoreCourse(c))),
+            why: why.slice(0, 4),
+            cautions: cautions.slice(0, 2),
+          });
+          existingIds.add(c.id);
+          perDept.set(dept, (perDept.get(dept) ?? 0) + 1);
+        }
+      }
+
+      recommendations = recommendations.slice(0, TARGET_RECS);
 
       if (recommendations.length === 0) {
         return res.status(500).json({ error: "AI did not select any valid courses" });

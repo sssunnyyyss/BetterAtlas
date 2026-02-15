@@ -1,7 +1,7 @@
-﻿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
-import { useAiCourseRecommendations, type AiMessage } from "../hooks/useAi.js";
+import { useAiCourseRecommendations, type AiCourseRecommendation, type AiMessage } from "../hooks/useAi.js";
 import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
@@ -42,6 +42,7 @@ export default function Catalog() {
   const [aiInput, setAiInput] = useState(searchParams.get("prompt") || "");
   const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
   const aiRec = useAiCourseRecommendations();
+  const [aiAllRecs, setAiAllRecs] = useState<AiCourseRecommendation[]>([]);
 
   // Debounce search
   useEffect(() => {
@@ -100,6 +101,7 @@ export default function Catalog() {
 
   const isAiMode = mode === "ai";
   const aiData = aiRec.data;
+  const displayedRecs = aiAllRecs.length > 0 ? aiAllRecs : aiData?.recommendations ?? [];
   const aiDebug = (aiData as any)?.debug as
     | {
         model?: string;
@@ -134,12 +136,14 @@ export default function Catalog() {
     });
     aiRec.reset();
     setAiMessages([]);
+    setAiAllRecs([]);
   }
 
   function resetAiChat() {
     setAiMessages([]);
     setAiInput("");
     aiRec.reset();
+    setAiAllRecs([]);
     setSearchParams((prev) => {
       prev.set("mode", "ai");
       prev.delete("prompt");
@@ -165,6 +169,7 @@ export default function Catalog() {
       { messages: nextMessages },
       {
         onSuccess: (r) => {
+          setAiAllRecs(r.recommendations);
           const assistantContent = [
             r.assistantMessage,
             r.followUpQuestion ? `Follow-up: ${r.followUpQuestion}` : "",
@@ -174,6 +179,34 @@ export default function Catalog() {
           setAiMessages((cur) =>
             [...cur, { role: "assistant" as const, content: assistantContent }].slice(-12)
           );
+        },
+      }
+    );
+  }
+
+  function generateMoreAiCourses() {
+    if (aiRec.isPending) return;
+    if (aiMessages.length === 0) return;
+
+    const excludeCourseIds = displayedRecs
+      .map((r) => r.course.id)
+      .filter((id) => Number.isFinite(id))
+      .slice(-200);
+
+    aiRec.mutate(
+      { messages: aiMessages, excludeCourseIds },
+      {
+        onSuccess: (r) => {
+          setAiAllRecs((cur) => {
+            const seen = new Set<number>(cur.map((x) => x.course.id));
+            const out = [...cur];
+            for (const rec of r.recommendations) {
+              if (seen.has(rec.course.id)) continue;
+              out.push(rec);
+              seen.add(rec.course.id);
+            }
+            return out;
+          });
         },
       }
     );
@@ -373,7 +406,7 @@ export default function Catalog() {
             )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {aiData?.recommendations?.map((rec) => (
+              {displayedRecs.map((rec) => (
                 <div
                   key={rec.course.id}
                   className="bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:border-primary-300 transition-all"
@@ -432,6 +465,22 @@ export default function Catalog() {
                 </div>
               ))}
             </div>
+
+            {displayedRecs.length > 0 && (
+              <div className="flex justify-center mt-6">
+                <button
+                  type="button"
+                  onClick={generateMoreAiCourses}
+                  disabled={aiRec.isPending || aiMessages.length === 0}
+                  className="px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 bg-white hover:bg-gray-50 disabled:opacity-60"
+                >
+                  <span className="inline-flex items-center gap-2">
+                    {aiRec.isPending && <Spinner className="text-gray-600" />}
+                    Generate more
+                  </span>
+                </button>
+              </div>
+            )}
 
             {aiRec.isPending && !aiData && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
