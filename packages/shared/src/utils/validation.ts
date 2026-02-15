@@ -53,6 +53,19 @@ export const instructorQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(500),
 });
 
+// Programs (majors/minors)
+export const programsQuerySchema = z.object({
+  q: z.string().max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+export const programCoursesQuerySchema = courseQuerySchema
+  .omit({ department: true, semester: true })
+  .extend({
+    tab: z.enum(["required", "electives"]).default("required"),
+    q: z.string().max(200).optional(),
+  });
+
 // Reviews
 export const createReviewSchema = z.object({
   semester: z.string().min(1),
@@ -106,6 +119,8 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type CourseQuery = z.infer<typeof courseQuerySchema>;
 export type SearchQuery = z.infer<typeof searchQuerySchema>;
 export type InstructorQuery = z.infer<typeof instructorQuerySchema>;
+export type ProgramsQuery = z.infer<typeof programsQuerySchema>;
+export type ProgramCoursesQuery = z.infer<typeof programCoursesQuerySchema>;
 export type CreateReviewInput = z.infer<typeof createReviewSchema>;
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
 export type FriendRequestInput = z.infer<typeof friendRequestSchema>;

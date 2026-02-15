@@ -256,3 +256,89 @@ export const courseListItems = pgTable("course_list_items", {
   color: varchar("color", { length: 7 }),
   addedAt: timestamp("added_at", { withTimezone: true }).defaultNow(),
 });
+
+// Programs (Emory majors/minors)
+export const programs = pgTable(
+  "programs",
+  {
+    id: serial("id").primaryKey(),
+    name: text("name").notNull(),
+    kind: varchar("kind", { length: 10 }).notNull(), // "major" | "minor"
+    degree: varchar("degree", { length: 10 }),
+    sourceUrl: text("source_url").notNull(),
+    hoursToComplete: text("hours_to_complete"),
+    coursesRequired: text("courses_required"),
+    departmentContact: text("department_contact"),
+    requirementsHash: varchar("requirements_hash", { length: 64 }).notNull(),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    isActive: boolean("is_active").notNull().default(true),
+  },
+  (table) => ({
+    sourceUrlUnique: uniqueIndex("programs_source_url_unique").on(table.sourceUrl),
+    nameIdx: index("idx_programs_name").on(table.name),
+  })
+);
+
+export const programRequirementNodes = pgTable(
+  "program_requirement_nodes",
+  {
+    id: serial("id").primaryKey(),
+    programId: integer("program_id")
+      .references(() => programs.id, { onDelete: "cascade" })
+      .notNull(),
+    ord: integer("ord").notNull(),
+    nodeType: varchar("node_type", { length: 20 }).notNull(), // heading|paragraph|list_item
+    text: text("text").notNull(),
+    listLevel: smallint("list_level"),
+  },
+  (table) => ({
+    programOrdUnique: uniqueIndex("program_requirement_nodes_program_ord_unique").on(
+      table.programId,
+      table.ord
+    ),
+    programIdx: index("idx_program_requirement_nodes_program").on(table.programId),
+  })
+);
+
+export const programCourseCodes = pgTable(
+  "program_course_codes",
+  {
+    programId: integer("program_id")
+      .references(() => programs.id, { onDelete: "cascade" })
+      .notNull(),
+    courseCode: varchar("course_code", { length: 30 }).notNull(),
+  },
+  (table) => ({
+    programCourseUnique: uniqueIndex("program_course_codes_program_code_unique").on(
+      table.programId,
+      table.courseCode
+    ),
+    programIdx: index("idx_program_course_codes_program").on(table.programId),
+  })
+);
+
+export const programSubjectCodes = pgTable(
+  "program_subject_codes",
+  {
+    programId: integer("program_id")
+      .references(() => programs.id, { onDelete: "cascade" })
+      .notNull(),
+    subjectCode: varchar("subject_code", { length: 20 }).notNull(),
+  },
+  (table) => ({
+    programSubjectUnique: uniqueIndex("program_subject_codes_program_subject_unique").on(
+      table.programId,
+      table.subjectCode
+    ),
+    programIdx: index("idx_program_subject_codes_program").on(table.programId),
+  })
+);
+
+export const programElectiveRules = pgTable("program_elective_rules", {
+  programId: integer("program_id")
+    .primaryKey()
+    .references(() => programs.id, { onDelete: "cascade" }),
+  levelFloor: smallint("level_floor"), // 300 means 300+
+});

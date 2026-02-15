@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useDepartments } from "../../hooks/useCourses.js";
+import { useEffect, useMemo, useState } from "react";
+import { useProgram, usePrograms } from "../../hooks/usePrograms.js";
 import { useInstructors } from "../../hooks/useInstructors.js";
 import {
   SEMESTERS,
@@ -13,10 +13,60 @@ import {
 interface CourseFiltersProps {
   filters: Record<string, string>;
   onChange: (key: string, value: string) => void;
+  onSetQuery: (q: string) => void;
 }
 
-export default function CourseFilters({ filters, onChange }: CourseFiltersProps) {
-  const { data: departments } = useDepartments();
+function programLabel(p: { name: string; kind: string; degree?: string | null }) {
+  const kindLabel = p.kind === "minor" ? "Minor" : "Major";
+  const degree = p.degree ? ` (${p.degree})` : "";
+  return `${p.name} - ${kindLabel}${degree}`;
+}
+
+function renderTextWithCourseLinks(text: string, onClickCode: (code: string) => void) {
+  const re =
+    /\b([A-Z][A-Z0-9_]{1,}(?:\/[A-Z][A-Z0-9_]{1,})*)\s*([0-9]{3,4})([A-Z]{0,3})\b/g;
+
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+
+  const upper = text.toUpperCase();
+  while ((m = re.exec(upper))) {
+    const start = m.index;
+    const end = start + m[0].length;
+    if (start > last) parts.push(text.slice(last, start));
+
+    const code = `${m[1]!} ${m[2]!}${m[3] || ""}`;
+    parts.push(
+      <button
+        key={`${start}-${code}`}
+        type="button"
+        onClick={() => onClickCode(code)}
+        className="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-900 font-medium"
+        title={`Search ${code}`}
+      >
+        {code}
+      </button>
+    );
+
+    last = end;
+  }
+
+  if (last < text.length) parts.push(text.slice(last));
+  return <>{parts}</>;
+}
+
+export default function CourseFilters({
+  filters,
+  onChange,
+  onSetQuery,
+}: CourseFiltersProps) {
+  const programId = filters.programId ? parseInt(filters.programId, 10) : 0;
+  const { data: program } = useProgram(programId);
+
+  const [programInput, setProgramInput] = useState("");
+  const [programOpen, setProgramOpen] = useState(false);
+  const { data: programResults, isLoading: programsLoading } = usePrograms(programInput);
   const { data: instructors } = useInstructors();
   const [showAdvanced, setShowAdvanced] = useState(
     () =>
@@ -39,27 +89,76 @@ export default function CourseFilters({ filters, onChange }: CourseFiltersProps)
     onChange("attributes", next.join(","));
   }
 
+  useEffect(() => {
+    if (program) setProgramInput(programLabel(program));
+  }, [program?.id]);
+
+  const programOptions = useMemo(() => programResults ?? [], [programResults]);
+
   return (
     <div className="space-y-4">
       <h3 className="font-semibold text-gray-900">Filters</h3>
 
       {/* Basic Filters */}
-      <div>
+      <div className="relative">
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Department
+          Major / Minor
         </label>
-        <select
-          value={filters.department || ""}
-          onChange={(e) => onChange("department", e.target.value)}
-          className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-        >
-          <option value="">All Departments</option>
-          {departments?.map((d) => (
-            <option key={d.code} value={d.code}>
-              {d.code} - {d.name}
-            </option>
-          ))}
-        </select>
+        <div className="flex gap-2">
+          <input
+            value={programInput}
+            onChange={(e) => {
+              setProgramInput(e.target.value);
+              setProgramOpen(true);
+            }}
+            onFocus={() => setProgramOpen(true)}
+            placeholder="Search majors and minors..."
+            className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+          />
+          {programId > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setProgramInput("");
+                setProgramOpen(false);
+                onChange("programId", "");
+                onChange("programTab", "");
+                onSetQuery("");
+              }}
+              className="px-2 rounded-md border border-gray-300 text-sm hover:bg-gray-50"
+              title="Clear program"
+            >
+              X
+            </button>
+          )}
+        </div>
+
+        {programOpen && (
+          <div className="absolute z-20 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg max-h-64 overflow-auto">
+            {programsLoading && (
+              <div className="px-3 py-2 text-sm text-gray-500">Loading...</div>
+            )}
+            {!programsLoading && programOptions.length === 0 && (
+              <div className="px-3 py-2 text-sm text-gray-500">No programs found</div>
+            )}
+            {!programsLoading &&
+              programOptions.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    onChange("programId", String(p.id));
+                    onChange("programTab", "required");
+                    setProgramInput(programLabel(p));
+                    setProgramOpen(false);
+                  }}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50"
+                >
+                  {programLabel(p)}
+                </button>
+              ))}
+          </div>
+        )}
       </div>
 
       <div>
@@ -263,9 +362,44 @@ export default function CourseFilters({ filters, onChange }: CourseFiltersProps)
         </div>
       )}
 
+      {program && (
+        <div className="pt-2 border-t border-gray-100 space-y-2">
+          <div className="text-sm font-semibold text-gray-900">Requirements</div>
+          <div className="text-xs text-gray-500">
+            Some requirements (like “approved electives”) can’t be fully interpreted yet.
+          </div>
+          <div className="space-y-2">
+            {program.requirements.map((n) => {
+              const key = `${n.ord}-${n.id}`;
+              if (n.nodeType === "heading") {
+                return (
+                  <div key={key} className="text-sm font-semibold text-gray-900">
+                    {n.text}
+                  </div>
+                );
+              }
+              if (n.nodeType === "list_item") {
+                return (
+                  <div key={key} className="text-sm text-gray-700 flex gap-2">
+                    <span className="text-gray-400">•</span>
+                    <span>{renderTextWithCourseLinks(n.text, (code) => onSetQuery(code))}</span>
+                  </div>
+                );
+              }
+              return (
+                <div key={key} className="text-sm text-gray-700">
+                  {renderTextWithCourseLinks(n.text, (code) => onSetQuery(code))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <button
         onClick={() => {
-          onChange("department", "");
+          onChange("programId", "");
+          onChange("programTab", "");
           onChange("semester", "");
           onChange("sort", "code");
           onChange("minRating", "");
@@ -275,6 +409,7 @@ export default function CourseFilters({ filters, onChange }: CourseFiltersProps)
           onChange("campus", "");
           onChange("componentType", "");
           onChange("instructionMethod", "");
+          onSetQuery("");
         }}
         className="w-full text-sm text-primary-600 hover:text-primary-800"
       >

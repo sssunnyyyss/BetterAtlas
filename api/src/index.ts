@@ -10,6 +10,8 @@ import userRoutes from "./routes/users.js";
 import socialRoutes from "./routes/social.js";
 import scheduleRoutes from "./routes/schedule.js";
 import aiRoutes from "./routes/ai.js";
+import programsRoutes from "./routes/programs.js";
+import adminProgramsRoutes from "./routes/adminPrograms.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
@@ -31,6 +33,8 @@ app.use(generalLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/courses", courseRoutes);
 app.use("/api/departments", departmentsRouter);
+app.use("/api/programs", programsRoutes);
+app.use("/api/admin", adminProgramsRoutes);
 app.use("/api/instructors", instructorRoutes);
 app.use("/api", reviewRoutes);
 app.use("/api", socialRoutes);
