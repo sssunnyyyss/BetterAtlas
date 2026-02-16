@@ -43,6 +43,24 @@ INSERT INTO terms (srcdb, name, season, year, is_active) VALUES
   ('5191', 'Spring 2019', 'Spring', 2019, false)
 ON CONFLICT (srcdb) DO NOTHING;
 
+-- Keep at most one active term row.
+WITH active_ranked AS (
+  SELECT
+    srcdb,
+    ROW_NUMBER() OVER (ORDER BY year DESC, srcdb DESC) AS rn
+  FROM terms
+  WHERE is_active = true
+)
+UPDATE terms t
+SET is_active = false
+FROM active_ranked ar
+WHERE t.srcdb = ar.srcdb
+  AND ar.rn > 1;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_terms_single_active_true
+  ON terms (is_active)
+  WHERE is_active = true;
+
 -- ============================================================
 -- 2. ALTER departments — widen code for longer subject codes
 -- ============================================================

@@ -339,17 +339,13 @@ export default function AdminSync() {
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
           <label className="space-y-1">
             <span className="text-xs text-gray-500">Active Semester (default)</span>
-            <select
+            <input
+              list="term-codes"
+              placeholder="e.g. 5269"
               value={activeTermCode}
               onChange={(e) => setActiveTermCode(e.target.value)}
               className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              {(courseConfig?.terms ?? []).map((term) => (
-                <option key={term.srcdb} value={term.srcdb}>
-                  {term.name} ({term.srcdb})
-                </option>
-              ))}
-            </select>
+            />
           </label>
 
           <label className="space-y-1">
@@ -376,18 +372,13 @@ export default function AdminSync() {
 
           <label className="space-y-1">
             <span className="text-xs text-gray-500">Scheduled Term Override</span>
-            <select
+            <input
+              list="term-codes"
+              placeholder="blank = use active semester"
               value={scheduleTermCode}
               onChange={(e) => setScheduleTermCode(e.target.value)}
               className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="">Use active semester</option>
-              {(courseConfig?.terms ?? []).map((term) => (
-                <option key={term.srcdb} value={term.srcdb}>
-                  {term.name} ({term.srcdb})
-                </option>
-              ))}
-            </select>
+            />
           </label>
         </div>
 
@@ -404,18 +395,13 @@ export default function AdminSync() {
 
           <label className="inline-flex items-center gap-2 text-sm text-gray-700">
             Manual Run Term:
-            <select
+            <input
+              list="term-codes"
+              placeholder="blank = use active semester"
               value={manualRunTermCode}
               onChange={(e) => setManualRunTermCode(e.target.value)}
               className="rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="">Use active semester</option>
-              {(courseConfig?.terms ?? []).map((term) => (
-                <option key={term.srcdb} value={term.srcdb}>
-                  {term.name} ({term.srcdb})
-                </option>
-              ))}
-            </select>
+            />
           </label>
 
           <button
@@ -432,6 +418,14 @@ export default function AdminSync() {
             Last updated: {new Date(courseConfig.schedule.updatedAt).toLocaleString()}
           </p>
         )}
+
+        <datalist id="term-codes">
+          {(courseConfig?.terms ?? []).map((term) => (
+            <option key={term.srcdb} value={term.srcdb}>
+              {term.name}
+            </option>
+          ))}
+        </datalist>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-6">

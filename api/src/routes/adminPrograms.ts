@@ -263,6 +263,89 @@ function createCourseSyncRun(input: {
   return run;
 }
 
+function inferSeasonFromTermCode(termCode: string): string {
+  const code = termCode.trim();
+  const seasonCode = code.slice(-1);
+  if (seasonCode === "1") return "Spring";
+  if (seasonCode === "6") return "Summer";
+  if (seasonCode === "9") return "Fall";
+  if (seasonCode === "4") return "Winter";
+  return "Unknown";
+}
+
+function inferYearFromTermCode(termCode: string): number {
+  const code = termCode.trim();
+  if (code.length >= 3) {
+    const yy = Number.parseInt(code.slice(1, 3), 10);
+    if (Number.isFinite(yy)) {
+      return 2000 + yy;
+    }
+  }
+  return new Date().getFullYear();
+}
+
+function inferTermName(termCode: string, season: string, year: number): string {
+  if (season === "Unknown") return `Term ${termCode}`;
+  return `${season} ${year}`;
+}
+
+async function ensureTermExists(termCodeInput: string) {
+  const termCode = termCodeInput.trim();
+  if (!termCode) return null;
+
+  const [existing] = await db
+    .select({
+      srcdb: terms.srcdb,
+      name: terms.name,
+      season: terms.season,
+      year: terms.year,
+      isActive: terms.isActive,
+    })
+    .from(terms)
+    .where(eq(terms.srcdb, termCode))
+    .limit(1);
+
+  if (existing) return existing;
+
+  const season = inferSeasonFromTermCode(termCode);
+  const year = inferYearFromTermCode(termCode);
+  const name = inferTermName(termCode, season, year);
+
+  const [inserted] = await db
+    .insert(terms)
+    .values({
+      srcdb: termCode,
+      name,
+      season,
+      year,
+      isActive: false,
+    })
+    .onConflictDoNothing()
+    .returning({
+      srcdb: terms.srcdb,
+      name: terms.name,
+      season: terms.season,
+      year: terms.year,
+      isActive: terms.isActive,
+    });
+
+  if (inserted) return inserted;
+
+  const [reloaded] = await db
+    .select({
+      srcdb: terms.srcdb,
+      name: terms.name,
+      season: terms.season,
+      year: terms.year,
+      isActive: terms.isActive,
+    })
+    .from(terms)
+    .where(eq(terms.srcdb, termCode))
+    .limit(1);
+
+  return reloaded || null;
+}
+
 function isValidTimezone(tz: string) {
   try {
     Intl.DateTimeFormat("en-US", { timeZone: tz }).format(new Date());
@@ -682,24 +765,16 @@ router.put("/course-sync/config", async (req, res) => {
   }
 
   if (termCode) {
-    const [termExists] = await db
-      .select({ srcdb: terms.srcdb })
-      .from(terms)
-      .where(eq(terms.srcdb, termCode))
-      .limit(1);
-    if (!termExists) {
-      return res.status(400).json({ error: `Unknown term code: ${termCode}` });
+    const ensured = await ensureTermExists(termCode);
+    if (!ensured) {
+      return res.status(400).json({ error: `Invalid termCode: ${termCode}` });
     }
   }
 
   if (activeTermCode) {
-    const [activeExists] = await db
-      .select({ srcdb: terms.srcdb })
-      .from(terms)
-      .where(eq(terms.srcdb, activeTermCode))
-      .limit(1);
-    if (!activeExists) {
-      return res.status(400).json({ error: `Unknown activeTermCode: ${activeTermCode}` });
+    const ensured = await ensureTermExists(activeTermCode);
+    if (!ensured) {
+      return res.status(400).json({ error: `Invalid activeTermCode: ${activeTermCode}` });
     }
 
     await db.transaction(async (tx) => {
@@ -749,13 +824,9 @@ router.post("/course-sync/runs", async (req, res) => {
   const termCode = termCodeRaw ? termCodeRaw : null;
 
   if (termCode) {
-    const [termExists] = await db
-      .select({ srcdb: terms.srcdb })
-      .from(terms)
-      .where(eq(terms.srcdb, termCode))
-      .limit(1);
-    if (!termExists) {
-      return res.status(400).json({ error: `Unknown term code: ${termCode}` });
+    const ensured = await ensureTermExists(termCode);
+    if (!ensured) {
+      return res.status(400).json({ error: `Invalid termCode: ${termCode}` });
     }
   }
 
