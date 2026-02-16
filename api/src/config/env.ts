@@ -35,4 +35,5 @@ export const env = {
     .split(",")
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean),
+  metricsDiskPath: process.env.METRICS_DISK_PATH || "/",
 } as const;

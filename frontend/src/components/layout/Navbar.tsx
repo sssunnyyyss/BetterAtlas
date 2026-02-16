@@ -12,6 +12,9 @@ const NAV_ITEMS = [
 export default function Navbar() {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navItems = user?.isAdmin
+    ? [...NAV_ITEMS, { label: "Admin", path: "/admin" }]
+    : NAV_ITEMS;
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-50">
@@ -22,7 +25,7 @@ export default function Navbar() {
               BetterAtlas
             </Link>
             <div className="hidden sm:flex gap-1">
-              {NAV_ITEMS.map((item) => {
+              {navItems.map((item) => {
                 const isActive =
                   item.path === "/"
                     ? location.pathname === "/"

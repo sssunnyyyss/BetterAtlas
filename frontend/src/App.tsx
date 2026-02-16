@@ -9,6 +9,12 @@ import ProfessorDetail from "./pages/ProfessorDetail.js";
 import Profile from "./pages/Profile.js";
 import Friends from "./pages/Friends.js";
 import Schedule from "./pages/Schedule.js";
+import AdminLayout from "./pages/admin/AdminLayout.js";
+import AdminSync from "./pages/admin/AdminSync.js";
+import AdminSystem from "./pages/admin/AdminSystem.js";
+import AdminStats from "./pages/admin/AdminStats.js";
+import AdminUsers from "./pages/admin/AdminUsers.js";
+import AdminLogs from "./pages/admin/AdminLogs.js";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -20,6 +26,20 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     );
   }
   if (!user) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/" replace />;
+  if (!user.isAdmin) return <Navigate to="/profile" replace />;
   return <>{children}</>;
 }
 
@@ -87,6 +107,21 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin"
+          element={
+            <AdminRoute>
+              <AdminLayout />
+            </AdminRoute>
+          }
+        >
+          <Route index element={<Navigate to="/admin/sync" replace />} />
+          <Route path="sync" element={<AdminSync />} />
+          <Route path="system" element={<AdminSystem />} />
+          <Route path="stats" element={<AdminStats />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="logs" element={<AdminLogs />} />
+        </Route>
       </Routes>
     </BrowserRouter>
   );

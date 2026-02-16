@@ -18,6 +18,7 @@ services:
       NODE_ENV: development
       PROGRAMS_SYNC_SECRET: ${PROGRAMS_SYNC_SECRET:-}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      METRICS_DISK_PATH: ${METRICS_DISK_PATH:-/}
     volumes:
       - ./api/src:/app/api/src:cached
       - ./packages/shared/src:/app/packages/shared/src:cached

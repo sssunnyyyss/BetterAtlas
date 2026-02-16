@@ -21,6 +21,7 @@ services:
       NODE_ENV: production
       PROGRAMS_SYNC_SECRET: ${PROGRAMS_SYNC_SECRET}
       ADMIN_EMAILS: ${ADMIN_EMAILS}
+      METRICS_DISK_PATH: ${METRICS_DISK_PATH:-/}
     volumes: []
 
   frontend:

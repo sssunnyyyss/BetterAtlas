@@ -11,7 +11,7 @@ import socialRoutes from "./routes/social.js";
 import scheduleRoutes from "./routes/schedule.js";
 import aiRoutes from "./routes/ai.js";
 import programsRoutes from "./routes/programs.js";
-import adminProgramsRoutes from "./routes/adminPrograms.js";
+import adminProgramsRoutes, { recordAdminAppError } from "./routes/adminPrograms.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
@@ -51,11 +51,19 @@ app.get("/api/health", (_req, res) => {
 app.use(
   (
     err: Error,
-    _req: express.Request,
+    req: express.Request,
     res: express.Response,
     _next: express.NextFunction
   ) => {
     console.error(err);
+    recordAdminAppError({
+      method: req.method,
+      path: req.originalUrl || req.path,
+      status: 500,
+      message: err.message || "Internal server error",
+      stack: err.stack || null,
+      userId: req.user?.id || null,
+    });
     res.status(500).json({ error: "Internal server error" });
   }
 );
