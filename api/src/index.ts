@@ -12,6 +12,7 @@ import scheduleRoutes from "./routes/schedule.js";
 import aiRoutes from "./routes/ai.js";
 import programsRoutes from "./routes/programs.js";
 import adminProgramsRoutes, { recordAdminAppError } from "./routes/adminPrograms.js";
+import inviteCodeRoutes from "./routes/inviteCodes.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 
 const app = express();
@@ -35,6 +36,7 @@ app.use("/api/courses", courseRoutes);
 app.use("/api/departments", departmentsRouter);
 app.use("/api/programs", programsRoutes);
 app.use("/api/admin", adminProgramsRoutes);
+app.use("/api/admin/invite-codes", inviteCodeRoutes);
 app.use("/api/instructors", instructorRoutes);
 app.use("/api", reviewRoutes);
 app.use("/api", socialRoutes);

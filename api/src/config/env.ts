@@ -5,6 +5,9 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 
+const parseBoolean = (value: string | undefined): boolean =>
+  value?.trim().toLowerCase() === "true";
+
 export const env = {
   port: parseInt(process.env.API_PORT || "3001", 10),
   nodeEnv: process.env.NODE_ENV || "development",
@@ -36,4 +39,5 @@ export const env = {
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean),
   metricsDiskPath: process.env.METRICS_DISK_PATH || "/",
+  betaRequireInviteCode: parseBoolean(process.env.BETA_REQUIRE_INVITE_CODE),
 } as const;

@@ -1,6 +1,7 @@
 import type { ReviewWithAuthor } from "@betteratlas/shared";
 import RatingStars from "./RatingStars.js";
 import { useAuth } from "../../lib/auth.js";
+import UserBadge from "../ui/UserBadge.js";
 
 interface ReviewCardProps {
   review: ReviewWithAuthor;
@@ -14,21 +15,20 @@ export default function ReviewCard({ review, onDelete, onEdit }: ReviewCardProps
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4">
-      <div className="flex justify-between items-start">
-        <div>
-          <span className="text-sm font-medium text-gray-900">
-            {review.author ? `@${review.author.username}` : "Anonymous"}
-          </span>
-          {review.semester && (
-            <span className="text-xs text-gray-500 ml-2">
-              {review.semester}
+      <div className="flex justify-between items-start gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-sm font-medium text-gray-900">
+              {review.author ? `@${review.author.username}` : "Anonymous"}
             </span>
-          )}
-          {review.instructor?.name && (
-            <span className="text-xs text-gray-500 ml-2">
-              {review.instructor.name}
-            </span>
-          )}
+            {(review.author?.badges ?? []).map((badge) => (
+              <UserBadge key={badge.slug} badge={badge} />
+            ))}
+          </div>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
+            {review.semester && <span>{review.semester}</span>}
+            {review.instructor?.name && <span>{review.instructor.name}</span>}
+          </div>
         </div>
         {isOwner && (
           <div className="flex items-center gap-2">

@@ -1,17 +1,31 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
-import { getUserById, updateUser } from "../services/userService.js";
+import {
+  getUserById,
+  markOnboardingComplete,
+  updateUser,
+} from "../services/userService.js";
 import { getReviewsForUser } from "../services/reviewService.js";
 import { isAdminEmail } from "../utils/admin.js";
+import { listBadgesForUser } from "../services/badgeService.js";
 
 const router = Router();
+
+async function withUserPayload<T extends { id: string; email: string }>(user: T) {
+  const badges = await listBadgesForUser(user.id);
+  return {
+    ...user,
+    badges,
+    isAdmin: isAdminEmail(user.email),
+  };
+}
 
 router.get("/me", requireAuth, async (req, res) => {
   const user = await getUserById(req.user!.id);
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
-  res.json({ ...user, isAdmin: isAdminEmail(user.email) });
+  res.json(await withUserPayload(user));
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
@@ -33,7 +47,7 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (!updated) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.json({ ...updated, isAdmin: isAdminEmail(updated.email) });
+    res.json(await withUserPayload(updated));
   } catch (err: any) {
     const msg = String(err?.message || "");
     if (msg.toLowerCase().includes("username")) {
@@ -43,9 +57,22 @@ router.patch("/me", requireAuth, async (req, res) => {
   }
 });
 
+router.patch("/me/onboarding", requireAuth, async (req, res) => {
+  const updated = await markOnboardingComplete(req.user!.id);
+  if (!updated) {
+    return res.status(404).json({ error: "User not found" });
+  }
+  res.json(await withUserPayload(updated));
+});
+
 router.get("/me/reviews", requireAuth, async (req, res) => {
   const reviews = await getReviewsForUser(req.user!.id);
   res.json(reviews);
+});
+
+router.get("/:id/badges", requireAuth, async (req, res) => {
+  const badges = await listBadgesForUser(req.params.id);
+  res.json(badges);
 });
 
 export default router;

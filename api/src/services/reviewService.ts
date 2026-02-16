@@ -14,6 +14,7 @@ import {
 import { eq, and, sql, desc } from "drizzle-orm";
 import type { CreateReviewInput, UpdateReviewInput } from "@betteratlas/shared";
 import { resolveTermCode } from "./termLookup.js";
+import { listBadgesForUsers } from "./badgeService.js";
 
 export async function getReviewsForCourse(courseId: number) {
   const data = await db
@@ -41,6 +42,9 @@ export async function getReviewsForCourse(courseId: number) {
     .leftJoin(instructors, eq(reviews.instructorId, instructors.id))
     .where(eq(reviews.courseId, courseId))
     .orderBy(desc(reviews.createdAt));
+  const badgesByUser = await listBadgesForUsers(
+    data.filter((r) => !r.isAnonymous).map((r) => r.userId)
+  );
 
   return data.map((r) => ({
     id: r.id,
@@ -57,7 +61,12 @@ export async function getReviewsForCourse(courseId: number) {
     isAnonymous: r.isAnonymous,
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
-    author: r.isAnonymous ? null : { username: r.username ?? "user" },
+    author: r.isAnonymous
+      ? null
+      : {
+          username: r.username ?? "user",
+          badges: badgesByUser.get(r.userId) ?? [],
+        },
   }));
 }
 
@@ -92,6 +101,8 @@ export async function getReviewsForUser(userId: string) {
     .leftJoin(instructors, eq(reviews.instructorId, instructors.id))
     .where(eq(reviews.userId, userId))
     .orderBy(desc(reviews.createdAt));
+  const badgesByUser = await listBadgesForUsers([userId]);
+  const userBadges = badgesByUser.get(userId) ?? [];
 
   return data.map((r) => ({
     id: r.id,
@@ -116,7 +127,7 @@ export async function getReviewsForUser(userId: string) {
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
     // This is a private "my reviews" view.
-    author: { username: r.username ?? "you" },
+    author: { username: r.username ?? "you", badges: userBadges },
     course: { id: r.courseId, code: r.courseCode, title: r.courseTitle },
   }));
 }
@@ -147,6 +158,9 @@ export async function getReviewsForSection(sectionId: number) {
     .leftJoin(instructors, eq(reviews.instructorId, instructors.id))
     .where(eq(reviews.sectionId, sectionId))
     .orderBy(desc(reviews.createdAt));
+  const badgesByUser = await listBadgesForUsers(
+    data.filter((r) => !r.isAnonymous).map((r) => r.userId)
+  );
 
   return data.map((r) => ({
     id: r.id,
@@ -163,7 +177,12 @@ export async function getReviewsForSection(sectionId: number) {
     isAnonymous: r.isAnonymous,
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
-    author: r.isAnonymous ? null : { username: r.username ?? "user" },
+    author: r.isAnonymous
+      ? null
+      : {
+          username: r.username ?? "user",
+          badges: badgesByUser.get(r.userId) ?? [],
+        },
   }));
 }
 

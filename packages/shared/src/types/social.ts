@@ -1,3 +1,5 @@
+import type { Badge } from "./user.js";
+
 export type FriendshipStatus = "pending" | "accepted" | "rejected";
 
 export interface Friendship {
@@ -16,6 +18,7 @@ export interface FriendWithProfile {
     fullName: string;
     graduationYear: number | null;
     major: string | null;
+    badges: Badge[];
   };
   status: FriendshipStatus;
 }

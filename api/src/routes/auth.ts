@@ -7,8 +7,41 @@ import { supabase, db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { isAdminEmail } from "../utils/admin.js";
+import { env } from "../config/env.js";
+import {
+  evaluateInviteCode,
+  getInviteCodeByCode,
+  incrementInviteCodeUsedCount,
+} from "../services/inviteCodeService.js";
+import {
+  getBadgeBySlug,
+  grantBadgeToUser,
+  listBadgesForUser,
+} from "../services/badgeService.js";
 
 const router = Router();
+
+const authUserSelect = {
+  id: users.id,
+  email: users.email,
+  username: users.username,
+  fullName: users.displayName,
+  graduationYear: users.graduationYear,
+  major: users.major,
+  hasCompletedOnboarding: users.hasCompletedOnboarding,
+  createdAt: users.createdAt,
+};
+
+type AuthUserRow = {
+  id: string;
+  email: string;
+  username: string;
+  fullName: string;
+  graduationYear: number | null;
+  major: string | null;
+  hasCompletedOnboarding: boolean;
+  createdAt: Date | null;
+};
 
 function withAdminFlag<T extends { email: string }>(user: T) {
   return {
@@ -17,9 +50,31 @@ function withAdminFlag<T extends { email: string }>(user: T) {
   };
 }
 
+async function withAuthPayload(user: AuthUserRow) {
+  const badges = await listBadgesForUser(user.id);
+  return withAdminFlag({
+    ...user,
+    badges,
+  });
+}
+
 router.post("/register", authLimiter, validate(registerSchema), async (req, res) => {
   try {
-    const { email, password, fullName, username, graduationYear, major } = req.body;
+    const {
+      email,
+      password,
+      fullName,
+      username,
+      graduationYear,
+      major,
+      inviteCode,
+    } = req.body;
+
+    if (env.betaRequireInviteCode && !inviteCode) {
+      return res
+        .status(400)
+        .json({ error: "Invite code is required while beta access is enabled" });
+    }
 
     // Pre-check username uniqueness for a clean 409 response.
     const [usernameTaken] = await db
@@ -29,6 +84,36 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
       .limit(1);
     if (usernameTaken) {
       return res.status(409).json({ error: "Username already taken" });
+    }
+
+    let validInviteCode:
+      | {
+          id: number;
+          code: string;
+          badgeSlug: string;
+          maxUses: number | null;
+          usedCount: number;
+          expiresAt: Date | null;
+          createdAt: Date | null;
+        }
+      | null = null;
+
+    if (inviteCode) {
+      const invite = await getInviteCodeByCode(inviteCode);
+      if (!invite) {
+        return res.status(400).json({ error: "Invalid or expired invite code" });
+      }
+
+      const evaluation = evaluateInviteCode({
+        usedCount: invite.usedCount,
+        maxUses: invite.maxUses,
+        expiresAt: invite.expiresAt,
+      });
+      if (!evaluation.ok) {
+        return res.status(400).json({ error: "Invalid or expired invite code" });
+      }
+
+      validInviteCode = invite;
     }
     
     // Create user in Supabase Auth
@@ -58,19 +143,22 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
         displayName: fullName,
         graduationYear: graduationYear ?? null,
         major: major ?? null,
+        inviteCode: validInviteCode?.code ?? null,
       })
-      .returning({
-        id: users.id,
-        email: users.email,
-        username: users.username,
-        fullName: users.displayName,
-        graduationYear: users.graduationYear,
-        major: users.major,
-        createdAt: users.createdAt,
-      });
+      .returning(authUserSelect);
+
+    if (validInviteCode) {
+      await incrementInviteCodeUsedCount(validInviteCode.id);
+      const badge = await getBadgeBySlug(validInviteCode.badgeSlug);
+      if (badge) {
+        await grantBadgeToUser(user.id, badge.id);
+      }
+    }
+
+    const authUser = await withAuthPayload(user);
 
     res.status(201).json({
-      user: withAdminFlag(user),
+      user: authUser,
       session: authData.session,
     });
   } catch (err: any) {
@@ -104,6 +192,7 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
         fullName: users.displayName,
         graduationYear: users.graduationYear,
         major: users.major,
+        hasCompletedOnboarding: users.hasCompletedOnboarding,
         createdAt: users.createdAt,
       })
       .from(users)
@@ -138,11 +227,14 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
           fullName: users.displayName,
           graduationYear: users.graduationYear,
           major: users.major,
+          hasCompletedOnboarding: users.hasCompletedOnboarding,
           createdAt: users.createdAt,
         });
+
+      const authUser = await withAuthPayload(newUser);
       
       return res.json({
-        user: withAdminFlag(newUser),
+        user: authUser,
         session: authData.session,
       });
     }
@@ -161,15 +253,18 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
           fullName: users.displayName,
           graduationYear: users.graduationYear,
           major: users.major,
+          hasCompletedOnboarding: users.hasCompletedOnboarding,
           createdAt: users.createdAt,
         });
       if (updated) {
-        return res.json({ user: withAdminFlag(updated), session: authData.session });
+        const authUser = await withAuthPayload(updated);
+        return res.json({ user: authUser, session: authData.session });
       }
     }
 
+    const authUser = await withAuthPayload(user);
     res.json({
-      user: withAdminFlag(user),
+      user: authUser,
       session: authData.session,
     });
   } catch (err: any) {
@@ -197,15 +292,16 @@ router.post("/logout", async (req, res) => {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [user] = await db
-      .select({
-        id: users.id,
-        email: users.email,
-        username: users.username,
-        fullName: users.displayName,
-        graduationYear: users.graduationYear,
-        major: users.major,
-        createdAt: users.createdAt,
-      })
+        .select({
+          id: users.id,
+          email: users.email,
+          username: users.username,
+          fullName: users.displayName,
+          graduationYear: users.graduationYear,
+          major: users.major,
+          hasCompletedOnboarding: users.hasCompletedOnboarding,
+          createdAt: users.createdAt,
+        })
       .from(users)
       .where(eq(users.id, req.user!.id))
       .limit(1);
@@ -244,10 +340,11 @@ router.get("/me", requireAuth, async (req, res) => {
           fullName: users.displayName,
           graduationYear: users.graduationYear,
           major: users.major,
+          hasCompletedOnboarding: users.hasCompletedOnboarding,
           createdAt: users.createdAt,
         });
 
-      if (created) return res.json(withAdminFlag(created));
+      if (created) return res.json(await withAuthPayload(created));
 
       // In case of a race where another request inserted the row, re-read once.
       const [reloaded] = await db
@@ -258,6 +355,7 @@ router.get("/me", requireAuth, async (req, res) => {
           fullName: users.displayName,
           graduationYear: users.graduationYear,
           major: users.major,
+          hasCompletedOnboarding: users.hasCompletedOnboarding,
           createdAt: users.createdAt,
         })
         .from(users)
@@ -265,7 +363,7 @@ router.get("/me", requireAuth, async (req, res) => {
         .limit(1);
 
       if (!reloaded) return res.status(404).json({ error: "User not found" });
-      return res.json(withAdminFlag(reloaded));
+      return res.json(await withAuthPayload(reloaded));
     }
 
     if (!user.username) {
@@ -282,12 +380,13 @@ router.get("/me", requireAuth, async (req, res) => {
           fullName: users.displayName,
           graduationYear: users.graduationYear,
           major: users.major,
+          hasCompletedOnboarding: users.hasCompletedOnboarding,
           createdAt: users.createdAt,
         });
-      if (updated) return res.json(withAdminFlag(updated));
+      if (updated) return res.json(await withAuthPayload(updated));
     }
 
-    res.json(withAdminFlag(user));
+    res.json(await withAuthPayload(user));
   } catch (err: any) {
     console.error("Get user error:", err);
     res.status(500).json({ error: err.message || "Failed to get user" });

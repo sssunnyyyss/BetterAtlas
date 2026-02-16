@@ -1,4 +1,5 @@
 import type { FriendWithProfile } from "@betteratlas/shared";
+import UserBadge from "../ui/UserBadge.js";
 
 interface FriendCardProps {
   friend: FriendWithProfile;
@@ -14,9 +15,12 @@ export default function FriendCard({
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
       <div>
-        <h4 className="font-medium text-gray-900">
-          @{friend.user.username}
-        </h4>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <h4 className="font-medium text-gray-900">@{friend.user.username}</h4>
+          {(friend.user.badges ?? []).map((badge) => (
+            <UserBadge key={badge.slug} badge={badge} />
+          ))}
+        </div>
         <div className="text-xs text-gray-500 mt-0.5">{friend.user.fullName}</div>
         <div className="flex gap-3 text-xs text-gray-500 mt-0.5">
           {friend.user.major && <span>{friend.user.major}</span>}

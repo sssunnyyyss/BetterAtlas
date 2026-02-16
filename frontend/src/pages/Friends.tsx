@@ -74,7 +74,7 @@ export default function Friends() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
+    <div className="max-w-4xl mx-auto p-6" data-tour-id="friends-add-list">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Friends</h1>
 
       {/* Send friend request */}

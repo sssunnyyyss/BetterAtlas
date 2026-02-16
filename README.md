@@ -70,6 +70,13 @@ cp .env.example .env
 # Edit .env with your database/redis URLs if not using docker defaults
 ```
 
+### Beta Onboarding Flags
+
+Set these when running the beta invite flow:
+
+- `BETA_REQUIRE_INVITE_CODE=true` (API enforcement for `POST /api/auth/register`)
+- `VITE_BETA_REQUIRE_INVITE_CODE=true` (frontend registration form behavior)
+
 ### 5. Push the database schema
 
 ```bash
@@ -180,6 +187,24 @@ Full-text search uses PostgreSQL `tsvector` with weighted ranking (course code/t
 |--------|------|------|-------------|
 | GET | `/api/users/me` | Yes | Profile info |
 | PATCH | `/api/users/me` | Yes | Update profile |
+| PATCH | `/api/users/me/onboarding` | Yes | Mark onboarding complete |
+| GET | `/api/users/:id/badges` | Yes | Get a user's badges |
+
+### Admin Invite Codes
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api/admin/invite-codes` | Admin | Create invite code |
+| GET | `/api/admin/invite-codes` | Admin | List invite codes |
+| DELETE | `/api/admin/invite-codes/:id` | Admin | Delete invite code |
+
+## Beta Onboarding Verification Checklist
+
+- Signup without `inviteCode` returns `400` when `BETA_REQUIRE_INVITE_CODE=true`.
+- Signup with valid `inviteCode` succeeds and grants `early-adopter` badge.
+- First login for users with `hasCompletedOnboarding=false` shows the welcome modal.
+- Choosing `Take the tour` and completing or skipping the tour sets `hasCompletedOnboarding=true`.
+- Choosing `Skip for now` in the welcome modal keeps onboarding incomplete for replay.
+- `Profile` page `Restart tour` action restarts the guided tour.
 
 ## Frontend Pages
 

@@ -6,6 +6,7 @@ const TABS = [
   { label: "System", path: "/admin/system" },
   { label: "Stats", path: "/admin/stats" },
   { label: "Users", path: "/admin/users" },
+  { label: "Invite Codes", path: "/admin/invite-codes" },
   { label: "Logs", path: "/admin/logs" },
 ];
 

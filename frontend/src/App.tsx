@@ -16,6 +16,8 @@ import AdminSystem from "./pages/admin/AdminSystem.js";
 import AdminStats from "./pages/admin/AdminStats.js";
 import AdminUsers from "./pages/admin/AdminUsers.js";
 import AdminLogs from "./pages/admin/AdminLogs.js";
+import AdminInviteCodes from "./pages/admin/AdminInviteCodes.js";
+import OnboardingProvider from "./components/onboarding/OnboardingProvider.js";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
@@ -57,75 +59,78 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      {user && <Navbar />}
-      <Routes>
-        <Route path="/" element={user ? <Home /> : <Landing />} />
-        <Route
-          path="/catalog"
-          element={
-            <ProtectedRoute>
-              <Catalog />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/catalog/:id"
-          element={
-            <ProtectedRoute>
-              <CourseDetail />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/professors/:id"
-          element={
-            <ProtectedRoute>
-              <ProfessorDetail />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute>
-              <Profile />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/friends"
-          element={
-            <ProtectedRoute>
-              <Friends />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/schedule"
-          element={
-            <ProtectedRoute>
-              <Schedule />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <AdminLayout />
-            </AdminRoute>
-          }
-        >
-          <Route index element={<Navigate to="/admin/sync" replace />} />
-          <Route path="sync" element={<AdminSync />} />
-          <Route path="developers" element={<AdminAiTrainer />} />
-          <Route path="ai-trainer" element={<Navigate to="/admin/developers" replace />} />
-          <Route path="system" element={<AdminSystem />} />
-          <Route path="stats" element={<AdminStats />} />
-          <Route path="users" element={<AdminUsers />} />
-          <Route path="logs" element={<AdminLogs />} />
-        </Route>
-      </Routes>
+      <OnboardingProvider>
+        {user && <Navbar />}
+        <Routes>
+          <Route path="/" element={user ? <Home /> : <Landing />} />
+          <Route
+            path="/catalog"
+            element={
+              <ProtectedRoute>
+                <Catalog />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/catalog/:id"
+            element={
+              <ProtectedRoute>
+                <CourseDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/professors/:id"
+            element={
+              <ProtectedRoute>
+                <ProfessorDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <ProtectedRoute>
+                <Profile />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/friends"
+            element={
+              <ProtectedRoute>
+                <Friends />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/schedule"
+            element={
+              <ProtectedRoute>
+                <Schedule />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <AdminRoute>
+                <AdminLayout />
+              </AdminRoute>
+            }
+          >
+            <Route index element={<Navigate to="/admin/sync" replace />} />
+            <Route path="sync" element={<AdminSync />} />
+            <Route path="developers" element={<AdminAiTrainer />} />
+            <Route path="ai-trainer" element={<Navigate to="/admin/developers" replace />} />
+            <Route path="system" element={<AdminSystem />} />
+            <Route path="stats" element={<AdminStats />} />
+            <Route path="users" element={<AdminUsers />} />
+            <Route path="invite-codes" element={<AdminInviteCodes />} />
+            <Route path="logs" element={<AdminLogs />} />
+          </Route>
+        </Routes>
+      </OnboardingProvider>
     </BrowserRouter>
   );
 }

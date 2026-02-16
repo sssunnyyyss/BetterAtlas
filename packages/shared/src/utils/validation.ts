@@ -17,6 +17,18 @@ export const registerSchema = z.object({
       (u) => /^[a-z0-9_]+$/.test(u),
       "Username can only contain letters, numbers, and underscores"
     ),
+  inviteCode: z
+    .string()
+    .optional()
+    .transform((code) => {
+      if (typeof code !== "string") return undefined;
+      const normalized = code.trim().toUpperCase();
+      return normalized.length > 0 ? normalized : undefined;
+    })
+    .refine(
+      (code) => code === undefined || /^[A-Z0-9-]+$/.test(code),
+      "Invite code can only contain letters, numbers, and hyphens"
+    ),
   graduationYear: z.number().int().min(2000).max(2040).optional(),
   major: z.string().max(100).optional(),
 });

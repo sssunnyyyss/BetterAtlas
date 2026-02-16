@@ -3,7 +3,10 @@ import { useAuth } from "../lib/auth.js";
 
 export default function Landing() {
   const { login, register } = useAuth();
+  const betaRequiresInviteCode =
+    import.meta.env.VITE_BETA_REQUIRE_INVITE_CODE === "true";
   const [mode, setMode] = useState<"login" | "register">("login");
+  const [inviteCode, setInviteCode] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -28,6 +31,7 @@ export default function Landing() {
           username,
           graduationYear: graduationYear ? parseInt(graduationYear) : undefined,
           major: major || undefined,
+          inviteCode: inviteCode || undefined,
         });
       }
     } catch (err: any) {
@@ -115,6 +119,24 @@ export default function Landing() {
 
             {mode === "register" && (
               <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Invite Code {betaRequiresInviteCode ? "" : "(Optional)"}
+                  </label>
+                  <input
+                    type="text"
+                    required={betaRequiresInviteCode}
+                    value={inviteCode}
+                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                    placeholder="BETA-2026"
+                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    {betaRequiresInviteCode
+                      ? "Required during beta access."
+                      : "Required only during invite-only beta."}
+                  </p>
+                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Full Name

@@ -3,6 +3,17 @@ import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import type { RegisterInput } from "@betteratlas/shared";
 
+const userProfileSelect = {
+  id: users.id,
+  email: users.email,
+  username: users.username,
+  fullName: users.displayName,
+  graduationYear: users.graduationYear,
+  major: users.major,
+  hasCompletedOnboarding: users.hasCompletedOnboarding,
+  createdAt: users.createdAt,
+};
+
 export async function createUserProfile(input: RegisterInput & { id: string }) {
   const [user] = await db
     .insert(users)
@@ -13,31 +24,16 @@ export async function createUserProfile(input: RegisterInput & { id: string }) {
       displayName: input.fullName,
       graduationYear: input.graduationYear ?? null,
       major: input.major ?? null,
+      inviteCode: input.inviteCode ?? null,
     })
-    .returning({
-      id: users.id,
-      email: users.email,
-      username: users.username,
-      fullName: users.displayName,
-      graduationYear: users.graduationYear,
-      major: users.major,
-      createdAt: users.createdAt,
-    });
+    .returning(userProfileSelect);
 
   return user;
 }
 
 export async function getUserById(id: string) {
   const [user] = await db
-    .select({
-      id: users.id,
-      email: users.email,
-      username: users.username,
-      fullName: users.displayName,
-      graduationYear: users.graduationYear,
-      major: users.major,
-      createdAt: users.createdAt,
-    })
+    .select(userProfileSelect)
     .from(users)
     .where(eq(users.id, id))
     .limit(1);
@@ -58,15 +54,17 @@ export async function updateUser(
       ...(data.major !== undefined ? { major: data.major } : {}),
     })
     .where(eq(users.id, id))
-    .returning({
-      id: users.id,
-      email: users.email,
-      username: users.username,
-      fullName: users.displayName,
-      graduationYear: users.graduationYear,
-      major: users.major,
-      createdAt: users.createdAt,
-    });
+    .returning(userProfileSelect);
+
+  return updated ?? null;
+}
+
+export async function markOnboardingComplete(id: string) {
+  const [updated] = await db
+    .update(users)
+    .set({ hasCompletedOnboarding: true })
+    .where(eq(users.id, id))
+    .returning(userProfileSelect);
 
   return updated ?? null;
 }

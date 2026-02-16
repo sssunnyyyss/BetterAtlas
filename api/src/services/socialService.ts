@@ -11,6 +11,7 @@ import {
 import { eq, and, or, sql } from "drizzle-orm";
 import type { CreateListInput, AddListItemInput } from "@betteratlas/shared";
 import { resolveTermCode } from "./termLookup.js";
+import { listBadgesForUsers } from "./badgeService.js";
 
 // ---- Friends ----
 
@@ -41,6 +42,7 @@ export async function getFriends(userId: string) {
         eq(friendships.status, "accepted")
       )
     );
+  const badgesByUser = await listBadgesForUsers(rows.map((r) => r.friendId));
 
   return rows.map((r) => ({
     friendshipId: r.friendshipId,
@@ -50,6 +52,7 @@ export async function getFriends(userId: string) {
       fullName: r.fullName,
       graduationYear: r.graduationYear,
       major: r.major,
+      badges: badgesByUser.get(r.friendId) ?? [],
     },
     status: r.status as "accepted",
   }));
@@ -74,6 +77,7 @@ export async function getPendingRequests(userId: string) {
         eq(friendships.status, "pending")
       )
     );
+  const badgesByUser = await listBadgesForUsers(rows.map((r) => r.requesterId));
 
   return rows.map((r) => ({
     friendshipId: r.friendshipId,
@@ -83,6 +87,7 @@ export async function getPendingRequests(userId: string) {
       fullName: r.fullName,
       graduationYear: r.graduationYear,
       major: r.major,
+      badges: badgesByUser.get(r.requesterId) ?? [],
     },
     status: "pending" as const,
   }));
