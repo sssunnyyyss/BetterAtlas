@@ -16,6 +16,8 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       API_PORT: "3001"
       NODE_ENV: development
+      PROGRAMS_SYNC_SECRET: ${PROGRAMS_SYNC_SECRET:-}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
     volumes:
       - ./api/src:/app/api/src:cached
       - ./packages/shared/src:/app/packages/shared/src:cached

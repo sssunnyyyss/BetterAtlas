@@ -19,6 +19,8 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       API_PORT: "3001"
       NODE_ENV: production
+      PROGRAMS_SYNC_SECRET: ${PROGRAMS_SYNC_SECRET}
+      ADMIN_EMAILS: ${ADMIN_EMAILS}
     volumes: []
 
   frontend:
