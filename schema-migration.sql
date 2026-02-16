@@ -318,4 +318,131 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique
 ALTER TABLE sections
   ADD COLUMN IF NOT EXISTS registration_restrictions TEXT;
 
+-- ============================================================
+-- 11. ALTER users - admin flags + deactivation + activity tracking
+-- ============================================================
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS is_disabled BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS disabled_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS disabled_reason TEXT,
+  ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ;
+
+CREATE INDEX IF NOT EXISTS idx_users_is_admin
+  ON users (is_admin);
+
+CREATE INDEX IF NOT EXISTS idx_users_is_disabled
+  ON users (is_disabled);
+
+CREATE INDEX IF NOT EXISTS idx_users_last_seen_at
+  ON users (last_seen_at);
+
+-- ============================================================
+-- 12. CREATE admin tables (jobs, logs, presets, diagnostics)
+-- ============================================================
+CREATE TABLE IF NOT EXISTS admin_job_runs (
+  id SERIAL PRIMARY KEY,
+  type VARCHAR(50) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  requested_by UUID NULL REFERENCES users(id),
+  params JSONB,
+  stats JSONB,
+  error TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  started_at TIMESTAMPTZ,
+  finished_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_job_runs_type
+  ON admin_job_runs (type);
+
+CREATE INDEX IF NOT EXISTS idx_admin_job_runs_status
+  ON admin_job_runs (status);
+
+CREATE INDEX IF NOT EXISTS idx_admin_job_runs_created_at
+  ON admin_job_runs (created_at);
+
+CREATE TABLE IF NOT EXISTS admin_job_logs (
+  id SERIAL PRIMARY KEY,
+  run_id INTEGER NOT NULL REFERENCES admin_job_runs(id) ON DELETE CASCADE,
+  ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  level VARCHAR(10) NOT NULL DEFAULT 'info',
+  message TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_job_logs_run_id
+  ON admin_job_logs (run_id);
+
+CREATE INDEX IF NOT EXISTS idx_admin_job_logs_run_id_id
+  ON admin_job_logs (run_id, id);
+
+CREATE TABLE IF NOT EXISTS admin_sync_presets (
+  id SERIAL PRIMARY KEY,
+  kind VARCHAR(50) NOT NULL,
+  name TEXT NOT NULL,
+  params JSONB NOT NULL,
+  is_default BOOLEAN NOT NULL DEFAULT false,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_by UUID NULL REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_sync_presets_kind
+  ON admin_sync_presets (kind);
+
+CREATE INDEX IF NOT EXISTS idx_admin_sync_presets_active
+  ON admin_sync_presets (is_active);
+
+CREATE TABLE IF NOT EXISTS admin_app_errors (
+  id SERIAL PRIMARY KEY,
+  ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  method VARCHAR(10),
+  path TEXT,
+  status INTEGER,
+  message TEXT,
+  stack TEXT,
+  user_id UUID NULL REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_app_errors_ts
+  ON admin_app_errors (ts);
+
+CREATE TABLE IF NOT EXISTS admin_audit_log (
+  id SERIAL PRIMARY KEY,
+  ts TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  actor_id UUID NULL REFERENCES users(id),
+  action VARCHAR(50) NOT NULL,
+  target TEXT,
+  meta JSONB
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_ts
+  ON admin_audit_log (ts);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_log_action
+  ON admin_audit_log (action);
+
+-- ============================================================
+-- 13. Enable pgvector + course embeddings for AI retrieval
+-- ============================================================
+
+-- Supabase ships pgvector; this enables semantic (meaning-based) search.
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS course_embeddings (
+  course_id INTEGER PRIMARY KEY REFERENCES courses(id) ON DELETE CASCADE,
+  content_hash VARCHAR(64) NOT NULL,
+  embedding vector(1536) NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_course_embeddings_updated_at
+  ON course_embeddings (updated_at);
+
+-- Cosine distance index (works well with OpenAI embeddings).
+CREATE INDEX IF NOT EXISTS idx_course_embeddings_embedding_ivfflat
+  ON course_embeddings USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+
 COMMIT;

@@ -5,8 +5,15 @@ import { requireAuth } from "../middleware/auth.js";
 import { aiLimiter } from "../middleware/rateLimit.js";
 import { env } from "../config/env.js";
 import { openAiChatJson } from "../lib/openai.js";
+import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
 import { getUserById } from "../services/userService.js";
-import { listCourses, listDepartments, searchCourses } from "../services/courseService.js";
+import {
+  listCourses,
+  listDepartments,
+  searchCourses,
+  areCourseEmbeddingsAvailable,
+  semanticSearchCoursesByEmbedding,
+} from "../services/courseService.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
 const router = Router();
@@ -59,6 +66,38 @@ function normalizeSearchQuery(text: string) {
   // This is only used to fetch candidates; the full user prompt still goes to the LLM.
   const cleaned = text.replace(/\s+/g, " ").trim();
   return truncate(cleaned, 200);
+}
+
+const GENERIC_WHY_RE =
+  /(seems relevant|looks relevant|based on (the )?(catalog|title|description)|good fit|matches your interests)/i;
+
+function fixWhyBullets(course: CourseWithRatings, why: string[]) {
+  const cleaned = (Array.isArray(why) ? why : [])
+    .map((w) => String(w ?? "").trim())
+    .filter(Boolean)
+    .filter((w) => !GENERIC_WHY_RE.test(w))
+    .slice(0, 4);
+
+  const out = [...cleaned];
+
+  function pushIf(v: string | null) {
+    const t = (v ?? "").trim();
+    if (!t) return;
+    if (out.some((x) => x.toLowerCase() === t.toLowerCase())) return;
+    out.push(truncate(t, 160));
+  }
+
+  if (out.length < 2) {
+    if (course.gers && course.gers.length > 0) pushIf(`GER: ${course.gers.slice(0, 3).join(", ")}`);
+    if (out.length < 2 && course.campuses && course.campuses.length > 0) {
+      pushIf(`Campus: ${course.campuses.slice(0, 2).join(", ")}`);
+    }
+    const desc = (course.description ?? "").replace(/\s+/g, " ").trim();
+    if (out.length < 2 && desc) pushIf(`Catalog: ${desc}`);
+    if (out.length < 2) pushIf(`From title: ${course.title}`);
+  }
+
+  return out.slice(0, 4);
 }
 
 const AI_SEARCH_STOPWORDS = new Set(
@@ -448,6 +487,27 @@ router.post(
       const searchTerms = deriveAiSearchTerms(latestUser, deps).slice(0, 3);
 
       const tCandidatesStart = Date.now();
+      let embedMs = 0;
+      let semanticMs = 0;
+      let semanticUnique: CourseWithRatings[] = [];
+
+      if (candidateQuery.length >= 3 && (await areCourseEmbeddingsAvailable())) {
+        try {
+          const tEmbed = Date.now();
+          const embedding = (await openAiEmbedText({ input: latestUser })) as number[];
+          embedMs = Date.now() - tEmbed;
+
+          const tSemantic = Date.now();
+          semanticUnique = await semanticSearchCoursesByEmbedding({ embedding, limit: 36 });
+          semanticMs = Date.now() - tSemantic;
+        } catch (e) {
+          // Don't fail the whole request if embeddings aren't set up yet.
+          semanticUnique = [];
+          embedMs = 0;
+          semanticMs = 0;
+        }
+      }
+
       let searchCoursesRaw: CourseWithRatings[] = [];
       if (searchTerms.length > 0) {
         // 1) Try a single "combined" query first (cheap and often good enough).
@@ -472,7 +532,7 @@ router.post(
       const searchUnique = Array.from(dedupeCourses(searchCoursesRaw).values());
 
       // Only pay for fillers (top-rated, major-rated) when search isn't providing enough options.
-      const needFillers = searchUnique.length < 24 && candidateQuery.length >= 3;
+      const needFillers = searchUnique.length + semanticUnique.length < 24 && candidateQuery.length >= 3;
       const [topRated, majorRated] = await Promise.all([
         needFillers
           ? getTopRatedCached().then((data) => ({ data, meta: { page: 1, limit: data.length, total: data.length, totalPages: 1 } }))
@@ -484,6 +544,7 @@ router.post(
       const candidatesMs = Date.now() - tCandidatesStart;
 
       const courseMap = dedupeCourses([
+        ...semanticUnique,
         ...searchUnique,
         ...(topRated.data ?? []),
         ...(majorRated.data ?? []),
@@ -526,6 +587,7 @@ router.post(
         "If the student's request is vague, make reasonable assumptions and include exactly ONE concise follow-up question.",
         "Keep output concise and helpful. No moralizing. No long disclaimers.",
         "In each recommendation's `why` bullets, reference at least one concrete keyword from the course title or `desc:` snippet provided (no hallucinated details).",
+        "Do NOT use generic why bullets like \"seems relevant\" or \"based on the title/description\"; each why bullet must cite a specific course detail (keyword phrase, GER code, campus, instructor, prerequisite, or requirement).",
         "",
         "Return ONLY valid JSON (no markdown, no code fences) matching this shape:",
         "{",
@@ -604,7 +666,7 @@ router.post(
         .map((r) => ({
           course: byId.get(r.course_id)!,
           fitScore: r.fit_score,
-          why: r.why,
+          why: fixWhyBullets(byId.get(r.course_id)!, r.why),
           cautions: r.cautions ?? [],
         }));
 
@@ -645,7 +707,11 @@ router.post(
           const why: string[] = [];
           if (matched.length > 0) why.push(`Title/description mentions: ${matched.join(", ")}`);
           if (c.gers && c.gers.length > 0) why.push(`GER: ${c.gers.slice(0, 3).join(", ")}`);
-          if (why.length < 2) why.push("Looks relevant based on the catalog description.");
+          if (why.length < 2) {
+            const desc = (c.description ?? "").replace(/\s+/g, " ").trim();
+            if (desc) why.push(truncate(`Catalog: ${desc}`, 160));
+            else why.push(truncate(`From title: ${c.title}`, 160));
+          }
 
           const cautions: string[] = [];
           const req = (c.requirements ?? c.prerequisites ?? "").trim();
@@ -654,7 +720,7 @@ router.post(
           recommendations.push({
             course: c,
             fitScore: Math.max(4, Math.min(8, 4 + scoreCourse(c))),
-            why: why.slice(0, 4),
+            why: fixWhyBullets(c, why.slice(0, 4)),
             cautions: cautions.slice(0, 2),
           });
           existingIds.add(c.id);
@@ -680,6 +746,8 @@ router.post(
           totalMs,
           depsMs,
           candidatesMs,
+          embedMs,
+          semanticMs,
           openaiMs,
           model: env.openaiModel,
         });
@@ -702,6 +770,8 @@ router.post(
                 totalMs,
                 depsMs,
                 candidatesMs,
+                embedMs,
+                semanticMs,
                 openaiMs,
                 searchTerms,
                 candidateCount: candidates.length,
@@ -709,6 +779,7 @@ router.post(
                 userMajor: user?.major ?? null,
                 deptCode,
                 searchUniqueCount: searchUnique.length,
+                semanticUniqueCount: semanticUnique.length,
                 candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
                 deptCounts,
               },

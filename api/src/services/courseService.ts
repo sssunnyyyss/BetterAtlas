@@ -11,7 +11,7 @@ import {
   instructorRatings,
 } from "../db/schema.js";
 import { eq, sql, and, asc, desc, ilike, inArray } from "drizzle-orm";
-import type { CourseQuery, SearchQuery } from "@betteratlas/shared";
+import type { CourseQuery, SearchQuery, CourseWithRatings } from "@betteratlas/shared";
 import { scheduleFromMeetings } from "../lib/schedule.js";
 
 function classScoreExpr() {
@@ -710,6 +710,216 @@ export async function getCourseById(id: number) {
   };
 }
 
+const EMBEDDINGS_AVAIL_TTL_MS = 5 * 60 * 1000; // 5m
+let embeddingsAvailCache: { value: boolean; updatedAt: number } | null = null;
+let embeddingsAvailInFlight: Promise<boolean> | null = null;
+
+export async function areCourseEmbeddingsAvailable(): Promise<boolean> {
+  if (embeddingsAvailCache && Date.now() - embeddingsAvailCache.updatedAt < EMBEDDINGS_AVAIL_TTL_MS) {
+    return embeddingsAvailCache.value;
+  }
+  if (embeddingsAvailInFlight) return embeddingsAvailInFlight;
+
+  embeddingsAvailInFlight = (async () => {
+    try {
+      const rows = (await db.execute(sql`
+        select to_regclass('public.course_embeddings') as rel
+      `)) as any[];
+      const ok = Boolean(rows?.[0]?.rel);
+      embeddingsAvailCache = { value: ok, updatedAt: Date.now() };
+      return ok;
+    } catch {
+      embeddingsAvailCache = { value: false, updatedAt: Date.now() };
+      return false;
+    } finally {
+      embeddingsAvailInFlight = null;
+    }
+  })();
+
+  return embeddingsAvailInFlight;
+}
+
 export async function listDepartments() {
   return db.select().from(departments).orderBy(asc(departments.code));
+}
+
+function embeddingToVectorLiteral(embedding: number[]) {
+  const clean = embedding.map((v) => (Number.isFinite(v) ? v : 0));
+  return `[${clean.join(",")}]`;
+}
+
+export async function semanticSearchCoursesByEmbedding(input: {
+  embedding: number[];
+  limit: number;
+}): Promise<CourseWithRatings[]> {
+  const { embedding, limit } = input;
+  if (!Array.isArray(embedding) || embedding.length === 0) return [];
+
+  const vec = embeddingToVectorLiteral(embedding);
+
+  // Raw query so we don't have to add Drizzle schema for pgvector tables.
+  const rows = (await db.execute(sql`
+    select
+      ce.course_id as course_id,
+      (ce.embedding <=> ${vec}::vector) as distance
+    from course_embeddings ce
+    where exists (
+      select 1
+      from sections s
+      where s.course_id = ce.course_id
+        and s.is_active = true
+    )
+    order by ce.embedding <=> ${vec}::vector asc
+    limit ${Math.max(1, Math.min(200, limit))}
+  `)) as any[];
+
+  const rankedIds = rows
+    .map((r) => Number(r?.course_id))
+    .filter((id) => Number.isFinite(id)) as number[];
+
+  if (rankedIds.length === 0) return [];
+
+  // Fetch core course + ratings + department for just these ids.
+  const data = await db
+    .select({
+      id: courses.id,
+      code: courses.code,
+      title: courses.title,
+      description: courses.description,
+      prerequisites: courses.prerequisites,
+      credits: courses.credits,
+      departmentId: courses.departmentId,
+      attributes: courses.attributes,
+      departmentCode: departments.code,
+      departmentName: departments.name,
+      avgQuality: courseRatings.avgQuality,
+      avgDifficulty: courseRatings.avgDifficulty,
+      avgWorkload: courseRatings.avgWorkload,
+      reviewCount: courseRatings.reviewCount,
+    })
+    .from(courses)
+    .leftJoin(departments, eq(courses.departmentId, departments.id))
+    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
+    .where(inArray(courses.id, rankedIds));
+
+  const courseIds = data.map((r) => r.id);
+  const instructorsByCourse = new Map<number, string[]>();
+  const classScoreByCourse = new Map<number, number | null>();
+  const campusesByCourse = new Map<number, string[]>();
+  const gersByCourse = new Map<number, string[]>();
+  const requirementsByCourse = new Map<number, string | null>();
+
+  if (courseIds.length > 0) {
+    const instructorRows = await db
+      .select({
+        courseId: sections.courseId,
+        instructors: sql<any>`coalesce(
+          json_agg(DISTINCT ${instructors.name})
+            FILTER (WHERE ${instructors.name} IS NOT NULL),
+          '[]'::json
+        )`,
+      })
+      .from(sections)
+      .leftJoin(instructors, eq(sections.instructorId, instructors.id))
+      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)))
+      .groupBy(sections.courseId);
+
+    for (const r of instructorRows as any[]) {
+      const v = Array.isArray(r.instructors) ? r.instructors : [];
+      instructorsByCourse.set(
+        r.courseId,
+        v.filter((s: any) => typeof s === "string" && s.trim())
+      );
+    }
+
+    const detailRows = await db
+      .select({
+        courseId: sections.courseId,
+        campus: sections.campus,
+        gerCodes: sections.gerCodes,
+        requirements: sections.registrationRestrictions,
+      })
+      .from(sections)
+      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)));
+
+    const campusSets = new Map<number, Set<string>>();
+    const gerSets = new Map<number, Set<string>>();
+    for (const r of detailRows as any[]) {
+      const id = r.courseId as number;
+      if (typeof r.campus === "string" && r.campus.trim()) {
+        const s = campusSets.get(id) ?? new Set<string>();
+        s.add(r.campus.trim());
+        campusSets.set(id, s);
+      }
+
+      const rawGer = typeof r.gerCodes === "string" ? r.gerCodes.trim() : "";
+      if (rawGer) {
+        const s = gerSets.get(id) ?? new Set<string>();
+        for (const code of rawGer.split(",")) {
+          const v = code.trim();
+          if (v) s.add(v);
+        }
+        gerSets.set(id, s);
+      }
+
+      const reqText = typeof r.requirements === "string" ? r.requirements.trim() : "";
+      if (reqText) {
+        const prev = requirementsByCourse.get(id) ?? null;
+        if (!prev || reqText.length > prev.length) {
+          requirementsByCourse.set(id, reqText);
+        }
+      }
+    }
+
+    for (const id of courseIds) {
+      campusesByCourse.set(id, Array.from(campusSets.get(id) ?? new Set<string>()));
+      gersByCourse.set(id, Array.from(gerSets.get(id) ?? new Set<string>()));
+      if (!requirementsByCourse.has(id)) requirementsByCourse.set(id, null);
+    }
+
+    const scoreRows = await db
+      .select({
+        courseId: sections.courseId,
+        classScore: classScoreExpr(),
+      })
+      .from(sections)
+      .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
+      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)))
+      .groupBy(sections.courseId);
+
+    for (const r of scoreRows as any[]) {
+      classScoreByCourse.set(
+        r.courseId,
+        r.classScore ? parseFloat(r.classScore) : null
+      );
+    }
+  }
+
+  const byId = new Map<number, CourseWithRatings>();
+  for (const row of data as any[]) {
+    byId.set(row.id, {
+      id: row.id,
+      code: row.code,
+      title: row.title,
+      description: row.description,
+      prerequisites: row.prerequisites ?? null,
+      credits: row.credits,
+      departmentId: row.departmentId,
+      attributes: row.attributes ?? null,
+      instructors: instructorsByCourse.get(row.id) ?? [],
+      campuses: campusesByCourse.get(row.id) ?? [],
+      gers: gersByCourse.get(row.id) ?? [],
+      requirements: requirementsByCourse.get(row.id) ?? null,
+      department: row.departmentCode
+        ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
+        : null,
+      avgQuality: row.avgQuality ? parseFloat(row.avgQuality) : null,
+      avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
+      avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
+      reviewCount: row.reviewCount ?? 0,
+      classScore: classScoreByCourse.get(row.id) ?? null,
+    });
+  }
+
+  return rankedIds.map((id) => byId.get(id)).filter(Boolean) as CourseWithRatings[];
 }
