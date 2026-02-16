@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "./lib/auth.js";
 import Navbar from "./components/layout/Navbar.js";
 import Landing from "./pages/Landing.js";
@@ -47,6 +47,94 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
+  const location = useLocation();
+
+  return (
+    <div key={`${location.pathname}${location.search}`} className="ba-page-fade">
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <Landing />} />
+        <Route
+          path="/catalog"
+          element={
+            <ProtectedRoute>
+              <Catalog />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/catalog/:id"
+          element={
+            <ProtectedRoute>
+              <CourseDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/professors/:id"
+          element={
+            <ProtectedRoute>
+              <ProfessorDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <Profile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/friends"
+          element={
+            <ProtectedRoute>
+              <Friends />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/schedule"
+          element={
+            <ProtectedRoute>
+              <Schedule />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <AdminRoute>
+              <AdminLayout />
+            </AdminRoute>
+          }
+        >
+          <Route index element={<Navigate to="/admin/sync" replace />} />
+          <Route path="sync" element={<AdminSync />} />
+          <Route path="developers" element={<AdminAiTrainer />} />
+          <Route path="ai-trainer" element={<Navigate to="/admin/developers" replace />} />
+          <Route path="system" element={<AdminSystem />} />
+          <Route path="stats" element={<AdminStats />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="invite-codes" element={<AdminInviteCodes />} />
+          <Route path="logs" element={<AdminLogs />} />
+        </Route>
+        <Route
+          path="/feedback"
+          element={
+            <ProtectedRoute>
+              <Feedback />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </div>
+  );
+}
+
 export default function App() {
   const { user, isLoading } = useAuth();
 
@@ -62,85 +150,7 @@ export default function App() {
     <BrowserRouter>
       <OnboardingProvider>
         <Navbar />
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/login" element={user ? <Navigate to="/" replace /> : <Landing />} />
-          <Route
-            path="/catalog"
-            element={
-              <ProtectedRoute>
-                <Catalog />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/catalog/:id"
-            element={
-              <ProtectedRoute>
-                <CourseDetail />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/professors/:id"
-            element={
-              <ProtectedRoute>
-                <ProfessorDetail />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/profile"
-            element={
-              <ProtectedRoute>
-                <Profile />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/friends"
-            element={
-              <ProtectedRoute>
-                <Friends />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/schedule"
-            element={
-              <ProtectedRoute>
-                <Schedule />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/admin"
-            element={
-              <AdminRoute>
-                <AdminLayout />
-              </AdminRoute>
-            }
-          >
-            <Route index element={<Navigate to="/admin/sync" replace />} />
-            <Route path="sync" element={<AdminSync />} />
-            <Route path="developers" element={<AdminAiTrainer />} />
-            <Route path="ai-trainer" element={<Navigate to="/admin/developers" replace />} />
-            <Route path="system" element={<AdminSystem />} />
-            <Route path="stats" element={<AdminStats />} />
-            <Route path="users" element={<AdminUsers />} />
-            <Route path="invite-codes" element={<AdminInviteCodes />} />
-            <Route path="logs" element={<AdminLogs />} />
-          </Route>
-          <Route
-            path="/feedback"
-            element={
-              <ProtectedRoute>
-                <Feedback />
-              </ProtectedRoute>
-            }
-          />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <AppRoutes user={user} />
       </OnboardingProvider>
     </BrowserRouter>
   );
