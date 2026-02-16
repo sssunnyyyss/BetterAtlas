@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { api } from "../api/client.js";
 import { useAuth } from "../lib/auth.js";
 
 export default function Landing() {
@@ -15,6 +16,7 @@ export default function Landing() {
   const [major, setMajor] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [verifyingInviteCode, setVerifyingInviteCode] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -38,6 +40,30 @@ export default function Landing() {
       setError(err.message || "Something went wrong");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleInviteCodeStart() {
+    const normalizedInviteCode = inviteCode.trim().toUpperCase();
+    if (!normalizedInviteCode) {
+      setError("Enter your invite code to continue to account creation.");
+      return;
+    }
+
+    setError("");
+    setVerifyingInviteCode(true);
+    try {
+      const result = await api.post<{ valid: true; inviteCode: string }>(
+        "/auth/invite-code/verify",
+        { inviteCode: normalizedInviteCode }
+      );
+
+      setInviteCode(result.inviteCode);
+      setMode("register");
+    } catch (err: any) {
+      setError(err.message || "Invalid or expired invite code");
+    } finally {
+      setVerifyingInviteCode(false);
     }
   }
 
@@ -79,8 +105,34 @@ export default function Landing() {
             BetterAtlas
           </h2>
           <h3 className="text-lg font-medium text-gray-700 mb-6">
-            {mode === "login" ? "Sign in to your account" : "Create your account"}
+            {mode === "login" ? "Development Access" : "Create your account"}
           </h3>
+
+          {mode === "login" && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-sm text-amber-900">
+                We&apos;re still in development. If you already have an account, sign in
+                below. If you have an invite code, enter it here to create an account.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <input
+                  type="text"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  placeholder="Enter invite code"
+                  className="flex-1 rounded-md border-amber-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleInviteCodeStart}
+                  disabled={verifyingInviteCode}
+                  className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+                >
+                  {verifyingInviteCode ? "Checking..." : "Use Code"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-4 text-sm">
@@ -99,7 +151,7 @@ export default function Landing() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@university.edu"
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                className="w-full rounded-md border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
               />
             </div>
 
@@ -113,7 +165,7 @@ export default function Landing() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={mode === "register" ? "At least 8 characters" : ""}
-                className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                className="w-full rounded-md border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
               />
             </div>
 
@@ -129,7 +181,7 @@ export default function Landing() {
                     value={inviteCode}
                     onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                     placeholder="BETA-2026"
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                    className="w-full rounded-md border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     {betaRequiresInviteCode
@@ -146,7 +198,7 @@ export default function Landing() {
                     required
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
-                    className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                    className="w-full rounded-md border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                   />
                 </div>
                 <div>
@@ -161,7 +213,7 @@ export default function Landing() {
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
                       placeholder="your_handle"
-                      className="flex-1 w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                      className="flex-1 w-full rounded-md border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                     />
                   </div>
                   <p className="text-xs text-gray-500 mt-1">
@@ -178,7 +230,7 @@ export default function Landing() {
                       value={graduationYear}
                       onChange={(e) => setGraduationYear(e.target.value)}
                       placeholder="2026"
-                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                      className="w-full rounded-md border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                     />
                   </div>
                   <div>
@@ -190,7 +242,7 @@ export default function Landing() {
                       value={major}
                       onChange={(e) => setMajor(e.target.value)}
                       placeholder="Computer Science"
-                      className="w-full rounded-md border-gray-300 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                      className="w-full rounded-md border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
                     />
                   </div>
                 </div>
@@ -212,18 +264,7 @@ export default function Landing() {
 
           <p className="mt-4 text-center text-sm text-gray-600">
             {mode === "login" ? (
-              <>
-                Don't have an account?{" "}
-                <button
-                  onClick={() => {
-                    setMode("register");
-                    setError("");
-                  }}
-                  className="text-primary-600 hover:text-primary-800 font-medium"
-                >
-                  Sign up
-                </button>
-              </>
+              <>Use an invite code above to create your account.</>
             ) : (
               <>
                 Already have an account?{" "}

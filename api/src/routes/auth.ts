@@ -58,6 +58,41 @@ async function withAuthPayload(user: AuthUserRow) {
   });
 }
 
+router.post("/invite-code/verify", authLimiter, async (req, res) => {
+  const inviteCodeInput =
+    typeof req.body?.inviteCode === "string" ? req.body.inviteCode : "";
+  const inviteCode = inviteCodeInput.trim().toUpperCase();
+
+  if (!inviteCode) {
+    return res.status(400).json({ error: "Invite code is required" });
+  }
+
+  if (!/^[A-Z0-9-]+$/.test(inviteCode)) {
+    return res
+      .status(400)
+      .json({ error: "Invite code can only contain letters, numbers, and hyphens" });
+  }
+
+  const invite = await getInviteCodeByCode(inviteCode);
+  if (!invite) {
+    return res.status(400).json({ error: "Invalid or expired invite code" });
+  }
+
+  const evaluation = evaluateInviteCode({
+    usedCount: invite.usedCount,
+    maxUses: invite.maxUses,
+    expiresAt: invite.expiresAt,
+  });
+  if (!evaluation.ok) {
+    return res.status(400).json({ error: "Invalid or expired invite code" });
+  }
+
+  return res.json({
+    valid: true,
+    inviteCode: invite.code,
+  });
+});
+
 router.post("/register", authLimiter, validate(registerSchema), async (req, res) => {
   try {
     const {
