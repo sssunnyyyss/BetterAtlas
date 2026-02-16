@@ -88,6 +88,45 @@ const modelResponseSchema = z.object({
     .max(16),
 });
 
+const modelResponseJsonSchema = {
+  name: "course_recommendations_response",
+  strict: true,
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["assistant_message", "follow_up_question", "recommendations"],
+    properties: {
+      assistant_message: { type: "string" },
+      follow_up_question: { type: ["string", "null"] },
+      recommendations: {
+        type: "array",
+        minItems: 1,
+        maxItems: 16,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["course_id", "fit_score", "why"],
+          properties: {
+            course_id: { type: "integer", minimum: 1 },
+            fit_score: { type: "integer", minimum: 1, maximum: 10 },
+            why: {
+              type: "array",
+              minItems: 1,
+              maxItems: 5,
+              items: { type: "string" },
+            },
+            cautions: {
+              type: "array",
+              maxItems: 4,
+              items: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
 function truncate(str: string, max: number) {
   if (str.length <= max) return str;
   return str.slice(0, Math.max(0, max - 1)).trimEnd() + "...";
@@ -1039,7 +1078,10 @@ router.post(
         model: env.openaiModel,
         temperature: 0.2,
         maxTokens: 700,
-        responseFormat: { type: "json_object" },
+        responseFormat: {
+          type: "json_schema",
+          json_schema: modelResponseJsonSchema,
+        },
       });
       const openaiMs = Date.now() - tOpenAiStart;
 

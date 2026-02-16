@@ -5,7 +5,14 @@ export type OpenAiChatMessage = {
   content: string;
 };
 
-type OpenAiResponseFormat = { type: "json_object" };
+type OpenAiJsonSchema = {
+  name: string;
+  schema: Record<string, unknown>;
+  strict?: boolean;
+};
+type OpenAiResponseFormat =
+  | { type: "json_object" }
+  | { type: "json_schema"; json_schema: OpenAiJsonSchema };
 
 function tryParseJson(text: string) {
   try {
@@ -15,17 +22,119 @@ function tryParseJson(text: string) {
   }
 }
 
-function extractJsonObject(text: string) {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    return trimmed;
+function normalizeCandidateJson(text: string) {
+  return text
+    .replace(/^\uFEFF/, "")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'");
+}
+
+function stripTrailingCommas(text: string) {
+  return text.replace(/,\s*([}\]])/g, "$1");
+}
+
+function extractJsonFenceBlocks(text: string) {
+  const out: string[] = [];
+  const re = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let m: RegExpExecArray | null = null;
+  while ((m = re.exec(text)) !== null) {
+    const block = String(m[1] ?? "").trim();
+    if (block) out.push(block);
+  }
+  return out;
+}
+
+function extractBalancedJsonObjects(text: string) {
+  const out: string[] = [];
+  const n = text.length;
+
+  for (let i = 0; i < n; i++) {
+    if (text[i] !== "{") continue;
+
+    let depth = 0;
+    let inString = false;
+    let escaping = false;
+
+    for (let j = i; j < n; j++) {
+      const ch = text[j];
+
+      if (inString) {
+        if (escaping) {
+          escaping = false;
+        } else if (ch === "\\") {
+          escaping = true;
+        } else if (ch === '"') {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = true;
+        continue;
+      }
+      if (ch === "{") {
+        depth += 1;
+        continue;
+      }
+      if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          out.push(text.slice(i, j + 1));
+          break;
+        }
+        if (depth < 0) break;
+      }
+    }
   }
 
-  // Best-effort recovery if the model adds extra text.
-  const first = trimmed.indexOf("{");
-  const last = trimmed.lastIndexOf("}");
-  if (first !== -1 && last !== -1 && last > first) {
-    return trimmed.slice(first, last + 1);
+  return out;
+}
+
+function extractJsonCandidates(text: string) {
+  const trimmed = text.trim();
+  const seeds = [trimmed, ...extractJsonFenceBlocks(trimmed)];
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  for (const seed of seeds) {
+    const normalizedSeed = normalizeCandidateJson(seed).trim();
+    if (!normalizedSeed) continue;
+
+    if (normalizedSeed.startsWith("{") && normalizedSeed.endsWith("}")) {
+      if (!seen.has(normalizedSeed)) {
+        seen.add(normalizedSeed);
+        out.push(normalizedSeed);
+      }
+    }
+
+    const balanced = extractBalancedJsonObjects(normalizedSeed);
+    for (const chunk of balanced) {
+      const c = normalizeCandidateJson(chunk).trim();
+      if (!c || seen.has(c)) continue;
+      seen.add(c);
+      out.push(c);
+    }
+  }
+
+  return out;
+}
+
+function tryParseJsonCandidates(raw: string): unknown | null {
+  const candidates = extractJsonCandidates(raw);
+  if (candidates.length === 0) return null;
+
+  // Prefer bigger candidates first, then fallback to small fragments.
+  const sorted = [...candidates].sort((a, b) => b.length - a.length);
+
+  for (const candidate of sorted) {
+    const attempts = [candidate, stripTrailingCommas(candidate)];
+    for (const attempt of attempts) {
+      const parsed = tryParseJson(attempt);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    }
   }
 
   return null;
@@ -38,6 +147,7 @@ export async function openAiChatJson({
   maxTokens,
   responseFormat,
   timeoutMs = 35_000,
+  enableRepairRetry = true,
 }: {
   messages: OpenAiChatMessage[];
   model?: string;
@@ -45,6 +155,7 @@ export async function openAiChatJson({
   maxTokens?: number;
   responseFormat?: OpenAiResponseFormat;
   timeoutMs?: number;
+  enableRepairRetry?: boolean;
 }): Promise<{ raw: string; parsed: unknown }> {
   if (!env.openaiApiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
@@ -127,14 +238,45 @@ export async function openAiChatJson({
     throw new Error("OpenAI response missing message content");
   }
 
-  const jsonText = extractJsonObject(raw);
-  if (!jsonText) {
-    throw new Error("OpenAI response did not contain a JSON object");
+  const parsed = tryParseJsonCandidates(raw);
+  if (parsed !== null) {
+    return { raw, parsed };
   }
 
-  try {
-    return { raw, parsed: JSON.parse(jsonText) };
-  } catch {
-    throw new Error("Failed to parse JSON from OpenAI response");
+  if (enableRepairRetry) {
+    const repairMessages: OpenAiChatMessage[] = [
+      ...messages,
+      {
+        role: "assistant",
+        content: raw,
+      },
+      {
+        role: "user",
+        content:
+          "Return ONLY one valid JSON object. No markdown. No prose. No code fences. Keep the exact same schema and intent.",
+      },
+    ];
+
+    const repairPayload: any = {
+      ...payload,
+      messages: repairMessages,
+    };
+    if (payload.temperature !== undefined) repairPayload.temperature = 0;
+    if (payload.max_tokens !== undefined) repairPayload.max_tokens = payload.max_tokens;
+    if (payload.response_format !== undefined) repairPayload.response_format = payload.response_format;
+
+    ({ res, bodyText } = await doRequest(repairPayload));
+    if (res.ok) {
+      const repairEnvelope = tryParseJson(bodyText);
+      const repairRaw: string | undefined = repairEnvelope?.choices?.[0]?.message?.content;
+      if (repairRaw && typeof repairRaw === "string") {
+        const repairParsed = tryParseJsonCandidates(repairRaw);
+        if (repairParsed !== null) {
+          return { raw: repairRaw, parsed: repairParsed };
+        }
+      }
+    }
   }
+
+  throw new Error("Failed to parse JSON from OpenAI response");
 }
