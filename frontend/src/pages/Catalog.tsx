@@ -35,6 +35,22 @@ function Spinner({ className = "" }: { className?: string }) {
   );
 }
 
+function ThumbUpIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.82 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z" />
+    </svg>
+  );
+}
+
+function ThumbDownIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M15 3H6c-.82 0-1.54.5-1.84 1.22L1.14 11.27c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z" />
+    </svg>
+  );
+}
+
 const AI_PREFS_STORAGE_KEY = "betteratlas.ai.preferences.v1";
 
 function makePreferenceSnapshot(course: AiCourseRecommendation["course"]): AiPreferenceCourse {
@@ -740,24 +756,28 @@ export default function Catalog() {
                     <button
                       type="button"
                       onClick={() => markCoursePreference(rec.course, "liked")}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                      aria-label={`Thumbs up for ${rec.course.code} ${rec.course.title}`}
+                      title="Thumbs up"
+                      className={`inline-flex items-center justify-center h-8 w-8 rounded-full border transition-colors ${
                         likedPreferenceCourses.some((c) => c.id === rec.course.id)
                           ? "bg-green-600 text-white border-green-600"
                           : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                       }`}
                     >
-                      More like this
+                      <ThumbUpIcon />
                     </button>
                     <button
                       type="button"
                       onClick={() => markCoursePreference(rec.course, "disliked")}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                      aria-label={`Thumbs down for ${rec.course.code} ${rec.course.title}`}
+                      title="Thumbs down"
+                      className={`inline-flex items-center justify-center h-8 w-8 rounded-full border transition-colors ${
                         dislikedPreferenceCourses.some((c) => c.id === rec.course.id)
                           ? "bg-red-600 text-white border-red-600"
                           : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                       }`}
                     >
-                      Less like this
+                      <ThumbDownIcon />
                     </button>
                   </div>
                 </div>

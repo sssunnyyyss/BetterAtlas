@@ -1,11 +1,96 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  CAMPUS_OPTIONS,
+  COMPONENT_TYPE_OPTIONS,
+  GER_TAGS,
+  INSTRUCTION_METHOD_OPTIONS,
+  SEMESTERS,
+} from "@betteratlas/shared";
+import {
   useAiCourseRecommendations,
   type AiCourseRecommendation,
   type AiMessage,
   type AiPreferenceCourse,
   type AiRecommendationFilters,
 } from "../../hooks/useAi.js";
+
+type TrainerFilterForm = {
+  semester: string;
+  department: string;
+  minRating: string;
+  credits: string;
+  attributes: string;
+  instructor: string;
+  campus: string;
+  componentType: string;
+  instructionMethod: string;
+};
+
+type AutoTrainerQuery = {
+  id: string;
+  prompt: string;
+  filters: AiRecommendationFilters;
+  note: string;
+};
+
+const TRAINER_PREFS_STORAGE_KEY = "betteratlas.admin.aiTrainer.labels.v1";
+
+const AUTO_TOPICS = [
+  "discussion-heavy humanities classes",
+  "intro courses for non-majors",
+  "creative classes with projects",
+  "quantitative classes with practical applications",
+  "writing intensive classes",
+  "policy and society classes",
+  "science classes with lab exposure",
+  "classes that mix theory and real-world examples",
+];
+
+const AUTO_PACES = [
+  "lighter",
+  "balanced",
+  "challenging but manageable",
+];
+
+const AUTO_GOALS = [
+  "interesting course discussions",
+  "clear grading expectations",
+  "skills they can use outside class",
+  "strong instructor support",
+  "classes that keep motivation high",
+];
+
+const AUTO_DEPARTMENTS = [
+  "ENGL",
+  "HIST",
+  "PSYC",
+  "SOC",
+  "PHIL",
+  "ECON",
+  "ARTH",
+  "BIOL",
+  "QTM",
+  "THEA",
+];
+
+const AUTO_MIN_RATINGS = [3, 3.5, 4];
+const AUTO_CREDITS = [3, 4];
+
+function ThumbUpIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.82 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z" />
+    </svg>
+  );
+}
+
+function ThumbDownIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <path d="M15 3H6c-.82 0-1.54.5-1.84 1.22L1.14 11.27c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.58-6.59c.37-.36.59-.86.59-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z" />
+    </svg>
+  );
+}
 
 function snapshot(course: AiCourseRecommendation["course"]): AiPreferenceCourse {
   return {
@@ -20,19 +105,11 @@ function snapshot(course: AiCourseRecommendation["course"]): AiPreferenceCourse 
   };
 }
 
-const TRAINER_PREFS_STORAGE_KEY = "betteratlas.admin.aiTrainer.labels.v1";
+function pick<T>(arr: readonly T[], n: number) {
+  return arr[Math.abs(n) % arr.length] as T;
+}
 
-function toFilters(raw: {
-  semester: string;
-  department: string;
-  minRating: string;
-  credits: string;
-  attributes: string;
-  instructor: string;
-  campus: string;
-  componentType: string;
-  instructionMethod: string;
-}): AiRecommendationFilters {
+function toFilters(raw: TrainerFilterForm): AiRecommendationFilters {
   const out: AiRecommendationFilters = {};
   const toNum = (v: string) => {
     const n = Number(v);
@@ -52,6 +129,104 @@ function toFilters(raw: {
   return out;
 }
 
+function fromFilters(filters: AiRecommendationFilters): TrainerFilterForm {
+  return {
+    semester: filters.semester ? String(filters.semester) : "",
+    department: filters.department ? String(filters.department) : "",
+    minRating:
+      typeof filters.minRating === "number" ? String(filters.minRating) : "",
+    credits: typeof filters.credits === "number" ? String(filters.credits) : "",
+    attributes: filters.attributes ? String(filters.attributes) : "",
+    instructor: filters.instructor ? String(filters.instructor) : "",
+    campus: filters.campus ? String(filters.campus) : "",
+    componentType: filters.componentType ? String(filters.componentType) : "",
+    instructionMethod: filters.instructionMethod
+      ? String(filters.instructionMethod)
+      : "",
+  };
+}
+
+function summarizeFilters(filters: AiRecommendationFilters) {
+  const parts: string[] = [];
+  if (filters.semester) parts.push(`semester=${filters.semester}`);
+  if (filters.department) parts.push(`department=${filters.department}`);
+  if (typeof filters.minRating === "number") parts.push(`minRating=${filters.minRating}`);
+  if (typeof filters.credits === "number") parts.push(`credits=${filters.credits}`);
+  if (filters.attributes) parts.push(`ger=${filters.attributes}`);
+  if (filters.campus) parts.push(`campus=${filters.campus}`);
+  if (filters.componentType) parts.push(`type=${filters.componentType}`);
+  if (filters.instructionMethod) parts.push(`method=${filters.instructionMethod}`);
+  if (filters.instructor) parts.push(`instructor=${filters.instructor}`);
+  return parts.join(", ");
+}
+
+function buildAutoQuery(index: number, seed: number): AutoTrainerQuery {
+  const n = seed + index * 17;
+  const topic = pick(AUTO_TOPICS, n + 1);
+  const pace = pick(AUTO_PACES, n + 3);
+  const goal = pick(AUTO_GOALS, n + 5);
+  const semester = pick(SEMESTERS, n + 7);
+  const campus = pick(CAMPUS_OPTIONS, n + 11);
+  const gerCode = pick(Object.keys(GER_TAGS), n + 13);
+  const dept = pick(AUTO_DEPARTMENTS, n + 17);
+  const credits = pick(AUTO_CREDITS, n + 19);
+  const minRating = pick(AUTO_MIN_RATINGS, n + 23);
+  const componentType = pick(Object.keys(COMPONENT_TYPE_OPTIONS), n + 29);
+  const instructionMethod = pick(Object.keys(INSTRUCTION_METHOD_OPTIONS), n + 31);
+
+  let filters: AiRecommendationFilters = { semester };
+  let note = `Semester + quality preference`;
+
+  switch (index % 6) {
+    case 0:
+      filters = { semester, minRating };
+      note = "Semester + rating";
+      break;
+    case 1:
+      filters = { semester, campus };
+      note = "Semester + campus";
+      break;
+    case 2:
+      filters = { semester, attributes: gerCode };
+      note = "Semester + GER";
+      break;
+    case 3:
+      filters = { semester, credits, componentType };
+      note = "Semester + credits + component type";
+      break;
+    case 4:
+      filters = { semester, minRating, instructionMethod };
+      note = "Semester + rating + instruction method";
+      break;
+    default:
+      filters = { department: dept, minRating };
+      note = "Department + rating";
+      break;
+  }
+
+  const constraintText = summarizeFilters(filters);
+  const prompt =
+    `Recommend six courses for a student who wants ${topic}. ` +
+    `They prefer a ${pace} workload and care about ${goal}. ` +
+    `Apply these constraints: ${constraintText}.`;
+
+  return {
+    id: `auto-${seed}-${index}`,
+    prompt,
+    filters,
+    note,
+  };
+}
+
+function generateAutoQueryBatch(count: number): AutoTrainerQuery[] {
+  const seed = Date.now();
+  const out: AutoTrainerQuery[] = [];
+  for (let i = 0; i < count; i++) {
+    out.push(buildAutoQuery(i, seed));
+  }
+  return out;
+}
+
 export default function AdminAiTrainer() {
   const ai = useAiCourseRecommendations();
   const [prompt, setPrompt] = useState("");
@@ -59,7 +234,7 @@ export default function AdminAiTrainer() {
   const [allRecs, setAllRecs] = useState<AiCourseRecommendation[]>([]);
   const [liked, setLiked] = useState<AiPreferenceCourse[]>([]);
   const [disliked, setDisliked] = useState<AiPreferenceCourse[]>([]);
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<TrainerFilterForm>({
     semester: "",
     department: "",
     minRating: "",
@@ -70,6 +245,13 @@ export default function AdminAiTrainer() {
     componentType: "",
     instructionMethod: "",
   });
+  const [autoQueries, setAutoQueries] = useState<AutoTrainerQuery[]>(
+    generateAutoQueryBatch(10)
+  );
+  const [autoCursor, setAutoCursor] = useState(0);
+  const [activeAutoQueryId, setActiveAutoQueryId] = useState<string | null>(
+    null
+  );
 
   const appliedFilters = useMemo(() => toFilters(filters), [filters]);
   const recs = allRecs.length > 0 ? allRecs : ai.data?.recommendations ?? [];
@@ -78,7 +260,10 @@ export default function AdminAiTrainer() {
     try {
       const raw = localStorage.getItem(TRAINER_PREFS_STORAGE_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as { liked?: AiPreferenceCourse[]; disliked?: AiPreferenceCourse[] };
+      const parsed = JSON.parse(raw) as {
+        liked?: AiPreferenceCourse[];
+        disliked?: AiPreferenceCourse[];
+      };
       setLiked(Array.isArray(parsed?.liked) ? parsed.liked.slice(0, 80) : []);
       setDisliked(Array.isArray(parsed?.disliked) ? parsed.disliked.slice(0, 80) : []);
     } catch {
@@ -116,9 +301,27 @@ export default function AdminAiTrainer() {
     }
   }
 
+  function applyAssistantResponse(response: {
+    assistantMessage: string;
+    followUpQuestion: string | null;
+    recommendations: AiCourseRecommendation[];
+  }) {
+    setAllRecs(response.recommendations);
+    const assistant = [
+      response.assistantMessage,
+      response.followUpQuestion ? `Follow-up: ${response.followUpQuestion}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    setMessages((cur) =>
+      [...cur, { role: "assistant" as const, content: assistant }].slice(-12)
+    );
+  }
+
   function run() {
     const trimmed = prompt.trim();
     if (!trimmed) return;
+    setActiveAutoQueryId(null);
     const next = [...messages, { role: "user" as const, content: trimmed }].slice(-12);
     setMessages(next);
     ai.mutate(
@@ -131,18 +334,79 @@ export default function AdminAiTrainer() {
         },
       },
       {
+        onSuccess: (r) => applyAssistantResponse(r),
+      }
+    );
+  }
+
+  function runAutoQuery(query: AutoTrainerQuery, nextCursor: number) {
+    setActiveAutoQueryId(query.id);
+    setPrompt(query.prompt);
+    setFilters(fromFilters(query.filters));
+    setMessages([{ role: "user", content: query.prompt }]);
+    setAutoCursor(nextCursor);
+
+    ai.mutate(
+      {
+        prompt: query.prompt,
+        reset: true,
+        filters: query.filters,
+        preferences: {
+          liked,
+          disliked,
+        },
+      },
+      {
         onSuccess: (r) => {
+          setMessages([
+            { role: "user", content: query.prompt },
+            {
+              role: "assistant",
+              content: [
+                r.assistantMessage,
+                r.followUpQuestion ? `Follow-up: ${r.followUpQuestion}` : "",
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
+            },
+          ]);
           setAllRecs(r.recommendations);
-          const assistant = [
-            r.assistantMessage,
-            r.followUpQuestion ? `Follow-up: ${r.followUpQuestion}` : "",
-          ]
-            .filter(Boolean)
-            .join("\n\n");
-          setMessages((cur) => [...cur, { role: "assistant" as const, content: assistant }].slice(-12));
         },
       }
     );
+  }
+
+  function runAutoAt(index: number) {
+    if (index < 0 || index >= autoQueries.length) return;
+    const q = autoQueries[index];
+    const nextCursor = Math.max(autoCursor, index + 1);
+    runAutoQuery(q, nextCursor);
+  }
+
+  function runNextAutoQuery() {
+    if (autoQueries.length === 0) {
+      const batch = generateAutoQueryBatch(10);
+      setAutoQueries(batch);
+      setAutoCursor(0);
+      runAutoQuery(batch[0], 1);
+      return;
+    }
+
+    if (autoCursor >= autoQueries.length) {
+      const batch = generateAutoQueryBatch(10);
+      setAutoQueries(batch);
+      setAutoCursor(0);
+      runAutoQuery(batch[0], 1);
+      return;
+    }
+
+    runAutoAt(autoCursor);
+  }
+
+  function regenerateAutoQueries() {
+    setAutoQueries(generateAutoQueryBatch(10));
+    setAutoCursor(0);
+    setActiveAutoQueryId(null);
   }
 
   function generateMore() {
@@ -179,6 +443,7 @@ export default function AdminAiTrainer() {
     setPrompt("");
     setMessages([]);
     setAllRecs([]);
+    setActiveAutoQueryId(null);
     ai.reset();
     ai.mutate({ reset: true });
   }
@@ -193,21 +458,73 @@ export default function AdminAiTrainer() {
       <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">AI Trainer Workspace</h2>
+            <h2 className="text-lg font-semibold text-gray-900">Developers AI Trainer</h2>
             <p className="text-sm text-gray-600">
-              Developer loop: prompt, inspect recommendations, label each as good/bad.
+              Auto-generate prompts, run one-click evaluations, then rate courses with thumbs.
             </p>
           </div>
           <div className="text-xs text-gray-500">
-            Labeled feedback: {liked.length} good / {disliked.length} bad
+            Labels: {liked.length} up / {disliked.length} down
           </div>
         </div>
 
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={runNextAutoQuery}
+            disabled={ai.isPending}
+            className="bg-primary-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-60"
+          >
+            {ai.isPending ? "Running..." : "Run Next Auto Query"}
+          </button>
+          <button
+            onClick={regenerateAutoQueries}
+            className="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-50"
+          >
+            Regenerate Auto Queries
+          </button>
+          <button
+            onClick={clearTraining}
+            className="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-50"
+          >
+            Clear Labels
+          </button>
+        </div>
+
+        <div className="text-xs text-gray-500">
+          Queue position: {Math.min(autoCursor + 1, autoQueries.length)}/{autoQueries.length}
+        </div>
+
+        <div className="grid lg:grid-cols-2 gap-3 max-h-[260px] overflow-auto pr-1">
+          {autoQueries.map((q, idx) => (
+            <button
+              key={q.id}
+              type="button"
+              onClick={() => runAutoAt(idx)}
+              className={`text-left rounded-md border p-3 transition-colors ${
+                activeAutoQueryId === q.id
+                  ? "border-primary-400 bg-primary-50"
+                  : idx < autoCursor
+                    ? "border-green-200 bg-green-50 hover:bg-green-100"
+                    : "border-gray-200 bg-white hover:bg-gray-50"
+              }`}
+            >
+              <p className="text-xs font-semibold text-gray-700">
+                Query {idx + 1} - {q.note}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">{summarizeFilters(q.filters)}</p>
+              <p className="text-sm text-gray-800 mt-2 line-clamp-3">{q.prompt}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
+        <h3 className="font-semibold text-gray-900">Manual Prompt Override</h3>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           rows={3}
-          placeholder="Example: I want a discussion-heavy humanities class with low workload."
+          placeholder="Optional manual prompt for ad-hoc checks."
           className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
         />
 
@@ -250,7 +567,7 @@ export default function AdminAiTrainer() {
             disabled={ai.isPending}
             className="bg-primary-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-60"
           >
-            {ai.isPending ? "Running..." : "Run Prompt"}
+            {ai.isPending ? "Running..." : "Run Manual Prompt"}
           </button>
           <button
             onClick={generateMore}
@@ -264,12 +581,6 @@ export default function AdminAiTrainer() {
             className="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-50"
           >
             Reset Chat
-          </button>
-          <button
-            onClick={clearTraining}
-            className="bg-white border border-gray-300 text-gray-700 px-3 py-2 rounded-md text-sm font-medium hover:bg-gray-50"
-          >
-            Clear Labels
           </button>
         </div>
 
@@ -294,7 +605,9 @@ export default function AdminAiTrainer() {
               </p>
               <p className="font-medium text-gray-900">{rec.course.title}</p>
               {rec.course.instructors && rec.course.instructors.length > 0 && (
-                <p className="text-xs text-gray-500 mt-0.5">{rec.course.instructors.slice(0, 2).join(", ")}</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {rec.course.instructors.slice(0, 2).join(", ")}
+                </p>
               )}
             </div>
             <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
@@ -302,34 +615,40 @@ export default function AdminAiTrainer() {
                 <li key={idx}>{w}</li>
               ))}
             </ul>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => mark(rec.course, "liked")}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium border ${
+                aria-label={`Thumbs up for ${rec.course.code} ${rec.course.title}`}
+                title="Thumbs up"
+                className={`inline-flex items-center justify-center h-8 w-8 rounded-full border transition-colors ${
                   liked.some((x) => x.id === rec.course.id)
                     ? "bg-green-600 text-white border-green-600"
                     : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                 }`}
               >
-                Good
+                <ThumbUpIcon />
               </button>
               <button
                 type="button"
                 onClick={() => mark(rec.course, "disliked")}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium border ${
+                aria-label={`Thumbs down for ${rec.course.code} ${rec.course.title}`}
+                title="Thumbs down"
+                className={`inline-flex items-center justify-center h-8 w-8 rounded-full border transition-colors ${
                   disliked.some((x) => x.id === rec.course.id)
                     ? "bg-red-600 text-white border-red-600"
                     : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
                 }`}
               >
-                Bad
+                <ThumbDownIcon />
               </button>
             </div>
           </div>
         ))}
         {recs.length === 0 && (
-          <div className="text-sm text-gray-500">Run a prompt to start labeling recommendations.</div>
+          <div className="text-sm text-gray-500">
+            Run an auto query and start rating recommendations with thumbs.
+          </div>
         )}
       </div>
     </div>

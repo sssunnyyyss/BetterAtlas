@@ -118,7 +118,8 @@ export default function App() {
         >
           <Route index element={<Navigate to="/admin/sync" replace />} />
           <Route path="sync" element={<AdminSync />} />
-          <Route path="ai-trainer" element={<AdminAiTrainer />} />
+          <Route path="developers" element={<AdminAiTrainer />} />
+          <Route path="ai-trainer" element={<Navigate to="/admin/developers" replace />} />
           <Route path="system" element={<AdminSystem />} />
           <Route path="stats" element={<AdminStats />} />
           <Route path="users" element={<AdminUsers />} />
