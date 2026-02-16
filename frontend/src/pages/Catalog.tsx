@@ -150,6 +150,8 @@ export default function Catalog() {
         totalMs?: number;
         depsMs?: number;
         candidatesMs?: number;
+        embedMs?: number;
+        semanticMs?: number;
         openaiMs?: number;
         searchTerms?: string[];
         candidateCount?: number;
@@ -157,6 +159,7 @@ export default function Catalog() {
         userMajor?: string | null;
         deptCode?: string | null;
         searchUniqueCount?: number;
+        semanticUniqueCount?: number;
         candidatesWithDescription?: number;
         deptCounts?: Record<string, number>;
       }
@@ -512,12 +515,17 @@ export default function Catalog() {
                 {aiDebug.candidatesMs != null
                   ? `, ${Math.round(aiDebug.candidatesMs)}ms catalog`
                   : ""}
+                {aiDebug.embedMs != null ? `, ${Math.round(aiDebug.embedMs)}ms embed` : ""}
+                {aiDebug.semanticMs != null ? `, ${Math.round(aiDebug.semanticMs)}ms semantic` : ""}
                 {aiDebug.openaiMs != null ? `, ${Math.round(aiDebug.openaiMs)}ms OpenAI` : ""}
                 {aiDebug.model ? ` (${aiDebug.model})` : ""}
                 {aiDebug.searchTerms && aiDebug.searchTerms.length > 0
                   ? ` | terms: ${aiDebug.searchTerms.join(", ")}`
                   : ""}
                 {aiDebug.candidateCount != null ? ` | candidates: ${aiDebug.candidateCount}` : ""}
+                {aiDebug.semanticUniqueCount != null
+                  ? ` | semantic: ${aiDebug.semanticUniqueCount}`
+                  : ""}
                 {aiDebug.candidatesWithDescription != null && aiDebug.candidateCount != null
                   ? ` | desc: ${aiDebug.candidatesWithDescription}/${aiDebug.candidateCount}`
                   : ""}
