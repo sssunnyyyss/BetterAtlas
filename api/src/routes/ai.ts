@@ -339,6 +339,58 @@ function dedupeCourses(courses: CourseWithRatings[]) {
   return map;
 }
 
+function enforceSemanticCandidateQuota(input: {
+  candidates: CourseWithRatings[];
+  semanticRanked: CourseWithRatings[];
+  semanticIds: Set<number>;
+  excludeIds: Set<number>;
+  maxCandidates: number;
+  minSemantic: number;
+}) {
+  const { candidates, semanticRanked, semanticIds, excludeIds, maxCandidates, minSemantic } = input;
+
+  if (semanticIds.size === 0 || minSemantic <= 0) return candidates;
+
+  const target = Math.min(minSemantic, semanticIds.size, maxCandidates);
+  if (target <= 0) return candidates;
+
+  const out = [...candidates];
+  let semanticCount = out.filter((c) => semanticIds.has(c.id)).length;
+  if (semanticCount >= target) return out;
+
+  const selectedIds = new Set<number>(out.map((c) => c.id));
+  const addableSemantic = semanticRanked
+    .filter((c) => semanticIds.has(c.id))
+    .filter((c) => !excludeIds.has(c.id))
+    .filter((c) => !selectedIds.has(c.id));
+
+  for (const sem of addableSemantic) {
+    if (semanticCount >= target) break;
+
+    // Replace from the tail so higher-ranked/earlier candidates stay stable.
+    let replaceIdx = -1;
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (!semanticIds.has(out[i].id)) {
+        replaceIdx = i;
+        break;
+      }
+    }
+
+    if (replaceIdx === -1) {
+      if (out.length >= maxCandidates) break;
+      out.push(sem);
+    } else {
+      selectedIds.delete(out[replaceIdx].id);
+      out[replaceIdx] = sem;
+    }
+
+    selectedIds.add(sem.id);
+    semanticCount += 1;
+  }
+
+  return out.slice(0, maxCandidates);
+}
+
 function findDepartmentCodeFromMajor(
   major: string | null,
   deps: DepartmentMini[]
@@ -553,10 +605,24 @@ router.post(
       ]);
 
       // Keep context bounded for cost + latency.
+      const CANDIDATE_MAX = 42;
+      const MAX_PER_DEPT = 6;
+      const MIN_SEMANTIC_CANDIDATES = 6;
+
       const pool = Array.from(courseMap.values()).filter((c) => !excludeSet.has(c.id));
-      let candidates = interleaveByDepartment(pool, 42, 6);
+      const semanticIds = new Set<number>(semanticUnique.map((c) => c.id));
+      let candidates = interleaveByDepartment(pool, CANDIDATE_MAX, MAX_PER_DEPT);
       // Put described courses first so the model can make better judgments from text.
       candidates = candidates.sort((a, b) => Number(Boolean(b.description)) - Number(Boolean(a.description)));
+      candidates = enforceSemanticCandidateQuota({
+        candidates,
+        semanticRanked: semanticUnique,
+        semanticIds,
+        excludeIds: excludeSet,
+        maxCandidates: CANDIDATE_MAX,
+        minSemantic: MIN_SEMANTIC_CANDIDATES,
+      });
+      const semanticCandidateCount = candidates.filter((c) => semanticIds.has(c.id)).length;
 
       const modelCandidates = candidates.map((c) => ({
         id: c.id,
@@ -782,6 +848,7 @@ router.post(
                 deptCode,
                 searchUniqueCount: searchUnique.length,
                 semanticUniqueCount: semanticUnique.length,
+                semanticCandidateCount,
                 candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
                 deptCounts,
               },
