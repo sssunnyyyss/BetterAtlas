@@ -11,6 +11,7 @@ import Friends from "./pages/Friends.js";
 import Schedule from "./pages/Schedule.js";
 import AdminLayout from "./pages/admin/AdminLayout.js";
 import AdminSync from "./pages/admin/AdminSync.js";
+import AdminAiTrainer from "./pages/admin/AdminAiTrainer.js";
 import AdminSystem from "./pages/admin/AdminSystem.js";
 import AdminStats from "./pages/admin/AdminStats.js";
 import AdminUsers from "./pages/admin/AdminUsers.js";
@@ -117,6 +118,7 @@ export default function App() {
         >
           <Route index element={<Navigate to="/admin/sync" replace />} />
           <Route path="sync" element={<AdminSync />} />
+          <Route path="ai-trainer" element={<AdminAiTrainer />} />
           <Route path="system" element={<AdminSystem />} />
           <Route path="stats" element={<AdminStats />} />
           <Route path="users" element={<AdminUsers />} />

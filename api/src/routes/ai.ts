@@ -25,6 +25,34 @@ const aiMessageSchema = z.object({
   content: z.string().min(1).max(4000),
 });
 
+const aiFilterSchema = z.object({
+  semester: z.string().max(80).optional(),
+  department: z.string().max(20).optional(),
+  minRating: z.coerce.number().min(1).max(5).optional(),
+  credits: z.coerce.number().int().positive().optional(),
+  attributes: z.string().max(100).optional(),
+  instructor: z.string().max(120).optional(),
+  campus: z.string().max(50).optional(),
+  componentType: z.string().max(20).optional(),
+  instructionMethod: z.string().max(20).optional(),
+});
+
+const preferenceCourseSchema = z.object({
+  id: z.number().int().positive(),
+  code: z.string().min(1).max(30),
+  title: z.string().min(1).max(240),
+  department: z.string().max(20).nullable().optional(),
+  gers: z.array(z.string().max(20)).max(12).optional(),
+  campuses: z.array(z.string().max(50)).max(12).optional(),
+  instructors: z.array(z.string().max(120)).max(12).optional(),
+  description: z.string().max(500).nullable().optional(),
+});
+
+const preferenceSignalsSchema = z.object({
+  liked: z.array(preferenceCourseSchema).max(40).optional(),
+  disliked: z.array(preferenceCourseSchema).max(40).optional(),
+});
+
 const recommendSchema = z
   .object({
     // New preferred API: client sends the next user prompt, server maintains per-user memory.
@@ -33,6 +61,10 @@ const recommendSchema = z
     messages: z.array(aiMessageSchema).min(1).max(12).optional(),
     // Avoid recommending already-shown courses (used by "Generate more").
     excludeCourseIds: z.array(z.number().int().positive()).max(200).optional(),
+    // Apply active catalog filters as hard constraints to candidate retrieval.
+    filters: aiFilterSchema.optional(),
+    // Lightweight training signals ("more like this", "less like this").
+    preferences: preferenceSignalsSchema.optional(),
     // Clear per-user memory.
     reset: z.boolean().optional(),
   })
@@ -244,6 +276,21 @@ const memoryByUser = new Map<string, { messages: AiMessage[]; updatedAt: number 
 
 type DepartmentMini = { code: string; name: string };
 type CacheEntry<T> = { value: T; updatedAt: number };
+type AiCourseFilters = z.infer<typeof aiFilterSchema>;
+type PreferenceCourse = z.infer<typeof preferenceCourseSchema>;
+
+type PreferenceProfile = {
+  likedDept: Map<string, number>;
+  dislikedDept: Map<string, number>;
+  likedGer: Map<string, number>;
+  dislikedGer: Map<string, number>;
+  likedCampus: Map<string, number>;
+  dislikedCampus: Map<string, number>;
+  likedInstructor: Map<string, number>;
+  dislikedInstructor: Map<string, number>;
+  likedTokens: Set<string>;
+  dislikedTokens: Set<string>;
+};
 
 const DEPS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 let depsCache: CacheEntry<DepartmentMini[]> | null = null;
@@ -461,6 +508,206 @@ function interleaveByDepartment(
   return selected;
 }
 
+function normalizeInstructionMethodFilter(value: string | undefined) {
+  if (!value) return undefined;
+  if (value === "O") return "DL";
+  if (value === "H") return "BL";
+  return value;
+}
+
+function normalizeAiFilters(raw: AiCourseFilters | undefined) {
+  const out: AiCourseFilters = {};
+  if (!raw) return out;
+
+  const normalizeString = (v: string | undefined, max = 120) => {
+    const t = String(v ?? "").trim();
+    return t ? truncate(t, max) : undefined;
+  };
+
+  out.semester = normalizeString(raw.semester, 80);
+  out.department = normalizeString(raw.department, 20)?.toUpperCase();
+  out.attributes = normalizeString(raw.attributes, 100);
+  out.instructor = normalizeString(raw.instructor, 120);
+  out.campus = normalizeString(raw.campus, 50);
+  out.componentType = normalizeString(raw.componentType, 20)?.toUpperCase();
+  out.instructionMethod = normalizeInstructionMethodFilter(
+    normalizeString(raw.instructionMethod, 20)?.toUpperCase()
+  );
+  out.minRating =
+    typeof raw.minRating === "number" && Number.isFinite(raw.minRating)
+      ? Math.min(5, Math.max(1, raw.minRating))
+      : undefined;
+  out.credits =
+    typeof raw.credits === "number" && Number.isFinite(raw.credits)
+      ? Math.max(1, Math.trunc(raw.credits))
+      : undefined;
+
+  return out;
+}
+
+function hasAnyAiFilters(filters: AiCourseFilters) {
+  return Boolean(
+    filters.semester ||
+      filters.department ||
+      filters.minRating ||
+      filters.credits ||
+      filters.attributes ||
+      filters.instructor ||
+      filters.campus ||
+      filters.componentType ||
+      filters.instructionMethod
+  );
+}
+
+function summarizeAiFilters(filters: AiCourseFilters) {
+  const pairs: string[] = [];
+  if (filters.semester) pairs.push(`semester=${filters.semester}`);
+  if (filters.department) pairs.push(`department=${filters.department}`);
+  if (filters.minRating) pairs.push(`minRating=${filters.minRating}`);
+  if (filters.credits) pairs.push(`credits=${filters.credits}`);
+  if (filters.attributes) pairs.push(`attributes=${filters.attributes}`);
+  if (filters.instructor) pairs.push(`instructor=${filters.instructor}`);
+  if (filters.campus) pairs.push(`campus=${filters.campus}`);
+  if (filters.componentType) pairs.push(`componentType=${filters.componentType}`);
+  if (filters.instructionMethod) pairs.push(`instructionMethod=${filters.instructionMethod}`);
+  return pairs.join(", ") || "(none)";
+}
+
+function normalizePreferenceCourses(items: PreferenceCourse[] | undefined) {
+  const dedup = new Map<number, PreferenceCourse>();
+  for (const item of items ?? []) {
+    if (!item || !Number.isFinite(item.id)) continue;
+    dedup.set(item.id, {
+      id: item.id,
+      code: truncate(String(item.code || "").trim(), 30),
+      title: truncate(String(item.title || "").trim(), 240),
+      department: item.department ? truncate(String(item.department).trim().toUpperCase(), 20) : null,
+      gers: (item.gers ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 12),
+      campuses: (item.campuses ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 12),
+      instructors: (item.instructors ?? []).map((x) => String(x).trim()).filter(Boolean).slice(0, 12),
+      description: item.description ? truncate(String(item.description).trim(), 500) : null,
+    });
+  }
+  return Array.from(dedup.values());
+}
+
+function preferenceTokenize(text: string) {
+  return text
+    .toLowerCase()
+    .replace(/'/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3)
+    .filter((t) => !AI_SEARCH_STOPWORDS.has(t))
+    .slice(0, 20);
+}
+
+function incrementMap(map: Map<string, number>, key: string, weight = 1) {
+  const k = key.trim();
+  if (!k) return;
+  map.set(k, (map.get(k) ?? 0) + weight);
+}
+
+function buildPreferenceProfile(liked: PreferenceCourse[], disliked: PreferenceCourse[]): PreferenceProfile {
+  const profile: PreferenceProfile = {
+    likedDept: new Map(),
+    dislikedDept: new Map(),
+    likedGer: new Map(),
+    dislikedGer: new Map(),
+    likedCampus: new Map(),
+    dislikedCampus: new Map(),
+    likedInstructor: new Map(),
+    dislikedInstructor: new Map(),
+    likedTokens: new Set(),
+    dislikedTokens: new Set(),
+  };
+
+  for (const c of liked) {
+    if (c.department) incrementMap(profile.likedDept, c.department, 1.5);
+    for (const g of c.gers ?? []) incrementMap(profile.likedGer, g, 1);
+    for (const camp of c.campuses ?? []) incrementMap(profile.likedCampus, camp, 1);
+    for (const inst of c.instructors ?? []) incrementMap(profile.likedInstructor, inst, 1);
+    for (const token of preferenceTokenize(`${c.code} ${c.title} ${c.description ?? ""}`)) {
+      profile.likedTokens.add(token);
+    }
+  }
+
+  for (const c of disliked) {
+    if (c.department) incrementMap(profile.dislikedDept, c.department, 2);
+    for (const g of c.gers ?? []) incrementMap(profile.dislikedGer, g, 1.25);
+    for (const camp of c.campuses ?? []) incrementMap(profile.dislikedCampus, camp, 1.25);
+    for (const inst of c.instructors ?? []) incrementMap(profile.dislikedInstructor, inst, 1.25);
+    for (const token of preferenceTokenize(`${c.code} ${c.title} ${c.description ?? ""}`)) {
+      profile.dislikedTokens.add(token);
+    }
+  }
+
+  return profile;
+}
+
+function hasAnyPreferenceSignals(profile: PreferenceProfile) {
+  return (
+    profile.likedDept.size > 0 ||
+    profile.dislikedDept.size > 0 ||
+    profile.likedGer.size > 0 ||
+    profile.dislikedGer.size > 0 ||
+    profile.likedCampus.size > 0 ||
+    profile.dislikedCampus.size > 0 ||
+    profile.likedInstructor.size > 0 ||
+    profile.dislikedInstructor.size > 0 ||
+    profile.likedTokens.size > 0 ||
+    profile.dislikedTokens.size > 0
+  );
+}
+
+function scoreCourseWithPreferenceSignals(course: CourseWithRatings, profile: PreferenceProfile) {
+  let score = 0;
+
+  const dept = (course.department?.code ?? "").trim().toUpperCase();
+  if (dept) {
+    score += (profile.likedDept.get(dept) ?? 0) * 2.6;
+    score -= (profile.dislikedDept.get(dept) ?? 0) * 3.1;
+  }
+
+  for (const g of course.gers ?? []) {
+    score += (profile.likedGer.get(g) ?? 0) * 1.15;
+    score -= (profile.dislikedGer.get(g) ?? 0) * 1.45;
+  }
+  for (const c of course.campuses ?? []) {
+    score += (profile.likedCampus.get(c) ?? 0) * 0.9;
+    score -= (profile.dislikedCampus.get(c) ?? 0) * 1.2;
+  }
+  for (const i of course.instructors ?? []) {
+    score += (profile.likedInstructor.get(i) ?? 0) * 0.9;
+    score -= (profile.dislikedInstructor.get(i) ?? 0) * 1.2;
+  }
+
+  const tokens = preferenceTokenize(`${course.code} ${course.title} ${course.description ?? ""}`);
+  for (const t of tokens) {
+    if (profile.likedTokens.has(t)) score += 0.45;
+    if (profile.dislikedTokens.has(t)) score -= 0.6;
+  }
+
+  return score;
+}
+
+function rankCandidatesByPreferenceSignals(
+  courses: CourseWithRatings[],
+  profile: PreferenceProfile
+) {
+  if (!hasAnyPreferenceSignals(profile)) return courses;
+
+  return courses
+    .map((course, idx) => ({
+      course,
+      idx,
+      score: scoreCourseWithPreferenceSignals(course, profile),
+    }))
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)
+    .map((x) => x.course);
+}
+
 router.post(
   "/ai/course-recommendations",
   requireAuth,
@@ -474,11 +721,19 @@ router.post(
         return res.status(500).json({ error: "AI is not configured on the server" });
       }
 
-      const { messages, prompt, reset, excludeCourseIds } = req.body as z.infer<typeof recommendSchema>;
+      const { messages, prompt, reset, excludeCourseIds, filters, preferences } = req.body as z.infer<
+        typeof recommendSchema
+      >;
       const user = await getUserById(req.user!.id);
+      const activeFilters = normalizeAiFilters(filters);
+      const likedCourses = normalizePreferenceCourses(preferences?.liked);
+      const dislikedCourses = normalizePreferenceCourses(preferences?.disliked);
+      const preferenceProfile = buildPreferenceProfile(likedCourses, dislikedCourses);
+
       const excludeSet = new Set<number>(
         (excludeCourseIds ?? []).filter((id) => typeof id === "number" && Number.isFinite(id))
       );
+      for (const c of dislikedCourses) excludeSet.add(c.id);
 
       const tDepsStart = Date.now();
       const deps = await getDepartmentsCached();
@@ -544,6 +799,7 @@ router.post(
       let embedMs = 0;
       let semanticMs = 0;
       let semanticUnique: CourseWithRatings[] = [];
+      const hasFilters = hasAnyAiFilters(activeFilters);
 
       if (candidateQuery.length >= 3 && (await areCourseEmbeddingsAvailable())) {
         try {
@@ -552,7 +808,11 @@ router.post(
           embedMs = Date.now() - tEmbed;
 
           const tSemantic = Date.now();
-          semanticUnique = await semanticSearchCoursesByEmbedding({ embedding, limit: 36 });
+          semanticUnique = await semanticSearchCoursesByEmbedding({
+            embedding,
+            limit: 36,
+            filters: activeFilters,
+          });
           semanticMs = Date.now() - tSemantic;
         } catch (e) {
           // Don't fail the whole request if embeddings aren't set up yet.
@@ -569,13 +829,21 @@ router.post(
           q: searchTerms.join(" "),
           page: 1,
           limit: 24,
+          ...activeFilters,
         });
         searchCoursesRaw = primary.data ?? [];
 
         // 2) If that was too strict (common with AND semantics), broaden by searching per-keyword.
         if (searchCoursesRaw.length < 18 && searchTerms.length > 1) {
           const perTerm = await Promise.all(
-            searchTerms.map((t) => searchCourses({ q: t, page: 1, limit: 12 }))
+            searchTerms.map((t) =>
+              searchCourses({
+                q: t,
+                page: 1,
+                limit: 12,
+                ...activeFilters,
+              })
+            )
           );
           searchCoursesRaw = [
             ...searchCoursesRaw,
@@ -589,11 +857,27 @@ router.post(
       const needFillers = searchUnique.length + semanticUnique.length < 24 && candidateQuery.length >= 3;
       const [topRated, majorRated] = await Promise.all([
         needFillers
-          ? getTopRatedCached().then((data) => ({ data, meta: { page: 1, limit: data.length, total: data.length, totalPages: 1 } }))
-          : Promise.resolve({ data: [] as CourseWithRatings[], meta: { page: 1, limit: 0, total: 0, totalPages: 1 } }),
-        needFillers && deptCode
-          ? getMajorRatedCached(deptCode).then((data) => ({ data, meta: { page: 1, limit: data.length, total: data.length, totalPages: 1 } }))
-          : Promise.resolve({ data: [] as CourseWithRatings[], meta: { page: 1, limit: 0, total: 0, totalPages: 1 } }),
+          ? hasFilters
+            ? listCourses({ page: 1, limit: 18, sort: "rating", ...activeFilters })
+            : getTopRatedCached().then((data) => ({
+                data,
+                meta: { page: 1, limit: data.length, total: data.length, totalPages: 1 },
+              }))
+          : Promise.resolve({
+              data: [] as CourseWithRatings[],
+              meta: { page: 1, limit: 0, total: 0, totalPages: 1 },
+            }),
+        needFillers && deptCode && !activeFilters.department
+          ? hasFilters
+            ? listCourses({ page: 1, limit: 18, sort: "rating", ...activeFilters, department: deptCode })
+            : getMajorRatedCached(deptCode).then((data) => ({
+                data,
+                meta: { page: 1, limit: data.length, total: data.length, totalPages: 1 },
+              }))
+          : Promise.resolve({
+              data: [] as CourseWithRatings[],
+              meta: { page: 1, limit: 0, total: 0, totalPages: 1 },
+            }),
       ]);
       const candidatesMs = Date.now() - tCandidatesStart;
 
@@ -622,7 +906,42 @@ router.post(
         maxCandidates: CANDIDATE_MAX,
         minSemantic: MIN_SEMANTIC_CANDIDATES,
       });
+      candidates = rankCandidatesByPreferenceSignals(candidates, preferenceProfile);
       const semanticCandidateCount = candidates.filter((c) => semanticIds.has(c.id)).length;
+
+      if (candidates.length === 0) {
+        return res.json({
+          assistantMessage:
+            "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again.",
+          followUpQuestion: "Want me to prioritize semester first, then broaden instructor/campus constraints?",
+          recommendations: [],
+          ...(env.nodeEnv !== "production"
+            ? {
+                debug: {
+                  model: env.openaiModel,
+                  totalMs: Date.now() - tStart,
+                  depsMs,
+                  candidatesMs,
+                  embedMs,
+                  semanticMs,
+                  openaiMs: 0,
+                  searchTerms,
+                  candidateCount: 0,
+                  hadFillers: needFillers,
+                  userMajor: user?.major ?? null,
+                  deptCode,
+                  searchUniqueCount: searchUnique.length,
+                  semanticUniqueCount: semanticUnique.length,
+                  semanticCandidateCount: 0,
+                  candidatesWithDescription: 0,
+                  appliedFilters: activeFilters,
+                  likedSignals: likedCourses.length,
+                  dislikedSignals: dislikedCourses.length,
+                },
+              }
+            : {}),
+        });
+      }
 
       const modelCandidates = candidates.map((c) => ({
         id: c.id,
@@ -646,10 +965,12 @@ router.post(
         "You are BetterAtlas AI, an academic counselor inside a course catalog.",
         "Goal: recommend courses that match the student's interests and intentions.",
         "The student's major is a hint, not a constraint.",
+        "Treat active catalog filters as hard constraints; never suggest anything outside them.",
         "Prioritize fit to the course title and description.",
         "Do NOT default to CS/tech courses unless the student asks for them or the course clearly matches their described interests.",
         "Unless the student explicitly asks for one department, diversify: pick from at least 3 departments when possible and avoid recommending more than 3 courses from any single department.",
         "Use course details when helpful: instructors, campuses, GERs, prerequisites, and requirements/restrictions.",
+        "Use developer/user feedback signals (liked/disliked course examples) as strong preference hints.",
         "You must ONLY recommend courses from the provided candidate list, using their numeric id.",
         "Never recommend any excluded course_id values provided in context.",
         "If the student's request is vague, make reasonable assumptions and include exactly ONE concise follow-up question.",
@@ -676,6 +997,23 @@ router.post(
         `Student major: ${user?.major ?? "unknown"}`,
         `Student graduationYear: ${user?.graduationYear ?? "unknown"}`,
         `Student deptCode (hint): ${deptCode ?? "unknown"}`,
+        `Active filters (hard constraints): ${summarizeAiFilters(activeFilters)}`,
+        `Liked feedback examples: ${
+          likedCourses.length > 0
+            ? likedCourses
+                .slice(0, 12)
+                .map((c) => `${c.code} ${c.title}`)
+                .join(" | ")
+            : "(none)"
+        }`,
+        `Disliked feedback examples: ${
+          dislikedCourses.length > 0
+            ? dislikedCourses
+                .slice(0, 12)
+                .map((c) => `${c.code} ${c.title}`)
+                .join(" | ")
+            : "(none)"
+        }`,
         `Excluded course IDs: ${excludeSet.size > 0 ? Array.from(excludeSet).slice(0, 200).join(", ") : "(none)"}`,
         "",
         "Candidates JSON (ONLY recommend from these ids):",
@@ -851,6 +1189,9 @@ router.post(
                 semanticCandidateCount,
                 candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
                 deptCounts,
+                appliedFilters: activeFilters,
+                likedSignals: likedCourses.length,
+                dislikedSignals: dislikedCourses.length,
               },
             }
           : {}),

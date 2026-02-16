@@ -2,6 +2,7 @@ import { NavLink, Outlet } from "react-router-dom";
 
 const TABS = [
   { label: "Sync", path: "/admin/sync" },
+  { label: "AI Trainer", path: "/admin/ai-trainer" },
   { label: "System", path: "/admin/system" },
   { label: "Stats", path: "/admin/stats" },
   { label: "Users", path: "/admin/users" },

@@ -3,7 +3,13 @@ import { Link, useSearchParams } from "react-router-dom";
 import type { ProgramTab } from "@betteratlas/shared";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
 import { useProgram, useProgramAiSummary, useProgramCourses, useProgramVariants } from "../hooks/usePrograms.js";
-import { useAiCourseRecommendations, type AiCourseRecommendation, type AiMessage } from "../hooks/useAi.js";
+import {
+  useAiCourseRecommendations,
+  type AiCourseRecommendation,
+  type AiMessage,
+  type AiPreferenceCourse,
+  type AiRecommendationFilters,
+} from "../hooks/useAi.js";
 import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
@@ -29,6 +35,51 @@ function Spinner({ className = "" }: { className?: string }) {
   );
 }
 
+const AI_PREFS_STORAGE_KEY = "betteratlas.ai.preferences.v1";
+
+function makePreferenceSnapshot(course: AiCourseRecommendation["course"]): AiPreferenceCourse {
+  return {
+    id: course.id,
+    code: course.code,
+    title: course.title,
+    department: course.department?.code ?? null,
+    gers: (course.gers ?? []).slice(0, 12),
+    campuses: (course.campuses ?? []).slice(0, 12),
+    instructors: (course.instructors ?? []).slice(0, 12),
+    description: course.description ?? null,
+  };
+}
+
+function buildAiFilters(rawFilters: Record<string, string>): AiRecommendationFilters {
+  const toNum = (v: string | undefined) => {
+    const n = Number(v ?? "");
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const out: AiRecommendationFilters = {};
+  const semester = rawFilters.semester?.trim();
+  const department = rawFilters.department?.trim();
+  const minRating = toNum(rawFilters.minRating);
+  const credits = toNum(rawFilters.credits);
+  const attributes = rawFilters.attributes?.trim();
+  const instructor = rawFilters.instructor?.trim();
+  const campus = rawFilters.campus?.trim();
+  const componentType = rawFilters.componentType?.trim();
+  const instructionMethod = rawFilters.instructionMethod?.trim();
+
+  if (semester) out.semester = semester;
+  if (department) out.department = department;
+  if (typeof minRating === "number") out.minRating = minRating;
+  if (typeof credits === "number") out.credits = credits;
+  if (attributes) out.attributes = attributes;
+  if (instructor) out.instructor = instructor;
+  if (campus) out.campus = campus;
+  if (componentType) out.componentType = componentType;
+  if (instructionMethod) out.instructionMethod = instructionMethod;
+
+  return out;
+}
+
 export default function Catalog() {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialMode =
@@ -43,6 +94,10 @@ export default function Catalog() {
   const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
   const aiRec = useAiCourseRecommendations();
   const [aiAllRecs, setAiAllRecs] = useState<AiCourseRecommendation[]>([]);
+  const [likedPreferenceCourses, setLikedPreferenceCourses] = useState<AiPreferenceCourse[]>([]);
+  const [dislikedPreferenceCourses, setDislikedPreferenceCourses] = useState<AiPreferenceCourse[]>(
+    []
+  );
 
   // Debounce search
   useEffect(() => {
@@ -66,6 +121,37 @@ export default function Catalog() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams.toString()]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(AI_PREFS_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        liked?: AiPreferenceCourse[];
+        disliked?: AiPreferenceCourse[];
+      };
+      setLikedPreferenceCourses(Array.isArray(parsed?.liked) ? parsed.liked.slice(0, 40) : []);
+      setDislikedPreferenceCourses(
+        Array.isArray(parsed?.disliked) ? parsed.disliked.slice(0, 40) : []
+      );
+    } catch {
+      // Ignore invalid local preference cache.
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        AI_PREFS_STORAGE_KEY,
+        JSON.stringify({
+          liked: likedPreferenceCourses.slice(0, 40),
+          disliked: dislikedPreferenceCourses.slice(0, 40),
+        })
+      );
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [likedPreferenceCourses, dislikedPreferenceCourses]);
 
   // Build filters from URL (everything except the free-text search param "q")
   const filters: Record<string, string> = {};
@@ -144,6 +230,7 @@ export default function Catalog() {
   const isAiMode = mode === "ai";
   const aiData = aiRec.data;
   const displayedRecs = aiAllRecs.length > 0 ? aiAllRecs : aiData?.recommendations ?? [];
+  const aiRequestFilters = buildAiFilters(filters);
   const aiDebug = (aiData as any)?.debug as
     | {
         model?: string;
@@ -162,6 +249,9 @@ export default function Catalog() {
         semanticUniqueCount?: number;
         candidatesWithDescription?: number;
         deptCounts?: Record<string, number>;
+        appliedFilters?: Record<string, string | number>;
+        likedSignals?: number;
+        dislikedSignals?: number;
       }
     | undefined;
 
@@ -198,6 +288,30 @@ export default function Catalog() {
     aiRec.mutate({ reset: true });
   }
 
+  function clearAiTrainingData() {
+    setLikedPreferenceCourses([]);
+    setDislikedPreferenceCourses([]);
+  }
+
+  function markCoursePreference(course: AiCourseRecommendation["course"], verdict: "liked" | "disliked") {
+    const snap = makePreferenceSnapshot(course);
+    if (verdict === "liked") {
+      setLikedPreferenceCourses((cur) => {
+        const map = new Map<number, AiPreferenceCourse>(cur.map((c) => [c.id, c]));
+        map.set(snap.id, snap);
+        return Array.from(map.values()).slice(-40);
+      });
+      setDislikedPreferenceCourses((cur) => cur.filter((c) => c.id !== snap.id));
+    } else {
+      setDislikedPreferenceCourses((cur) => {
+        const map = new Map<number, AiPreferenceCourse>(cur.map((c) => [c.id, c]));
+        map.set(snap.id, snap);
+        return Array.from(map.values()).slice(-40);
+      });
+      setLikedPreferenceCourses((cur) => cur.filter((c) => c.id !== snap.id));
+    }
+  }
+
   async function runAi(prompt: string) {
     const trimmed = prompt.trim();
     if (!trimmed) return;
@@ -213,7 +327,14 @@ export default function Catalog() {
     });
 
     aiRec.mutate(
-      { messages: nextMessages },
+      {
+        messages: nextMessages,
+        filters: aiRequestFilters,
+        preferences: {
+          liked: likedPreferenceCourses,
+          disliked: dislikedPreferenceCourses,
+        },
+      },
       {
         onSuccess: (r) => {
           setAiAllRecs(r.recommendations);
@@ -241,7 +362,15 @@ export default function Catalog() {
       .slice(-200);
 
     aiRec.mutate(
-      { messages: aiMessages, excludeCourseIds },
+      {
+        messages: aiMessages,
+        excludeCourseIds,
+        filters: aiRequestFilters,
+        preferences: {
+          liked: likedPreferenceCourses,
+          disliked: dislikedPreferenceCourses,
+        },
+      },
       {
         onSuccess: (r) => {
           setAiAllRecs((cur) => {
@@ -325,12 +454,22 @@ export default function Catalog() {
                 <span className="text-xs text-gray-500">
                   One-shot counselor mode (you can follow up).
                 </span>
+                <span className="text-xs text-gray-500">
+                  Training: {likedPreferenceCourses.length} liked / {dislikedPreferenceCourses.length} disliked
+                </span>
                 <button
                   type="button"
                   onClick={resetAiChat}
                   className="text-xs font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
                 >
                   New chat
+                </button>
+                <button
+                  type="button"
+                  onClick={clearAiTrainingData}
+                  className="text-xs font-medium text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                >
+                  Clear training
                 </button>
               </>
             )}
@@ -522,12 +661,21 @@ export default function Catalog() {
                 {aiDebug.searchTerms && aiDebug.searchTerms.length > 0
                   ? ` | terms: ${aiDebug.searchTerms.join(", ")}`
                   : ""}
+                {aiDebug.appliedFilters &&
+                Object.keys(aiDebug.appliedFilters).length > 0
+                  ? ` | filters: ${Object.entries(aiDebug.appliedFilters)
+                      .map(([k, v]) => `${k}=${String(v)}`)
+                      .join(", ")}`
+                  : ""}
                 {aiDebug.candidateCount != null ? ` | candidates: ${aiDebug.candidateCount}` : ""}
                 {aiDebug.semanticUniqueCount != null
                   ? ` | semantic: ${aiDebug.semanticUniqueCount}`
                   : ""}
                 {aiDebug.candidatesWithDescription != null && aiDebug.candidateCount != null
                   ? ` | desc: ${aiDebug.candidatesWithDescription}/${aiDebug.candidateCount}`
+                  : ""}
+                {aiDebug.likedSignals != null || aiDebug.dislikedSignals != null
+                  ? ` | prefs: ${aiDebug.likedSignals ?? 0}/${aiDebug.dislikedSignals ?? 0}`
                   : ""}
                 {aiDebug.hadFillers != null ? ` | fillers: ${aiDebug.hadFillers ? "yes" : "no"}` : ""}
                 {aiDebug.deptCode ? ` | deptHint: ${aiDebug.deptCode}` : ""}
@@ -586,6 +734,31 @@ export default function Catalog() {
                         </ul>
                       </>
                     )}
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => markCoursePreference(rec.course, "liked")}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                        likedPreferenceCourses.some((c) => c.id === rec.course.id)
+                          ? "bg-green-600 text-white border-green-600"
+                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      More like this
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => markCoursePreference(rec.course, "disliked")}
+                      className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${
+                        dislikedPreferenceCourses.some((c) => c.id === rec.course.id)
+                          ? "bg-red-600 text-white border-red-600"
+                          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                      }`}
+                    >
+                      Less like this
+                    </button>
                   </div>
                 </div>
               ))}

@@ -20,9 +20,49 @@ export type AiCourseRecommendationsResponse = {
   recommendations: AiCourseRecommendation[];
 };
 
+export type AiRecommendationFilters = {
+  semester?: string;
+  department?: string;
+  minRating?: number;
+  credits?: number;
+  attributes?: string;
+  instructor?: string;
+  campus?: string;
+  componentType?: string;
+  instructionMethod?: string;
+};
+
+export type AiPreferenceCourse = {
+  id: number;
+  code: string;
+  title: string;
+  department?: string | null;
+  gers?: string[];
+  campuses?: string[];
+  instructors?: string[];
+  description?: string | null;
+};
+
+export type AiPreferenceSignals = {
+  liked?: AiPreferenceCourse[];
+  disliked?: AiPreferenceCourse[];
+};
+
 export type AiCourseRecommendationsRequest =
-  | { prompt: string; reset?: boolean; excludeCourseIds?: number[] }
-  | { messages: AiMessage[]; reset?: boolean; excludeCourseIds?: number[] }
+  | {
+      prompt: string;
+      reset?: boolean;
+      excludeCourseIds?: number[];
+      filters?: AiRecommendationFilters;
+      preferences?: AiPreferenceSignals;
+    }
+  | {
+      messages: AiMessage[];
+      reset?: boolean;
+      excludeCourseIds?: number[];
+      filters?: AiRecommendationFilters;
+      preferences?: AiPreferenceSignals;
+    }
   | { reset: true };
 
 export function useAiCourseRecommendations() {

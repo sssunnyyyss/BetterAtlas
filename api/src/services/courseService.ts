@@ -14,10 +14,32 @@ import { eq, sql, and, asc, desc, ilike, inArray } from "drizzle-orm";
 import type { CourseQuery, SearchQuery, CourseWithRatings } from "@betteratlas/shared";
 import { scheduleFromMeetings } from "../lib/schedule.js";
 
+type CourseFilterQuery = Partial<
+  Pick<
+    CourseQuery,
+    | "department"
+    | "semester"
+    | "minRating"
+    | "credits"
+    | "attributes"
+    | "instructor"
+    | "campus"
+    | "componentType"
+    | "instructionMethod"
+  >
+>;
+
 function classScoreExpr() {
   // "Class" score = average of professor-wide scores for instructors teaching the course.
   // Uses DISTINCT to avoid overweighting instructors with multiple sections.
   return sql`avg(DISTINCT ${instructorRatings.avgQuality})`;
+}
+
+function normalizeInstructionMethodFilter(value: string | undefined) {
+  if (!value) return value;
+  if (value === "O") return "DL";
+  if (value === "H") return "BL";
+  return value;
 }
 
 export async function listCourses(query: CourseQuery) {
@@ -315,8 +337,21 @@ export async function listCourses(query: CourseQuery) {
   };
 }
 
-export async function searchCourses(query: SearchQuery) {
-  const { q, page, limit } = query;
+export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
+  const {
+    q,
+    page,
+    limit,
+    department,
+    semester,
+    minRating,
+    credits,
+    attributes,
+    instructor,
+    campus,
+    componentType,
+    instructionMethod,
+  } = query;
   const offset = (page - 1) * limit;
 
   const term = q.trim();
@@ -332,7 +367,7 @@ export async function searchCourses(query: SearchQuery) {
   // - course code/title/description via FTS + ILIKE
   // - department code/name via ILIKE
   // - instructor name via ILIKE (section-backed, active sections only)
-  const where = sql`(
+  const searchWhere = sql`(
     ${courseVector} @@ ${tsQuery}
     OR ${courses.code} ILIKE ${"%" + term + "%"}
     OR ${courses.title} ILIKE ${"%" + term + "%"}
@@ -340,6 +375,44 @@ export async function searchCourses(query: SearchQuery) {
     OR ${departments.name} ILIKE ${"%" + term + "%"}
     OR ${instructors.name} ILIKE ${"%" + term + "%"}
   )`;
+
+  const whereParts: any[] = [searchWhere];
+  if (department) whereParts.push(eq(departments.code, department));
+  if (semester) whereParts.push(eq(terms.name, semester));
+  if (credits) whereParts.push(eq(courses.credits, credits));
+  if (campus) whereParts.push(eq(sections.campus, campus));
+  if (componentType) whereParts.push(eq(sections.componentType, componentType));
+  const normalizedInstructionMethod = normalizeInstructionMethodFilter(instructionMethod);
+  if (normalizedInstructionMethod) {
+    whereParts.push(eq(sections.instructionMethod, normalizedInstructionMethod));
+  }
+  if (instructor) {
+    whereParts.push(ilike(instructors.name, `%${instructor}%`));
+  }
+  if (attributes) {
+    const gerList = attributes.split(",").map((a) => a.trim()).filter(Boolean);
+    if (gerList.length > 0) {
+      const orParts = gerList.map(
+        (code) => sql`coalesce(${sections.gerCodes}, '') LIKE ${`%,${code},%`}`
+      );
+      whereParts.push(sql`(${sql.join(orParts, sql` OR `)})`);
+    }
+  }
+
+  const havingParts: any[] = [];
+  if (attributes) {
+    const gerList = attributes.split(",").map((a) => a.trim()).filter(Boolean);
+    if (gerList.length > 0) {
+      for (const code of gerList) {
+        havingParts.push(
+          sql`sum(case when coalesce(${sections.gerCodes}, '') LIKE ${`%,${code},%`} then 1 else 0 end) > 0`
+        );
+      }
+    }
+  }
+  if (minRating) {
+    havingParts.push(sql`coalesce(${classScoreExpr()}, 0) >= ${minRating}`);
+  }
 
   const rankExpr = sql<number>`max(
     ts_rank(${courseVector}, ${tsQuery})
@@ -372,8 +445,10 @@ export async function searchCourses(query: SearchQuery) {
     .innerJoin(sections, and(eq(courses.id, sections.courseId), eq(sections.isActive, true)))
     .leftJoin(departments, eq(courses.departmentId, departments.id))
     .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
+    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
     .leftJoin(instructors, eq(sections.instructorId, instructors.id))
-    .where(where)
+    .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
+    .where(and(...whereParts))
     .groupBy(
       courses.id,
       courses.code,
@@ -391,14 +466,17 @@ export async function searchCourses(query: SearchQuery) {
       courseRatings.reviewCount
     );
 
-  const data = await base
+  const groupedBase =
+    havingParts.length > 0 ? base.having(sql.join(havingParts, sql` AND `)) : base;
+
+  const data = await groupedBase
     .orderBy(desc(rankExpr), asc(courses.code))
     .limit(limit)
     .offset(offset);
 
   const total = await db
     .select({ count: sql<number>`count(*)` })
-    .from(base.as("t"))
+    .from(groupedBase.as("t"))
     .then((r) => r[0]?.count ?? 0);
 
   const courseIds = data.map((r) => r.id);
@@ -751,11 +829,57 @@ function embeddingToVectorLiteral(embedding: number[]) {
 export async function semanticSearchCoursesByEmbedding(input: {
   embedding: number[];
   limit: number;
+  filters?: CourseFilterQuery;
 }): Promise<CourseWithRatings[]> {
-  const { embedding, limit } = input;
+  const { embedding, limit, filters } = input;
   if (!Array.isArray(embedding) || embedding.length === 0) return [];
 
   const vec = embeddingToVectorLiteral(embedding);
+
+  const filterWhereParts: any[] = [
+    sql`s.course_id = ce.course_id`,
+    sql`s.is_active = true`,
+  ];
+  if (filters?.department) filterWhereParts.push(sql`d.code = ${filters.department}`);
+  if (filters?.semester) filterWhereParts.push(sql`t.name = ${filters.semester}`);
+  if (filters?.credits) filterWhereParts.push(sql`c.credits = ${filters.credits}`);
+  if (filters?.campus) filterWhereParts.push(sql`s.campus = ${filters.campus}`);
+  if (filters?.componentType) filterWhereParts.push(sql`s.component_type = ${filters.componentType}`);
+  const normalizedInstructionMethod = normalizeInstructionMethodFilter(filters?.instructionMethod);
+  if (normalizedInstructionMethod) {
+    filterWhereParts.push(sql`s.instruction_method = ${normalizedInstructionMethod}`);
+  }
+  if (filters?.instructor) {
+    filterWhereParts.push(sql`i.name ILIKE ${"%" + filters.instructor + "%"}`);
+  }
+  if (filters?.attributes) {
+    const gerList = filters.attributes.split(",").map((a) => a.trim()).filter(Boolean);
+    if (gerList.length > 0) {
+      const orParts = gerList.map(
+        (code) => sql`coalesce(s.ger_codes, '') LIKE ${`%,${code},%`}`
+      );
+      filterWhereParts.push(sql`(${sql.join(orParts, sql` OR `)})`);
+    }
+  }
+
+  const filterHavingParts: any[] = [];
+  if (filters?.attributes) {
+    const gerList = filters.attributes.split(",").map((a) => a.trim()).filter(Boolean);
+    if (gerList.length > 0) {
+      for (const code of gerList) {
+        filterHavingParts.push(
+          sql`sum(case when coalesce(s.ger_codes, '') LIKE ${`%,${code},%`} then 1 else 0 end) > 0`
+        );
+      }
+    }
+  }
+  if (filters?.minRating) {
+    filterHavingParts.push(sql`coalesce(avg(distinct ir.avg_quality), 0) >= ${filters.minRating}`);
+  }
+  const filterHavingSql =
+    filterHavingParts.length > 0
+      ? sql`having ${sql.join(filterHavingParts, sql` AND `)}`
+      : sql``;
 
   // Raw query so we don't have to add Drizzle schema for pgvector tables.
   const rows = (await db.execute(sql`
@@ -766,8 +890,14 @@ export async function semanticSearchCoursesByEmbedding(input: {
     where exists (
       select 1
       from sections s
-      where s.course_id = ce.course_id
-        and s.is_active = true
+      left join terms t on s.term_code = t.srcdb
+      left join instructors i on s.instructor_id = i.id
+      left join instructor_ratings ir on s.instructor_id = ir.instructor_id
+      left join courses c on s.course_id = c.id
+      left join departments d on c.department_id = d.id
+      where ${sql.join(filterWhereParts, sql` and `)}
+      group by s.course_id
+      ${filterHavingSql}
     )
     order by ce.embedding <=> ${vec}::vector asc
     limit ${Math.max(1, Math.min(200, limit))}
