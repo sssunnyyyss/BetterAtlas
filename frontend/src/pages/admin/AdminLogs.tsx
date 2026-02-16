@@ -21,7 +21,7 @@ type RunLog = {
 
 type RecentRun = {
   id: number;
-  type: "programs_sync" | "courses_sync";
+  type: "programs_sync" | "courses_sync" | "embeddings_sync";
   status: "queued" | "running" | "succeeded" | "failed";
   createdAt: string;
   startedAt: string | null;
@@ -38,6 +38,7 @@ type AdminLogsResponse = {
   appErrors: AppError[];
   recentRuns: RecentRun[];
   recentCourseRuns?: RecentRun[];
+  recentEmbeddingRuns?: RecentRun[];
 };
 
 export default function AdminLogs() {
@@ -127,10 +128,11 @@ export default function AdminLogs() {
         <h2 className="font-semibold text-gray-900 mb-2">Recent Sync Diagnostics</h2>
         <div className="space-y-3">
           {data.recentRuns.length === 0 &&
-            (data.recentCourseRuns?.length ?? 0) === 0 && (
+            (data.recentCourseRuns?.length ?? 0) === 0 &&
+            (data.recentEmbeddingRuns?.length ?? 0) === 0 && (
             <p className="text-sm text-gray-500">No sync runs recorded yet.</p>
           )}
-          {[...data.recentRuns, ...(data.recentCourseRuns ?? [])].map((run) => (
+          {[...data.recentRuns, ...(data.recentCourseRuns ?? []), ...(data.recentEmbeddingRuns ?? [])].map((run) => (
             <div key={run.id} className="rounded border border-gray-200 p-3">
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <span className="text-sm font-medium text-gray-900">Run #{run.id}</span>

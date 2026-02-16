@@ -38,6 +38,19 @@ type CourseSyncRunSummary = {
   logCount: number;
 };
 
+type EmbeddingsSyncRunSummary = {
+  id: number;
+  type: "embeddings_sync";
+  status: RunStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  requestedBy: string;
+  requestedEmail: string;
+  error: string | null;
+  logCount: number;
+};
+
 type SyncRunLog = {
   id: number;
   ts: string;
@@ -120,15 +133,25 @@ export default function AdminSync() {
   const [selectedProgramRun, setSelectedProgramRun] = useState<ProgramSyncRunSummary | null>(null);
   const [programLogs, setProgramLogs] = useState<SyncRunLog[]>([]);
 
+  const [embeddingRuns, setEmbeddingRuns] = useState<EmbeddingsSyncRunSummary[]>([]);
+  const [selectedEmbeddingRunId, setSelectedEmbeddingRunId] = useState<number | null>(null);
+  const [selectedEmbeddingRun, setSelectedEmbeddingRun] = useState<EmbeddingsSyncRunSummary | null>(
+    null
+  );
+  const [embeddingLogs, setEmbeddingLogs] = useState<SyncRunLog[]>([]);
+
   const [isSavingCourseConfig, setIsSavingCourseConfig] = useState(false);
   const [isStartingCourseRun, setIsStartingCourseRun] = useState(false);
   const [isStartingProgramRun, setIsStartingProgramRun] = useState(false);
+  const [isStartingEmbeddingRun, setIsStartingEmbeddingRun] = useState(false);
   const [message, setMessage] = useState("");
 
   const selectedCourseRunIsActive =
     selectedCourseRun?.status === "queued" || selectedCourseRun?.status === "running";
   const selectedProgramRunIsActive =
     selectedProgramRun?.status === "queued" || selectedProgramRun?.status === "running";
+  const selectedEmbeddingRunIsActive =
+    selectedEmbeddingRun?.status === "queued" || selectedEmbeddingRun?.status === "running";
 
   const courseLastLogId = useMemo(
     () => (courseLogs.length > 0 ? courseLogs[courseLogs.length - 1]!.id : 0),
@@ -137,6 +160,10 @@ export default function AdminSync() {
   const programLastLogId = useMemo(
     () => (programLogs.length > 0 ? programLogs[programLogs.length - 1]!.id : 0),
     [programLogs]
+  );
+  const embeddingLastLogId = useMemo(
+    () => (embeddingLogs.length > 0 ? embeddingLogs[embeddingLogs.length - 1]!.id : 0),
+    [embeddingLogs]
   );
 
   const loadCourseConfig = useCallback(async () => {
@@ -164,6 +191,16 @@ export default function AdminSync() {
     const data = await api.get<ProgramSyncRunSummary[]>("/admin/sync/runs");
     setProgramRuns(data);
     setSelectedProgramRunId((prev) => {
+      if (data.length === 0) return null;
+      if (prev && data.some((run) => run.id === prev)) return prev;
+      return data[0]!.id;
+    });
+  }, []);
+
+  const loadEmbeddingRuns = useCallback(async () => {
+    const data = await api.get<EmbeddingsSyncRunSummary[]>("/admin/embeddings-sync/runs");
+    setEmbeddingRuns(data);
+    setSelectedEmbeddingRunId((prev) => {
       if (data.length === 0) return null;
       if (prev && data.some((run) => run.id === prev)) return prev;
       return data[0]!.id;
@@ -199,6 +236,23 @@ export default function AdminSync() {
         setProgramLogs(newLogs);
       } else if (newLogs.length > 0) {
         setProgramLogs((prev) => [...prev, ...newLogs]);
+      }
+    },
+    []
+  );
+
+  const loadEmbeddingRunDetails = useCallback(
+    async (runId: number, opts?: { resetLogs?: boolean; afterId?: number }) => {
+      const run = await api.get<EmbeddingsSyncRunSummary>(`/admin/embeddings-sync/runs/${runId}`);
+      setSelectedEmbeddingRun(run);
+      const afterId = opts?.resetLogs ? 0 : (opts?.afterId ?? 0);
+      const newLogs = await api.get<SyncRunLog[]>(
+        `/admin/embeddings-sync/runs/${runId}/logs?afterId=${afterId}`
+      );
+      if (opts?.resetLogs) {
+        setEmbeddingLogs(newLogs);
+      } else if (newLogs.length > 0) {
+        setEmbeddingLogs((prev) => [...prev, ...newLogs]);
       }
     },
     []
@@ -263,11 +317,28 @@ export default function AdminSync() {
     }
   }
 
+  async function handleStartEmbeddingRun() {
+    setIsStartingEmbeddingRun(true);
+    setMessage("");
+    try {
+      const run = await api.post<EmbeddingsSyncRunSummary>("/admin/embeddings-sync/runs");
+      setSelectedEmbeddingRunId(run.id);
+      setSelectedEmbeddingRun(run);
+      setEmbeddingLogs([]);
+      setMessage("Embeddings update started.");
+      await loadEmbeddingRuns();
+    } catch (err: any) {
+      setMessage(err.message || "Failed to start embeddings update");
+    } finally {
+      setIsStartingEmbeddingRun(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        await Promise.all([loadCourseConfig(), loadCourseRuns(), loadProgramRuns()]);
+        await Promise.all([loadCourseConfig(), loadCourseRuns(), loadProgramRuns(), loadEmbeddingRuns()]);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -275,15 +346,16 @@ export default function AdminSync() {
     return () => {
       cancelled = true;
     };
-  }, [loadCourseConfig, loadCourseRuns, loadProgramRuns]);
+  }, [loadCourseConfig, loadCourseRuns, loadProgramRuns, loadEmbeddingRuns]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       void loadCourseRuns();
       void loadProgramRuns();
+      void loadEmbeddingRuns();
     }, 5000);
     return () => clearInterval(interval);
-  }, [loadCourseRuns, loadProgramRuns]);
+  }, [loadCourseRuns, loadProgramRuns, loadEmbeddingRuns]);
 
   useEffect(() => {
     if (!selectedCourseRunId) return;
@@ -294,6 +366,11 @@ export default function AdminSync() {
     if (!selectedProgramRunId) return;
     void loadProgramRunDetails(selectedProgramRunId, { resetLogs: true });
   }, [selectedProgramRunId, loadProgramRunDetails]);
+
+  useEffect(() => {
+    if (!selectedEmbeddingRunId) return;
+    void loadEmbeddingRunDetails(selectedEmbeddingRunId, { resetLogs: true });
+  }, [selectedEmbeddingRunId, loadEmbeddingRunDetails]);
 
   useEffect(() => {
     if (!selectedCourseRunId || !selectedCourseRunIsActive) return;
@@ -310,6 +387,19 @@ export default function AdminSync() {
     }, 2000);
     return () => clearInterval(interval);
   }, [selectedProgramRunId, selectedProgramRunIsActive, programLastLogId, loadProgramRunDetails]);
+
+  useEffect(() => {
+    if (!selectedEmbeddingRunId || !selectedEmbeddingRunIsActive) return;
+    const interval = setInterval(() => {
+      void loadEmbeddingRunDetails(selectedEmbeddingRunId, { afterId: embeddingLastLogId });
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [
+    selectedEmbeddingRunId,
+    selectedEmbeddingRunIsActive,
+    embeddingLastLogId,
+    loadEmbeddingRunDetails,
+  ]);
 
   if (isLoading) {
     return <div className="text-sm text-gray-600">Loading sync dashboard...</div>;
@@ -624,6 +714,96 @@ export default function AdminSync() {
                     </p>
                   ))}
                 </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-gray-900">Course Embeddings Updater</h3>
+              <p className="text-sm text-gray-600">
+                Rebuilds vectors for new courses or courses whose content changed.
+              </p>
+            </div>
+            <button
+              onClick={handleStartEmbeddingRun}
+              disabled={isStartingEmbeddingRun}
+              className="bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
+            >
+              {isStartingEmbeddingRun ? "Starting..." : "Run Embeddings Update"}
+            </button>
+          </div>
+
+          <div className="space-y-2 max-h-[340px] overflow-auto">
+            {embeddingRuns.length === 0 && (
+              <p className="text-sm text-gray-500">No embeddings runs yet.</p>
+            )}
+            {embeddingRuns.map((run) => (
+              <button
+                key={run.id}
+                onClick={() => setSelectedEmbeddingRunId(run.id)}
+                className={`w-full text-left rounded-md border p-3 transition-colors ${
+                  selectedEmbeddingRunId === run.id
+                    ? "border-primary-300 bg-primary-50"
+                    : "border-gray-200 hover:bg-gray-50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium text-gray-900">Run #{run.id}</span>
+                  <span className={`text-xs px-2 py-1 rounded ${STATUS_STYLE[run.status]}`}>
+                    {run.status}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500">{formatTs(run.createdAt)}</p>
+                <p className="text-xs text-gray-500 mt-1">Logs: {run.logCount}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+          {!selectedEmbeddingRun ? (
+            <p className="text-sm text-gray-500">Select an embeddings run to inspect logs.</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold text-gray-900">
+                  Embeddings Run #{selectedEmbeddingRun.id}
+                </h3>
+                <span className={`text-xs px-2 py-1 rounded ${STATUS_STYLE[selectedEmbeddingRun.status]}`}>
+                  {selectedEmbeddingRun.status}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500">
+                Requested by {selectedEmbeddingRun.requestedEmail}
+              </p>
+              <p className="text-xs text-gray-500">
+                Started: {formatTs(selectedEmbeddingRun.startedAt)} | Finished:{" "}
+                {formatTs(selectedEmbeddingRun.finishedAt)}
+              </p>
+              {selectedEmbeddingRun.error && (
+                <p className="text-sm text-red-700">{selectedEmbeddingRun.error}</p>
+              )}
+
+              <div className="bg-gray-950 text-gray-100 rounded-md p-3 h-[280px] overflow-auto font-mono text-xs space-y-1">
+                {embeddingLogs.length === 0 && (
+                  <p className="text-gray-400">No logs yet.</p>
+                )}
+                {embeddingLogs.map((log) => (
+                  <p key={log.id}>
+                    <span className="text-gray-400">
+                      {new Date(log.ts).toLocaleTimeString()}
+                    </span>{" "}
+                    <span className={runLogClass(log.level)}>
+                      [{log.level.toUpperCase()}]
+                    </span>{" "}
+                    <span>{log.message}</span>
+                  </p>
+                ))}
               </div>
             </>
           )}

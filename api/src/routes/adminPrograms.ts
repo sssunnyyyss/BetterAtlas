@@ -72,6 +72,19 @@ type CourseSyncRun = {
   logs: SyncRunLog[];
 };
 
+type EmbeddingSyncRun = {
+  id: number;
+  type: "embeddings_sync";
+  status: RunStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  requestedBy: string;
+  requestedEmail: string;
+  error: string | null;
+  logs: SyncRunLog[];
+};
+
 type CourseSyncSchedule = {
   enabled: boolean;
   hour: number;
@@ -91,9 +104,14 @@ const DEFAULT_COURSE_SCHEDULE_TIMEZONE = "America/New_York";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiRootDir = path.resolve(__dirname, "../..");
 const atlasSyncDistPath = path.resolve(apiRootDir, "dist/jobs/atlasSync.js");
+const embeddingsBackfillDistPath = path.resolve(
+  apiRootDir,
+  "dist/jobs/courseEmbeddingsBackfill.js"
+);
 
 const syncRuns: SyncRun[] = [];
 const courseSyncRuns: CourseSyncRun[] = [];
+const embeddingSyncRuns: EmbeddingSyncRun[] = [];
 const appErrors: AdminAppError[] = [];
 let nextRunId = 1;
 let nextRunLogId = 1;
@@ -224,9 +242,30 @@ function summarizeCourseSyncRun(run: CourseSyncRun) {
   };
 }
 
+function summarizeEmbeddingSyncRun(run: EmbeddingSyncRun) {
+  return {
+    id: run.id,
+    type: run.type,
+    status: run.status,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    requestedBy: run.requestedBy,
+    requestedEmail: run.requestedEmail,
+    error: run.error,
+    logCount: run.logs.length,
+  };
+}
+
 function getRunningCourseSyncRun() {
   return (
     courseSyncRuns.find((run) => run.status === "queued" || run.status === "running") || null
+  );
+}
+
+function getRunningEmbeddingSyncRun() {
+  return (
+    embeddingSyncRuns.find((run) => run.status === "queued" || run.status === "running") || null
   );
 }
 
@@ -234,6 +273,12 @@ function findCourseSyncRunById(rawId: string) {
   const id = Number.parseInt(rawId, 10);
   if (!Number.isFinite(id)) return null;
   return courseSyncRuns.find((run) => run.id === id) || null;
+}
+
+function findEmbeddingSyncRunById(rawId: string) {
+  const id = Number.parseInt(rawId, 10);
+  if (!Number.isFinite(id)) return null;
+  return embeddingSyncRuns.find((run) => run.id === id) || null;
 }
 
 function createCourseSyncRun(input: {
@@ -259,6 +304,26 @@ function createCourseSyncRun(input: {
   courseSyncRuns.unshift(run);
   if (courseSyncRuns.length > MAX_RUNS) {
     courseSyncRuns.splice(MAX_RUNS);
+  }
+  return run;
+}
+
+function createEmbeddingSyncRun(input: { requestedBy: string; requestedEmail: string }) {
+  const run: EmbeddingSyncRun = {
+    id: nextRunId++,
+    type: "embeddings_sync",
+    status: "queued",
+    createdAt: nowIso(),
+    startedAt: null,
+    finishedAt: null,
+    requestedBy: input.requestedBy,
+    requestedEmail: input.requestedEmail,
+    error: null,
+    logs: [],
+  };
+  embeddingSyncRuns.unshift(run);
+  if (embeddingSyncRuns.length > MAX_RUNS) {
+    embeddingSyncRuns.splice(MAX_RUNS);
   }
   return run;
 }
@@ -464,6 +529,72 @@ async function executeCourseSyncRun(run: CourseSyncRun) {
         run.status = "failed";
         run.finishedAt = nowIso();
         run.error = `Course sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
+        pushRunLog(run, "error", run.error);
+      }
+      resolve();
+    });
+  });
+}
+
+async function executeEmbeddingSyncRun(run: EmbeddingSyncRun) {
+  run.status = "running";
+  run.startedAt = nowIso();
+  pushRunLog(run, "info", "Embeddings sync started");
+
+  const useDistScript = existsSync(embeddingsBackfillDistPath);
+  const command = useDistScript ? process.execPath : "pnpm";
+  const args = useDistScript ? [embeddingsBackfillDistPath] : ["embeddings:backfill"];
+
+  pushRunLog(
+    run,
+    "info",
+    `Launching ${useDistScript ? `node ${embeddingsBackfillDistPath}` : "pnpm embeddings:backfill"}`
+  );
+
+  const child = spawn(command, args, {
+    cwd: apiRootDir,
+    env: process.env,
+    shell: !useDistScript && process.platform === "win32",
+  });
+
+  const stdoutBuffer = { value: "" };
+  const stderrBuffer = { value: "" };
+
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+
+  child.stdout?.on("data", (chunk: string) => {
+    lineSplitPump(run, "info", chunk, stdoutBuffer);
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    lineSplitPump(run, "warn", chunk, stderrBuffer);
+  });
+
+  await new Promise<void>((resolve) => {
+    child.on("error", (err) => {
+      run.status = "failed";
+      run.finishedAt = nowIso();
+      run.error = err.message || "Failed to launch embeddings sync process";
+      pushRunLog(run, "error", run.error);
+      resolve();
+    });
+
+    child.on("close", (code, signal) => {
+      if (stdoutBuffer.value.trim()) {
+        pushRunLog(run, "info", stdoutBuffer.value.trim());
+      }
+      if (stderrBuffer.value.trim()) {
+        pushRunLog(run, "warn", stderrBuffer.value.trim());
+      }
+
+      if (code === 0) {
+        run.status = "succeeded";
+        run.finishedAt = nowIso();
+        pushRunLog(run, "info", "Embeddings sync completed successfully");
+      } else {
+        run.status = "failed";
+        run.finishedAt = nowIso();
+        run.error = `Embeddings sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
         pushRunLog(run, "error", run.error);
       }
       resolve();
@@ -866,6 +997,49 @@ router.get("/course-sync/runs/:id/logs", async (req, res) => {
   res.json(logs);
 });
 
+router.post("/embeddings-sync/runs", async (req, res) => {
+  const running = getRunningEmbeddingSyncRun();
+  if (running) {
+    return res.status(409).json({
+      error: "An embeddings sync run is already in progress",
+      run: summarizeEmbeddingSyncRun(running),
+    });
+  }
+
+  const run = createEmbeddingSyncRun({
+    requestedBy: req.user!.id,
+    requestedEmail: req.user!.email,
+  });
+  queueMicrotask(() => {
+    void executeEmbeddingSyncRun(run);
+  });
+
+  res.status(202).json(summarizeEmbeddingSyncRun(run));
+});
+
+router.get("/embeddings-sync/runs", async (_req, res) => {
+  res.json(embeddingSyncRuns.map(summarizeEmbeddingSyncRun));
+});
+
+router.get("/embeddings-sync/runs/:id", async (req, res) => {
+  const run = findEmbeddingSyncRunById(req.params.id);
+  if (!run) return res.status(404).json({ error: "Run not found" });
+  res.json(summarizeEmbeddingSyncRun(run));
+});
+
+router.get("/embeddings-sync/runs/:id/logs", async (req, res) => {
+  const run = findEmbeddingSyncRunById(req.params.id);
+  if (!run) return res.status(404).json({ error: "Run not found" });
+
+  const afterIdRaw = String(req.query.afterId || "0");
+  const afterId = Number.parseInt(afterIdRaw, 10);
+  const logs = Number.isFinite(afterId)
+    ? run.logs.filter((log) => log.id > afterId)
+    : run.logs;
+
+  res.json(logs);
+});
+
 router.get("/system/metrics", async (_req, res) => {
   const dbHealth = await measureDbHealth();
   const disk = await measureDisk();
@@ -1139,11 +1313,16 @@ router.get("/logs", async (_req, res) => {
     ...summarizeCourseSyncRun(run),
     latestLogs: run.logs.slice(-20),
   }));
+  const recentEmbeddingRuns = embeddingSyncRuns.slice(0, 20).map((run) => ({
+    ...summarizeEmbeddingSyncRun(run),
+    latestLogs: run.logs.slice(-20),
+  }));
 
   res.json({
     appErrors: appErrors.slice(0, 200),
     recentRuns,
     recentCourseRuns,
+    recentEmbeddingRuns,
   });
 });
 
