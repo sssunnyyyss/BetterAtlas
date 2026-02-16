@@ -59,6 +59,7 @@ function sha256Hex(s: string): string {
 }
 
 type ProgramVariant = {
+  // Name is parsed from the detail page h1/title, since the index markup isn't consistent.
   name: string;
   kind: "major" | "minor";
   degree: string | null;
@@ -83,36 +84,34 @@ function parseVariantLabel(labelText: string): { kind: "major" | "minor" | null;
 function extractProgramsFromIndexHtml(html: string): ProgramVariant[] {
   const results: ProgramVariant[] = [];
 
-  // Heuristic: each program name is an h2/h3 heading with variant links ("BA Major", "BS Major", "Minor") following it.
-  const headingRe = /<h([23])[^>]*>([\s\S]*?)<\/h\1>/gi;
-  const headings: Array<{ name: string; start: number; end: number }> = [];
-  let m: RegExpExecArray | null;
-  while ((m = headingRe.exec(html))) {
-    const raw = stripTags(m[2] || "");
-    if (!raw) continue;
-    headings.push({ name: raw, start: m.index, end: headingRe.lastIndex });
-  }
+  // The catalog index page isn't reliably structured as headings + grouped links.
+  // Instead, scan all anchors and keep those that look like concentration major/minor pages.
+  const aRe =
+    /<a\b[^>]*\bhref\s*=\s*(?:"([^"]+)"|'([^']+)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi;
+  let a: RegExpExecArray | null;
+  while ((a = aRe.exec(html))) {
+    const href = (a[1] || a[2] || a[3] || "").trim();
+    if (!href) continue;
+    if (!/\.html(\?|#|$)/i.test(href)) continue;
 
-  for (let i = 0; i < headings.length; i++) {
-    const cur = headings[i]!;
-    const next = headings[i + 1];
-    const segment = html.slice(cur.end, next ? next.start : html.length);
+    const abs = toAbsoluteUrl(href);
+    if (!/\/academics\/concentrations\/(majors|minors)\//i.test(abs)) continue;
 
-    const aRe = /<a\s+[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-    let a: RegExpExecArray | null;
-    while ((a = aRe.exec(segment))) {
-      const href = a[1] || "";
-      const label = stripTags(a[2] || "");
-      const { kind, degree } = parseVariantLabel(label);
-      if (!kind) continue;
-      if (!/\.html(\?|#|$)/i.test(href)) continue;
-      results.push({
-        name: cur.name,
-        kind,
-        degree,
-        sourceUrl: toAbsoluteUrl(href),
-      });
+    const label = stripTags(a[4] || "");
+    let { kind, degree } = parseVariantLabel(label);
+
+    // Fallback: infer kind from URL path if label is empty/unexpected.
+    if (!kind) {
+      kind = /\/minors\//i.test(abs) ? "minor" : /\/majors\//i.test(abs) ? "major" : null;
     }
+    if (!kind) continue;
+
+    results.push({
+      name: "",
+      kind,
+      degree,
+      sourceUrl: abs,
+    });
   }
 
   // Deduplicate by URL (some pages repeat nav links).
@@ -125,6 +124,20 @@ function extractProgramsFromIndexHtml(html: string): ProgramVariant[] {
   });
 }
 
+function extractProgramName(detailHtml: string): string | null {
+  // Prefer the main page heading.
+  const h1 = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(detailHtml);
+  const raw = stripTags(h1?.[1] || "");
+  const candidate = raw || stripTags(/<title[^>]*>([\s\S]*?)<\/title>/i.exec(detailHtml)?.[1] || "");
+  if (!candidate) return null;
+
+  // Strip trailing "Major"/"Minor" and common suffix markers.
+  return candidate
+    .replace(/\s+(Major|Minor)\s*$/i, "")
+    .replace(/\s*\((Major|Minor|BA|BS|BBA|BSE|BFA|B\.A\.|B\.S\.)\)\s*$/i, "")
+    .trim();
+}
+
 type RequirementNode = {
   nodeType: "heading" | "paragraph" | "list_item";
   text: string;
@@ -132,13 +145,19 @@ type RequirementNode = {
 };
 
 function extractRequirementsHtml(detailHtml: string): string | null {
-  const re = /<h([23])[^>]*>\s*Requirements\s*<\/h\1>/i;
-  const match = re.exec(detailHtml);
-  if (!match) return null;
-  const start = match.index + match[0].length;
-  const rest = detailHtml.slice(start);
-  const next = rest.search(/<h2[^>]*>/i);
-  return next >= 0 ? rest.slice(0, next) : rest;
+  // Find the first H2/H3 whose text (after stripping tags) is exactly "Requirements".
+  const hdrRe = /<h([23])[^>]*>([\s\S]*?)<\/h\1>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = hdrRe.exec(detailHtml))) {
+    const text = stripTags(m[2] || "");
+    if (text.toLowerCase() !== "requirements") continue;
+    const start = hdrRe.lastIndex;
+    const rest = detailHtml.slice(start);
+    // Stop at the next H2 to avoid bleeding into other sections.
+    const next = rest.search(/<h2\b[^>]*>/i);
+    return next >= 0 ? rest.slice(0, next) : rest;
+  }
+  return null;
 }
 
 function extractMeta(detailHtml: string) {
@@ -270,6 +289,11 @@ export async function syncPrograms(opts?: { rateDelayMs?: number }) {
   for (const v of variants) {
     try {
       const detailHtml = await fetchHtml(v.sourceUrl);
+      const programName =
+        extractProgramName(detailHtml) ||
+        v.name ||
+        stripTags(v.sourceUrl.split("/").pop() || "") ||
+        "Program";
       const meta = extractMeta(detailHtml);
       const reqHtml = extractRequirementsHtml(detailHtml);
       if (!reqHtml) {
@@ -297,7 +321,7 @@ export async function syncPrograms(opts?: { rateDelayMs?: number }) {
         const [upserted] = await tx
           .insert(programs)
           .values({
-            name: v.name,
+            name: programName,
             kind: v.kind,
             degree: v.degree,
             sourceUrl: v.sourceUrl,
@@ -310,7 +334,7 @@ export async function syncPrograms(opts?: { rateDelayMs?: number }) {
           .onConflictDoUpdate({
             target: programs.sourceUrl,
             set: {
-              name: v.name,
+              name: programName,
               kind: v.kind,
               degree: v.degree,
               hoursToComplete: meta.hoursToComplete,
