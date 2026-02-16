@@ -12,6 +12,8 @@ import {
   programSubjectCodes,
   programElectiveRules,
 } from "../db/schema.js";
+import { env } from "../config/env.js";
+import { openAiChatJson } from "../lib/openai.js";
 import {
   and,
   asc,
@@ -55,6 +57,34 @@ function courseNumberSql() {
   // Best-effort numeric extraction from course code like "CS 170" or "QTM 385W".
   // Returns NULL for codes that don't match.
   return sql<number | null>`NULLIF(substring(${courses.code} from '[0-9]+'), '')::int`;
+}
+
+function normalizeProgramName(name: string) {
+  return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function requirementsToText(nodes: { nodeType: string; text: string; listLevel: number | null }[]) {
+  const lines: string[] = [];
+  for (const n of nodes) {
+    if (n.nodeType === "heading") {
+      lines.push("");
+      lines.push(String(n.text || "").trim());
+      lines.push("");
+      continue;
+    }
+
+    if (n.nodeType === "list_item") {
+      const indent = "  ".repeat(Math.max(0, n.listLevel ?? 0));
+      lines.push(`${indent}- ${String(n.text || "").trim()}`);
+      continue;
+    }
+
+    const t = String(n.text || "").trim();
+    if (t) lines.push(t);
+  }
+
+  const joined = lines.join("\n").trim();
+  return joined.length > 10_000 ? joined.slice(0, 10_000) : joined;
 }
 
 export async function listPrograms(query: ProgramsQuery) {
@@ -344,5 +374,208 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
       total: Number(countRow),
       totalPages: Math.ceil(Number(countRow) / limit),
     },
+  };
+}
+
+export async function getProgramVariants(programId: number) {
+  const [p] = await db
+    .select({ id: programs.id, name: programs.name })
+    .from(programs)
+    .where(eq(programs.id, programId))
+    .limit(1);
+
+  if (!p) return null;
+
+  const norm = normalizeProgramName(p.name);
+  const normExpr = sql<string>`regexp_replace(lower(${programs.name}), '[^a-z0-9]+', '', 'g')`;
+
+  const rows = await db
+    .select({
+      id: programs.id,
+      name: programs.name,
+      kind: programs.kind,
+      degree: programs.degree,
+    })
+    .from(programs)
+    .where(and(eq(programs.isActive, true), sql`${normExpr} = ${norm}`))
+    .orderBy(asc(programs.kind), asc(programs.degree), asc(programs.name));
+
+  const majors: any[] = [];
+  const minors: any[] = [];
+  for (const r of rows) {
+    const row = { id: r.id, name: r.name, kind: r.kind as any, degree: r.degree ?? null };
+    if (r.kind === "minor") minors.push(row);
+    else majors.push(row);
+  }
+
+  return { programId, name: p.name, majors, minors };
+}
+
+export async function getProgramAiRequirementsSummary(programId: number, opts?: { refresh?: boolean }) {
+  const refresh = !!opts?.refresh;
+
+  const [p] = await db
+    .select({
+      id: programs.id,
+      name: programs.name,
+      kind: programs.kind,
+      degree: programs.degree,
+      sourceUrl: programs.sourceUrl,
+      hoursToComplete: programs.hoursToComplete,
+      coursesRequired: programs.coursesRequired,
+      departmentContact: programs.departmentContact,
+      requirementsHash: programs.requirementsHash,
+      requirementsSummary: programs.requirementsSummary,
+      requirementsSummaryHighlights: programs.requirementsSummaryHighlights,
+      requirementsSummaryHash: programs.requirementsSummaryHash,
+      requirementsSummaryModel: programs.requirementsSummaryModel,
+      requirementsSummaryUpdatedAt: programs.requirementsSummaryUpdatedAt,
+    })
+    .from(programs)
+    .where(eq(programs.id, programId))
+    .limit(1);
+
+  if (!p) return null;
+
+  if (!refresh && p.requirementsSummary && p.requirementsSummaryHash === p.requirementsHash) {
+    return {
+      programId,
+      requirementsHash: p.requirementsHash,
+      available: true,
+      summary: p.requirementsSummary,
+      highlights: (p.requirementsSummaryHighlights || "")
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 10),
+      model: p.requirementsSummaryModel ?? null,
+      updatedAt: p.requirementsSummaryUpdatedAt ? p.requirementsSummaryUpdatedAt.toISOString() : null,
+      sourceUrl: p.sourceUrl,
+    };
+  }
+
+  if (!env.openaiApiKey) {
+    return {
+      programId,
+      requirementsHash: p.requirementsHash,
+      available: false,
+      summary: p.requirementsSummary ?? null,
+      highlights: (p.requirementsSummaryHighlights || "")
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 10),
+      model: p.requirementsSummaryModel ?? null,
+      updatedAt: p.requirementsSummaryUpdatedAt ? p.requirementsSummaryUpdatedAt.toISOString() : null,
+      sourceUrl: p.sourceUrl,
+    };
+  }
+
+  const [nodes, codes, subjects, [rule]] = await Promise.all([
+    db
+      .select({
+        nodeType: programRequirementNodes.nodeType,
+        text: programRequirementNodes.text,
+        listLevel: programRequirementNodes.listLevel,
+      })
+      .from(programRequirementNodes)
+      .where(eq(programRequirementNodes.programId, programId))
+      .orderBy(asc(programRequirementNodes.ord)),
+    db
+      .select({ courseCode: programCourseCodes.courseCode })
+      .from(programCourseCodes)
+      .where(eq(programCourseCodes.programId, programId))
+      .orderBy(asc(programCourseCodes.courseCode)),
+    db
+      .select({ subjectCode: programSubjectCodes.subjectCode })
+      .from(programSubjectCodes)
+      .where(eq(programSubjectCodes.programId, programId))
+      .orderBy(asc(programSubjectCodes.subjectCode)),
+    db
+      .select({ levelFloor: programElectiveRules.levelFloor })
+      .from(programElectiveRules)
+      .where(eq(programElectiveRules.programId, programId))
+      .limit(1),
+  ]);
+
+  const requirementsText = requirementsToText(nodes as any);
+  const requiredCourseCodes = (codes as any[]).map((c) => c.courseCode);
+  const subjectCodes = (subjects as any[]).map((s) => s.subjectCode);
+  const electiveLevelFloor = (rule as any)?.levelFloor ?? null;
+
+  const payload = {
+    program: {
+      name: p.name,
+      kind: p.kind,
+      degree: p.degree ?? null,
+      sourceUrl: p.sourceUrl,
+    },
+    metadata: {
+      hoursToComplete: p.hoursToComplete ?? null,
+      coursesRequired: p.coursesRequired ?? null,
+      departmentContact: p.departmentContact ?? null,
+      requiredCourseCodes,
+      subjectCodes,
+      electiveLevelFloor,
+    },
+    requirementsText,
+  };
+
+  const { parsed } = await openAiChatJson({
+    temperature: 0.2,
+    maxTokens: 450,
+    responseFormat: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "You summarize university major/minor requirements for students. Use only the provided requirements text and metadata; do not invent courses or rules. Output JSON with keys: summary (string, <=90 words), highlights (array of 3-7 short bullets). If the text is ambiguous, mention the ambiguity briefly.",
+      },
+      { role: "user", content: JSON.stringify(payload) },
+    ],
+  });
+
+  const obj: any = parsed && typeof parsed === "object" ? (parsed as any) : {};
+  const summary = typeof obj.summary === "string" ? obj.summary.trim() : "";
+  const highlightsRaw = Array.isArray(obj.highlights) ? obj.highlights : [];
+  const highlights = highlightsRaw
+    .map((s: any) => String(s || "").trim())
+    .filter(Boolean)
+    .slice(0, 10);
+
+  if (!summary) {
+    return {
+      programId,
+      requirementsHash: p.requirementsHash,
+      available: false,
+      summary: null,
+      highlights: [],
+      model: env.openaiModel ?? null,
+      updatedAt: null,
+      sourceUrl: p.sourceUrl,
+    };
+  }
+
+  const now = new Date();
+  await db
+    .update(programs)
+    .set({
+      requirementsSummary: summary,
+      requirementsSummaryHighlights: highlights.join("\n"),
+      requirementsSummaryHash: p.requirementsHash,
+      requirementsSummaryModel: env.openaiModel,
+      requirementsSummaryUpdatedAt: now,
+    })
+    .where(eq(programs.id, programId));
+
+  return {
+    programId,
+    requirementsHash: p.requirementsHash,
+    available: true,
+    summary,
+    highlights,
+    model: env.openaiModel ?? null,
+    updatedAt: now.toISOString(),
+    sourceUrl: p.sourceUrl,
   };
 }

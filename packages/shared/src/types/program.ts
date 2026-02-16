@@ -39,3 +39,20 @@ export interface PaginatedResponse<T> {
 
 export type ProgramCoursesResponse = PaginatedResponse<CourseWithRatings>;
 
+export interface ProgramVariants {
+  programId: number;
+  name: string;
+  majors: ProgramSummary[];
+  minors: ProgramSummary[];
+}
+
+export interface ProgramAiRequirementsSummary {
+  programId: number;
+  requirementsHash: string;
+  available: boolean;
+  summary: string | null;
+  highlights: string[];
+  model: string | null;
+  updatedAt: string | null;
+  sourceUrl: string;
+}

@@ -270,6 +270,11 @@ export const programs = pgTable(
     coursesRequired: text("courses_required"),
     departmentContact: text("department_contact"),
     requirementsHash: varchar("requirements_hash", { length: 64 }).notNull(),
+    requirementsSummary: text("requirements_summary"),
+    requirementsSummaryHighlights: text("requirements_summary_highlights"),
+    requirementsSummaryHash: varchar("requirements_summary_hash", { length: 64 }),
+    requirementsSummaryModel: varchar("requirements_summary_model", { length: 50 }),
+    requirementsSummaryUpdatedAt: timestamp("requirements_summary_updated_at", { withTimezone: true }),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

@@ -3,6 +3,8 @@ import { api } from "../api/client.js";
 import type {
   ProgramCoursesResponse,
   ProgramDetail,
+  ProgramAiRequirementsSummary,
+  ProgramVariants,
   ProgramSummary,
   ProgramTab,
 } from "@betteratlas/shared";
@@ -28,6 +30,25 @@ export function useProgram(programId: number) {
   });
 }
 
+export function useProgramVariants(programId: number) {
+  return useQuery({
+    queryKey: ["program", programId, "variants"],
+    queryFn: () => api.get<ProgramVariants>(`/programs/${programId}/variants`),
+    enabled: programId > 0,
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useProgramAiSummary(programId: number) {
+  return useQuery({
+    queryKey: ["program", programId, "ai-summary"],
+    queryFn: () =>
+      api.get<ProgramAiRequirementsSummary>(`/programs/${programId}/ai-summary`),
+    enabled: programId > 0,
+    staleTime: 24 * 60 * 60 * 1000,
+  });
+}
+
 export function useProgramCourses(
   programId: number,
   tab: ProgramTab,
@@ -41,4 +62,3 @@ export function useProgramCourses(
     enabled: programId > 0,
   });
 }
-

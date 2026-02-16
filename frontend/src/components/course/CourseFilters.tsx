@@ -102,7 +102,7 @@ export default function CourseFilters({
       {/* Basic Filters */}
       <div className="relative">
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          Major / Minor
+          Program
         </label>
         <div className="flex gap-2">
           <input
@@ -112,7 +112,7 @@ export default function CourseFilters({
               setProgramOpen(true);
             }}
             onFocus={() => setProgramOpen(true)}
-            placeholder="Search majors and minors..."
+            placeholder="Search programs..."
             className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
           />
           {programId > 0 && (
@@ -366,7 +366,7 @@ export default function CourseFilters({
         <div className="pt-2 border-t border-gray-100 space-y-2">
           <div className="text-sm font-semibold text-gray-900">Requirements</div>
           <div className="text-xs text-gray-500">
-            Some requirements (like “approved electives”) can’t be fully interpreted yet.
+            Some requirements (like \"approved electives\") can't be fully interpreted yet.
           </div>
           <div className="space-y-2">
             {program.requirements.map((n) => {

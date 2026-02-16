@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ProgramTab } from "@betteratlas/shared";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
+import { useProgram, useProgramAiSummary, useProgramCourses, useProgramVariants } from "../hooks/usePrograms.js";
 import { useAiCourseRecommendations, type AiCourseRecommendation, type AiMessage } from "../hooks/useAi.js";
-import { useProgramCourses } from "../hooks/usePrograms.js";
 import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
@@ -76,6 +76,14 @@ export default function Catalog() {
   const programId = parseInt(searchParams.get("programId") || "0", 10) || 0;
   const programTab = (searchParams.get("programTab") as ProgramTab | null) || "required";
   const isProgramMode = mode === "search" && programId > 0;
+  const programIdForQueries = isProgramMode ? programId : 0;
+
+  const programQuery = useProgram(programIdForQueries);
+  const program = programQuery.data;
+  const variantsQuery = useProgramVariants(programIdForQueries);
+  const variants = variantsQuery.data;
+  const aiSummaryQuery = useProgramAiSummary(programIdForQueries);
+  const aiSummary = aiSummaryQuery.data;
 
   useEffect(() => {
     if (!isProgramMode) return;
@@ -395,6 +403,64 @@ export default function Catalog() {
               )}
             </button>
           </form>
+
+          {isProgramMode && (
+            <div className="mt-4 max-w-3xl">
+              <div className="bg-white rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold text-gray-900">
+                      AI Summary: {program ? `${program.name}` : "Program"}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      Based on the catalog requirements text (may miss "approved elective" lists).
+                    </div>
+                  </div>
+                  {aiSummaryQuery.isLoading && (
+                    <div className="shrink-0 text-gray-500">
+                      <Spinner />
+                    </div>
+                  )}
+                </div>
+
+                {aiSummaryQuery.isError && (
+                  <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                    {(aiSummaryQuery.error as any)?.message || "Failed to load AI summary"}
+                  </div>
+                )}
+
+                {!aiSummaryQuery.isError && aiSummary && (
+                  <div className="mt-3 space-y-2">
+                    {aiSummary.summary && (
+                      <p className="text-sm text-gray-700">{aiSummary.summary}</p>
+                    )}
+                    {aiSummary.highlights && aiSummary.highlights.length > 0 && (
+                      <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
+                        {aiSummary.highlights.slice(0, 7).map((h, i) => (
+                          <li key={i}>{h}</li>
+                        ))}
+                      </ul>
+                    )}
+                    {!aiSummary.available && !aiSummary.summary && (
+                      <div className="text-sm text-gray-500">
+                        AI summary is not available on this server.
+                      </div>
+                    )}
+                    {aiSummary.sourceUrl && (
+                      <a
+                        href={aiSummary.sourceUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
+                      >
+                        View in Emory catalog
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {mode === "ai" ? (
@@ -559,6 +625,46 @@ export default function Catalog() {
           <>
             {isProgramMode && (
               <div className="flex items-center gap-2 mb-4">
+                {variants && variants.majors.length > 0 && variants.minors.length > 0 && (
+                  <div className="inline-flex rounded-md border border-gray-300 overflow-hidden mr-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (program?.kind === "major") return;
+                        const pick = [...variants.majors].sort((a, b) => {
+                          const ad = (a.degree || "").toUpperCase();
+                          const bd = (b.degree || "").toUpperCase();
+                          const rank = (d: string) =>
+                            d === "BA" ? 0 : d === "BS" ? 1 : d ? 2 : 3;
+                          return rank(ad) - rank(bd) || ad.localeCompare(bd) || a.id - b.id;
+                        })[0];
+                        if (pick) handleFilterChange("programId", String(pick.id));
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                        program?.kind === "major"
+                          ? "bg-primary-600 text-white"
+                          : "bg-white text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      Major
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (program?.kind === "minor") return;
+                        const pick = [...variants.minors].sort((a, b) => a.id - b.id)[0];
+                        if (pick) handleFilterChange("programId", String(pick.id));
+                      }}
+                      className={`px-3 py-1.5 text-sm font-medium transition-colors ${
+                        program?.kind === "minor"
+                          ? "bg-primary-600 text-white"
+                          : "bg-white text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      Minor
+                    </button>
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => handleFilterChange("programTab", "required")}
