@@ -179,6 +179,8 @@ const AI_SEARCH_STOPWORDS = new Set(
     "best",
     "really",
     "very",
+    "like",
+    "likes",
     "kinda",
     "sorta",
     "please",
