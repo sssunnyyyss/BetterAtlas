@@ -471,12 +471,14 @@ export default function Schedule() {
         </div>
       )}
 
-      <WeeklyCalendar
-        blocks={calendarBlocks}
-        minMinute={minMinute}
-        maxMinute={maxMinute}
-        onBlockClick={(b) => setActiveBlock(b)}
-      />
+      <div data-tour-id="schedule-grid">
+        <WeeklyCalendar
+          blocks={calendarBlocks}
+          minMinute={minMinute}
+          maxMinute={maxMinute}
+          onBlockClick={(b) => setActiveBlock(b)}
+        />
+      </div>
 
       <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg border border-gray-200 p-4">

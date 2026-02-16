@@ -113,8 +113,71 @@ export const users = pgTable("users", {
   displayName: text("display_name").notNull(),
   graduationYear: smallint("graduation_year"),
   major: text("major"),
+  inviteCode: varchar("invite_code", { length: 64 }),
+  hasCompletedOnboarding: boolean("has_completed_onboarding")
+    .notNull()
+    .default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
+
+// Badges
+export const badges = pgTable(
+  "badges",
+  {
+    id: serial("id").primaryKey(),
+    slug: varchar("slug", { length: 50 }).notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    icon: text("icon").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    slugUnique: uniqueIndex("idx_badges_slug_unique").on(table.slug),
+  })
+);
+
+// User Badges
+export const userBadges = pgTable(
+  "user_badges",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    badgeId: integer("badge_id")
+      .references(() => badges.id, { onDelete: "cascade" })
+      .notNull(),
+    awardedAt: timestamp("awarded_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userBadgeUnique: uniqueIndex("idx_user_badges_user_badge_unique").on(
+      table.userId,
+      table.badgeId
+    ),
+    userIdx: index("idx_user_badges_user").on(table.userId),
+    badgeIdx: index("idx_user_badges_badge").on(table.badgeId),
+  })
+);
+
+// Invite Codes
+export const inviteCodes = pgTable(
+  "invite_codes",
+  {
+    id: serial("id").primaryKey(),
+    code: varchar("code", { length: 64 }).notNull(),
+    badgeSlug: varchar("badge_slug", { length: 50 })
+      .references(() => badges.slug)
+      .notNull(),
+    maxUses: integer("max_uses"),
+    usedCount: integer("used_count").notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    codeUnique: uniqueIndex("idx_invite_codes_code_unique").on(table.code),
+    badgeSlugIdx: index("idx_invite_codes_badge_slug").on(table.badgeSlug),
+  })
+);
 
 // Reviews
 export const reviews = pgTable(

@@ -20,6 +20,7 @@ interface AuthContextType {
     username: string;
     graduationYear?: number;
     major?: string;
+    inviteCode?: string;
   }) => Promise<void>;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
@@ -109,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       username: string;
       graduationYear?: number;
       major?: string;
+      inviteCode?: string;
     }) => {
       // Let the API handle both Auth signup and profile creation
       const result = await api.post<{ user: User; session: any }>("/auth/register", data);

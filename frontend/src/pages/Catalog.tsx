@@ -425,7 +425,7 @@ export default function Catalog() {
   }, [isAiMode]);
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)]">
+    <div className="flex min-h-[calc(100vh-4rem)]" data-tour-id="catalog-search-filters">
       <Sidebar>
         <CourseFilters
           filters={filters}
@@ -466,6 +466,7 @@ export default function Catalog() {
               <button
                 type="button"
                 onClick={() => setModeAndUrl("ai")}
+                data-tour-id="catalog-ai-entry"
                 className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
                   mode === "ai"
                     ? "bg-primary-600 text-white"

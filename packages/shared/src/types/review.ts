@@ -1,3 +1,5 @@
+import type { Badge } from "./user.js";
+
 export interface Review {
   id: number;
   userId: string;
@@ -18,6 +20,7 @@ export interface Review {
 export interface ReviewWithAuthor extends Review {
   author: {
     username: string;
+    badges: Badge[];
   } | null;
 }
 

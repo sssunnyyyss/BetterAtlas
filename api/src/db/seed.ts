@@ -6,12 +6,31 @@ import {
   sections,
   terms,
   courseRatings,
+  badges,
+  inviteCodes,
 } from "./schema.js";
 
 const TERMS = [
   { srcdb: "5249", name: "Fall 2024", season: "Fall", year: 2024, isActive: false },
   { srcdb: "5251", name: "Spring 2025", season: "Spring", year: 2025, isActive: false },
   { srcdb: "5259", name: "Fall 2025", season: "Fall", year: 2025, isActive: true },
+] as const;
+
+const BADGES = [
+  {
+    slug: "early-adopter",
+    name: "Early Adopter",
+    description: "Joined BetterAtlas during the invite-only beta period.",
+    icon: "🌟",
+  },
+] as const;
+
+const INVITE_CODES = [
+  {
+    code: "EARLY-ADOPTER-2026",
+    badgeSlug: "early-adopter",
+    maxUses: 250,
+  },
 ] as const;
 
 const DEPARTMENTS = [
@@ -206,6 +225,10 @@ async function seed() {
 
   // Terms
   await db.insert(terms).values(TERMS as any).onConflictDoNothing();
+
+  // Badges + Invite Codes
+  await db.insert(badges).values(BADGES as any).onConflictDoNothing();
+  await db.insert(inviteCodes).values(INVITE_CODES as any).onConflictDoNothing();
 
   // Departments
   const deptRows = await db.insert(departments).values(DEPARTMENTS).returning();

@@ -507,4 +507,106 @@ CREATE INDEX IF NOT EXISTS idx_feedback_reports_status
 CREATE INDEX IF NOT EXISTS idx_feedback_reports_created_at
   ON feedback_reports (created_at);
 
+-- ============================================================
+-- 15. ALTER users - beta invite + onboarding progress
+-- ============================================================
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS invite_code VARCHAR(64),
+  ADD COLUMN IF NOT EXISTS has_completed_onboarding BOOLEAN NOT NULL DEFAULT false;
+
+ALTER TABLE users
+  ALTER COLUMN has_completed_onboarding SET DEFAULT false;
+
+UPDATE users
+SET has_completed_onboarding = false
+WHERE has_completed_onboarding IS NULL;
+
+ALTER TABLE users
+  ALTER COLUMN has_completed_onboarding SET NOT NULL;
+
+-- ============================================================
+-- 16. CREATE badges + invite code tables
+-- ============================================================
+CREATE TABLE IF NOT EXISTS badges (
+  id SERIAL PRIMARY KEY,
+  slug VARCHAR(50) NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL,
+  icon TEXT NOT NULL DEFAULT 'STAR',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_badges_slug_unique
+  ON badges (slug);
+
+ALTER TABLE badges
+  ADD COLUMN IF NOT EXISTS icon TEXT;
+
+UPDATE badges
+SET description = COALESCE(description, '')
+WHERE description IS NULL;
+
+ALTER TABLE badges
+  ALTER COLUMN description SET NOT NULL;
+
+UPDATE badges
+SET icon = 'STAR'
+WHERE icon IS NULL;
+
+ALTER TABLE badges
+  ALTER COLUMN icon SET NOT NULL;
+
+CREATE TABLE IF NOT EXISTS user_badges (
+  id SERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  badge_id INTEGER NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
+  awarded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE user_badges
+  ADD COLUMN IF NOT EXISTS awarded_at TIMESTAMPTZ DEFAULT NOW();
+
+UPDATE user_badges
+SET awarded_at = COALESCE(awarded_at, NOW())
+WHERE awarded_at IS NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_user_badges_user_badge_unique
+  ON user_badges (user_id, badge_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_badges_user
+  ON user_badges (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_badges_badge
+  ON user_badges (badge_id);
+
+CREATE TABLE IF NOT EXISTS invite_codes (
+  id SERIAL PRIMARY KEY,
+  code VARCHAR(64) NOT NULL,
+  badge_slug VARCHAR(50) NOT NULL,
+  max_uses INTEGER,
+  used_count INTEGER NOT NULL DEFAULT 0,
+  expires_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invite_codes_code_unique
+  ON invite_codes (code);
+
+CREATE INDEX IF NOT EXISTS idx_invite_codes_badge_slug
+  ON invite_codes (badge_slug);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_invite_codes_badge_slug'
+      AND conrelid = 'invite_codes'::regclass
+  ) THEN
+    ALTER TABLE invite_codes
+      ADD CONSTRAINT fk_invite_codes_badge_slug
+      FOREIGN KEY (badge_slug) REFERENCES badges(slug);
+  END IF;
+END $$;
+
 COMMIT;

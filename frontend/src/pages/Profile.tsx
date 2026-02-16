@@ -7,9 +7,12 @@ import { useMyReviews, useUpdateReview, useDeleteReview } from "../hooks/useRevi
 import { useCourseDetail } from "../hooks/useCourses.js";
 import ReviewCard from "../components/review/ReviewCard.js";
 import EditReviewModal from "../components/review/EditReviewModal.js";
+import UserBadge from "../components/ui/UserBadge.js";
+import { useOnboarding } from "../components/onboarding/OnboardingProvider.js";
 
 export default function Profile() {
   const { user, logout, refresh } = useAuth();
+  const { restartTour } = useOnboarding();
   const [editing, setEditing] = useState(false);
   const [username, setUsername] = useState(user?.username || "");
   const [fullName, setFullName] = useState(user?.fullName || "");
@@ -97,6 +100,18 @@ export default function Profile() {
           ) : (
             <p className="text-gray-900">{user.fullName}</p>
           )}
+          <div className="mt-2" data-tour-id="profile-badge-area">
+            <p className="text-xs font-medium text-gray-500">Badges</p>
+            {(user.badges?.length ?? 0) > 0 ? (
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {(user.badges ?? []).map((badge) => (
+                  <UserBadge key={badge.slug} badge={badge} />
+                ))}
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-gray-400">No badges yet</p>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -152,12 +167,20 @@ export default function Profile() {
               </button>
             </>
           ) : (
-            <button
-              onClick={() => setEditing(true)}
-              className="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700"
-            >
-              Edit Profile
-            </button>
+            <>
+              <button
+                onClick={() => setEditing(true)}
+                className="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700"
+              >
+                Edit Profile
+              </button>
+              <button
+                onClick={restartTour}
+                className="px-4 py-2 rounded-md text-sm font-medium border border-gray-300 hover:bg-gray-50"
+              >
+                Restart tour
+              </button>
+            </>
           )}
         </div>
       </div>

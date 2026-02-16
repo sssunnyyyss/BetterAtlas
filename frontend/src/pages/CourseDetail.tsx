@@ -836,7 +836,7 @@ export default function CourseDetail() {
       )}
 
       {/* Reviews */}
-      <div>
+      <div data-tour-id="course-detail-reviews">
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Reviews</h2>
 
         <ReviewForm
