@@ -27,7 +27,16 @@ async function request<T>(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.error || "Request failed");
+    let message = body.error || "Request failed";
+    if (body?.details && typeof body.details === "object") {
+      const details = Object.values(body.details)
+        .flat()
+        .filter((v): v is string => typeof v === "string" && v.length > 0);
+      if (details.length > 0) {
+        message = `${message}: ${details[0]}`;
+      }
+    }
+    throw new ApiError(res.status, message);
   }
 
   return res.json();

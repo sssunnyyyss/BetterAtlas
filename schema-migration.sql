@@ -480,4 +480,31 @@ CREATE INDEX IF NOT EXISTS idx_course_embeddings_embedding_ivfflat
   ON course_embeddings USING ivfflat (embedding vector_cosine_ops)
   WITH (lists = 100);
 
+-- ============================================================
+-- 14. CREATE feedback reports table
+-- ============================================================
+CREATE TABLE IF NOT EXISTS feedback_reports (
+  id SERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id),
+  category VARCHAR(40) NOT NULL,
+  message TEXT NOT NULL,
+  course_id INTEGER REFERENCES courses(id),
+  section_id INTEGER REFERENCES sections(id),
+  page_path TEXT,
+  status VARCHAR(20) NOT NULL DEFAULT 'new',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_user
+  ON feedback_reports (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_category
+  ON feedback_reports (category);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_status
+  ON feedback_reports (status);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_reports_created_at
+  ON feedback_reports (created_at);
+
 COMMIT;

@@ -22,5 +22,5 @@ export const supabaseAnon = createClient(env.supabaseUrl, env.supabaseAnonKey, {
 
 // Drizzle ORM client for database queries
 // Uses Supabase's PostgreSQL connection
-const client = postgres(env.databaseUrl, { prepare: false });
-export const db = drizzle(client, { schema });
+export const dbClient = postgres(env.databaseUrl, { prepare: false });
+export const db = drizzle(dbClient, { schema });

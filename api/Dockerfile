@@ -24,7 +24,8 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.json ./
 COPY packages/shared/ ./packages/shared/
 COPY api/package.json ./api/
 RUN pnpm config set node-linker hoisted
-RUN pnpm install --prod
+# Need dev deps (tsc) to build shared and api packages inside the image.
+RUN pnpm install
 COPY api/ ./api/
 RUN pnpm --filter @betteratlas/shared build
 RUN pnpm --filter api build

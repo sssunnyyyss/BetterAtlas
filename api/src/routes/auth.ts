@@ -2,7 +2,7 @@ import { Router } from "express";
 import { validate } from "../middleware/validate.js";
 import { requireAuth } from "../middleware/auth.js";
 import { authLimiter } from "../middleware/rateLimit.js";
-import { registerSchema, loginSchema } from "@betteratlas/shared";
+import { loginSchema } from "@betteratlas/shared";
 import { supabase, db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
@@ -17,69 +17,10 @@ function withAdminFlag<T extends { email: string }>(user: T) {
   };
 }
 
-router.post("/register", authLimiter, validate(registerSchema), async (req, res) => {
-  try {
-    const { email, password, fullName, username, graduationYear, major } = req.body;
-
-    // Pre-check username uniqueness for a clean 409 response.
-    const [usernameTaken] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(eq(users.username, username))
-      .limit(1);
-    if (usernameTaken) {
-      return res.status(409).json({ error: "Username already taken" });
-    }
-    
-    // Create user in Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-
-    if (authError) {
-      if (authError.message.includes("already registered")) {
-        return res.status(409).json({ error: "Email already registered" });
-      }
-      throw authError;
-    }
-
-    if (!authData.user) {
-      return res.status(500).json({ error: "Failed to create user" });
-    }
-
-    // Create user profile in database (using Supabase Auth UUID)
-    const [user] = await db
-      .insert(users)
-      .values({
-        id: authData.user.id,
-        email,
-        username,
-        displayName: fullName,
-        graduationYear: graduationYear ?? null,
-        major: major ?? null,
-      })
-      .returning({
-        id: users.id,
-        email: users.email,
-        username: users.username,
-        fullName: users.displayName,
-        graduationYear: users.graduationYear,
-        major: users.major,
-        createdAt: users.createdAt,
-      });
-
-    res.status(201).json({
-      user: withAdminFlag(user),
-      session: authData.session,
-    });
-  } catch (err: any) {
-    console.error("Registration error:", err);
-    if (String(err?.message || "").toLowerCase().includes("username")) {
-      return res.status(409).json({ error: "Username already taken" });
-    }
-    res.status(500).json({ error: err.message || "Registration failed" });
-  }
+router.post("/register", authLimiter, async (_req, res) => {
+  return res.status(403).json({
+    error: "New account registration is currently disabled while BetterAtlas is in development.",
+  });
 });
 
 router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {

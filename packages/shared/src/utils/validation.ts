@@ -79,6 +79,24 @@ export const createReviewSchema = z.object({
 
 export const updateReviewSchema = createReviewSchema.partial();
 
+// Feedback
+export const createFeedbackSchema = z.object({
+  category: z.enum([
+    "general",
+    "feature_request",
+    "bug_report",
+    "inaccurate_course_detail",
+  ]),
+  message: z
+    .string()
+    .trim()
+    .min(10, "Please include at least a short description")
+    .max(4000),
+  courseId: z.number().int().positive().optional(),
+  sectionId: z.number().int().positive().optional(),
+  pagePath: z.string().trim().max(500).optional(),
+});
+
 // Social
 export const friendRequestSchema = z.object({
   username: z
@@ -123,6 +141,7 @@ export type ProgramsQuery = z.infer<typeof programsQuerySchema>;
 export type ProgramCoursesQuery = z.infer<typeof programCoursesQuerySchema>;
 export type CreateReviewInput = z.infer<typeof createReviewSchema>;
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
+export type CreateFeedbackInput = z.infer<typeof createFeedbackSchema>;
 export type FriendRequestInput = z.infer<typeof friendRequestSchema>;
 export type CreateListInput = z.infer<typeof createListSchema>;
 export type AddListItemInput = z.infer<typeof addListItemSchema>;

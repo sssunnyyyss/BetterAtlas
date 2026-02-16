@@ -92,16 +92,24 @@ function ThumbDownIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
+function truncate(value: string, max: number) {
+  if (value.length <= max) return value;
+  return value.slice(0, max);
+}
+
 function snapshot(course: AiCourseRecommendation["course"]): AiPreferenceCourse {
+  const clampList = (items: string[] | undefined, itemMax: number, countMax: number) =>
+    (items ?? []).map((v) => truncate(String(v), itemMax)).slice(0, countMax);
+
   return {
     id: course.id,
-    code: course.code,
-    title: course.title,
-    department: course.department?.code ?? null,
-    gers: (course.gers ?? []).slice(0, 12),
-    campuses: (course.campuses ?? []).slice(0, 12),
-    instructors: (course.instructors ?? []).slice(0, 12),
-    description: course.description ?? null,
+    code: truncate(course.code, 80),
+    title: truncate(course.title, 600),
+    department: course.department?.code ? truncate(course.department.code, 40) : null,
+    gers: clampList(course.gers, 40, 20),
+    campuses: clampList(course.campuses, 120, 20),
+    instructors: clampList(course.instructors, 240, 20),
+    description: course.description ? truncate(course.description, 8000) : null,
   };
 }
 
@@ -112,7 +120,9 @@ function pick<T>(arr: readonly T[], n: number) {
 function toFilters(raw: TrainerFilterForm): AiRecommendationFilters {
   const out: AiRecommendationFilters = {};
   const toNum = (v: string) => {
-    const n = Number(v);
+    const trimmed = String(v ?? "").trim();
+    if (!trimmed) return undefined;
+    const n = Number(trimmed);
     return Number.isFinite(n) ? n : undefined;
   };
 

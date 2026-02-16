@@ -4,6 +4,43 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="BetterAtlas helps Emory students discover classes faster with smart filters, ratings, and AI-powered course recommendations."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://betteratlas.net/" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="BetterAtlas" />
+    <meta property="og:url" content="https://betteratlas.net/" />
+    <meta property="og:title" content="BetterAtlas" />
+    <meta
+      property="og:description"
+      content="Find the right Emory classes with ratings, filters, and AI recommendations tailored to your goals."
+    />
+
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="BetterAtlas" />
+    <meta
+      name="twitter:description"
+      content="Find the right Emory classes with ratings, filters, and AI recommendations tailored to your goals."
+    />
+    <style>
+      #seo-fallback {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        clip-path: inset(50%);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,7 +50,21 @@
     <title>BetterAtlas</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main id="seo-fallback">
+        <h1>BetterAtlas</h1>
+        <h2>Emory course discovery with AI recommendations</h2>
+        <p>
+          Discover classes faster with smart filters, ratings, and guided course exploration.
+        </p>
+      </main>
+    </div>
+    <noscript>
+      <main>
+        <h1>BetterAtlas</h1>
+        <p>This site works best with JavaScript enabled.</p>
+      </main>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

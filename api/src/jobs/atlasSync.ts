@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
-import { db } from "../db/index.js";
+import { db, dbClient } from "../db/index.js";
 import { courses, departments, instructors, sections, terms } from "../db/schema.js";
 
 type FoseSearchRow = {
@@ -571,7 +571,6 @@ async function main() {
 
   const termFromEnv = (process.env.ATLAS_TERM_CODE ?? "").trim();
   const subjectsRaw = (process.env.ATLAS_SUBJECTS ?? "").trim();
-  if (!subjectsRaw) throw new Error("ATLAS_SUBJECTS is required (comma-separated, or ALL)");
 
   const campusesRaw = (process.env.ATLAS_CAMPUSES ?? "ATL@ATLANTA,OXF@OXFORD").trim();
   const campuses = campusesRaw
@@ -587,12 +586,14 @@ async function main() {
   const maxAttempts = 6;
 
   const subjects = subjectsRaw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+    ? subjectsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
 
   const useAllResults =
-    subjects.length === 1 && /^(all|\*)$/i.test(subjects[0] ?? "");
+    subjects.length === 0 || (subjects.length === 1 && /^(all|\*)$/i.test(subjects[0] ?? ""));
 
   let termCode: string;
   if (termFromEnv) {
@@ -613,8 +614,9 @@ async function main() {
   }
 
   const runStartedAt = new Date();
+  const subjectsLabel = useAllResults ? "ALL" : subjects.join(",");
   console.log(
-    `[atlasSync] start term=${termCode} subjects=${subjects.join(",")} detailsMode=${detailsMode} concurrency=${concurrency}`
+    `[atlasSync] start term=${termCode} subjects=${subjectsLabel} detailsMode=${detailsMode} concurrency=${concurrency}`
   );
 
   const opts = { timeoutMs, maxAttempts, rateDelayMs };
@@ -875,7 +877,16 @@ async function main() {
   console.log("[atlasSync] done");
 }
 
-main().catch((e) => {
-  console.error("[atlasSync] fatal:", e);
-  process.exitCode = 1;
-});
+async function run() {
+  try {
+    await main();
+  } catch (e) {
+    console.error("[atlasSync] fatal:", e);
+    process.exitCode = 1;
+  } finally {
+    // Ensure open DB sockets are closed so the process exits and admin run status can finalize.
+    await dbClient.end({ timeout: 5 });
+  }
+}
+
+void run();

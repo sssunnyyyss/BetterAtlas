@@ -1,6 +1,6 @@
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useCourseDetail } from "../hooks/useCourses.js";
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef, type FormEvent } from "react";
 import { useReviews, useSectionReviews, useCreateReview, useUpdateReview, useDeleteReview } from "../hooks/useReviews.js";
 import RatingBadge from "../components/course/RatingBadge.js";
 import GerPills from "../components/course/GerPills.js";
@@ -13,6 +13,7 @@ import type { Schedule, Section, ReviewWithAuthor } from "@betteratlas/shared";
 import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
 import { useAddToSchedule } from "../hooks/useSchedule.js";
 import { layoutOverlaps } from "../lib/calendarLayout.js";
+import { useSubmitFeedback } from "../hooks/useFeedback.js";
 
 const ENROLLMENT_STATUS_LABELS: Record<string, string> = {
   O: "Open",
@@ -261,6 +262,9 @@ function MiniWeeklyCalendar({
 export default function CourseDetail() {
   const { id } = useParams<{ id: string }>();
   const courseId = parseInt(id || "0", 10);
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const selectedSemester = (searchParams.get("semester") || "").trim();
 
   const {
     data: course,
@@ -273,11 +277,48 @@ export default function CourseDetail() {
   const updateReview = useUpdateReview(courseId);
   const deleteReview = useDeleteReview();
   const addToSchedule = useAddToSchedule();
+  const submitFeedback = useSubmitFeedback();
   const [editingReview, setEditingReview] = useState<ReviewWithAuthor | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<number | null>(null);
+  const [isActionsMenuOpen, setIsActionsMenuOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [reportSectionId, setReportSectionId] = useState<number | "">("");
+  const [reportMessage, setReportMessage] = useState("");
+  const [reportStatusMessage, setReportStatusMessage] = useState("");
+  const actionsMenuRef = useRef<HTMLDivElement | null>(null);
   const closeSectionModal = useCallback(() => setActiveSectionId(null), []);
   const closeEditModal = useCallback(() => setEditingReview(null), []);
   const [scheduleMessage, setScheduleMessage] = useState<string>("");
+
+  const closeReportModal = useCallback(() => {
+    setIsReportModalOpen(false);
+    setReportMessage("");
+    setReportSectionId("");
+  }, []);
+
+  const openReportModal = useCallback(() => {
+    setIsActionsMenuOpen(false);
+    setReportStatusMessage("");
+    setIsReportModalOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isActionsMenuOpen) return;
+
+    function handleOutsideClick(e: MouseEvent) {
+      if (actionsMenuRef.current?.contains(e.target as Node)) return;
+      setIsActionsMenuOpen(false);
+    }
+
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [isActionsMenuOpen]);
+
+  const visibleSections = useMemo(() => {
+    if (!course) return [] as Section[];
+    if (!selectedSemester) return course.sections;
+    return course.sections.filter((s) => s.semester === selectedSemester);
+  }, [course, selectedSemester]);
 
   const professors = useMemo(() => {
     const c = course;
@@ -320,21 +361,21 @@ export default function CourseDetail() {
   }, [course]);
 
   const activeSection = useMemo(() => {
-    if (!course) return null;
-    return course.sections.find((s) => s.id === activeSectionId) ?? null;
-  }, [course, activeSectionId]);
+    if (!activeSectionId) return null;
+    return visibleSections.find((s) => s.id === activeSectionId) ?? null;
+  }, [visibleSections, activeSectionId]);
 
   const { data: sectionReviews } = useSectionReviews(activeSection?.id ?? null);
 
   const groupedSections = useMemo(() => {
-    if (!course) return [];
+    if (visibleSections.length === 0) return [];
 
     const map = new Map<
       string,
       { key: string; instructorId: number | null; instructorName: string; sections: Section[] }
     >();
 
-    for (const s of course.sections) {
+    for (const s of visibleSections) {
       const instructorId = s.instructor?.id ?? null;
       const instructorName = s.instructor?.name ?? "TBA";
       const key = instructorId !== null ? `i:${instructorId}` : "i:tba";
@@ -364,13 +405,13 @@ export default function CourseDetail() {
     });
 
     return groups;
-  }, [course]);
+  }, [visibleSections]);
 
   const miniCalendarBlocks = useMemo(() => {
-    if (!course) return [] as MiniBlock[];
+    if (!course || visibleSections.length === 0) return [] as MiniBlock[];
 
     const blocks: MiniBlock[] = [];
-    for (const s of course.sections) {
+    for (const s of visibleSections) {
       const sched = s.schedule as Schedule | null;
       if (!sched) continue;
       const startMin = parseHHMMColon(sched.start);
@@ -397,7 +438,56 @@ export default function CourseDetail() {
     }
 
     return blocks;
-  }, [course]);
+  }, [course, visibleSections]);
+
+  const sectionOptions = useMemo(
+    () =>
+      visibleSections.map((s) => ({
+        id: s.id,
+        sectionNumber: s.sectionNumber,
+        semester: s.semester,
+        instructorName: s.instructor?.name ?? null,
+      })),
+    [visibleSections]
+  );
+
+  const editSectionOptions = useMemo(() => {
+    if (!course || !editingReview) return sectionOptions;
+    if (sectionOptions.some((s) => s.id === editingReview.sectionId)) return sectionOptions;
+
+    const extra = course.sections.find((s) => s.id === editingReview.sectionId);
+    if (!extra) return sectionOptions;
+
+    return [
+      {
+        id: extra.id,
+        sectionNumber: extra.sectionNumber,
+        semester: extra.semester,
+        instructorName: extra.instructor?.name ?? null,
+      },
+      ...sectionOptions,
+    ];
+  }, [course, editingReview, sectionOptions]);
+
+  async function handleSubmitInaccurateReport(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setReportStatusMessage("");
+
+    try {
+      await submitFeedback.mutateAsync({
+        category: "inaccurate_course_detail",
+        message: reportMessage,
+        courseId,
+        sectionId: reportSectionId === "" ? undefined : reportSectionId,
+        pagePath: `${location.pathname}${location.search}`,
+      });
+
+      setReportStatusMessage("Thanks. Your report was submitted.");
+      closeReportModal();
+    } catch {
+      // Error is shown via mutation state.
+    }
+  }
 
   if (isLoading) {
     return (
@@ -439,19 +529,57 @@ export default function CourseDetail() {
   return (
     <div className="max-w-4xl mx-auto p-6">
       {/* Breadcrumb */}
-      <Link to="/catalog" className="text-sm text-primary-600 hover:text-primary-800">
+      <Link
+        to={selectedSemester ? `/catalog?semester=${encodeURIComponent(selectedSemester)}` : "/catalog"}
+        className="text-sm text-primary-600 hover:text-primary-800"
+      >
         &larr; Back to catalog
       </Link>
+      {reportStatusMessage && (
+        <p className="mt-2 text-sm text-primary-700">{reportStatusMessage}</p>
+      )}
 
       {/* Header */}
       <div className="mt-4 mb-6">
-        <div className="flex items-center gap-3 mb-1">
-          <span className="text-lg font-semibold text-primary-600">{course.code}</span>
-          {course.credits && (
-            <span className="text-sm text-gray-500">{course.credits} credits</span>
-          )}
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-3 mb-1">
+              <span className="text-lg font-semibold text-primary-600">{course.code}</span>
+              {course.credits && (
+                <span className="text-sm text-gray-500">{course.credits} credits</span>
+              )}
+            </div>
+            <h1 className="text-2xl font-bold text-gray-900">{course.title}</h1>
+          </div>
+
+          <div ref={actionsMenuRef} className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsActionsMenuOpen((open) => !open)}
+              className="h-9 w-9 rounded-full border border-gray-200 text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+              aria-haspopup="menu"
+              aria-expanded={isActionsMenuOpen}
+              aria-label="More actions"
+            >
+              <span aria-hidden="true">⋮</span>
+            </button>
+            {isActionsMenuOpen && (
+              <div
+                role="menu"
+                className="absolute right-0 mt-2 min-w-[220px] rounded-md border border-gray-200 bg-white shadow-lg z-20"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={openReportModal}
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Report inaccurate details
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">{course.title}</h1>
         {course.department && (
           <p className="text-sm text-gray-500 mt-1">{course.department.name}</p>
         )}
@@ -501,12 +629,18 @@ export default function CourseDetail() {
       {course.sections.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Sections</h2>
+          {selectedSemester && visibleSections.length === 0 && (
+            <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
+              No sections found for <span className="font-medium text-gray-900">{selectedSemester}</span>.
+            </div>
+          )}
+          {visibleSections.length > 0 && (
           <div className="space-y-3">
             {groupedSections.map((group) => (
               <details
                 key={group.key}
                 className="bg-white rounded-lg border border-gray-200 p-3"
-                open={course.sections.length <= 8}
+                open={visibleSections.length <= 8}
               >
                 <summary className="cursor-pointer select-none list-none flex items-center justify-between gap-3">
                   <div className="min-w-0">
@@ -592,6 +726,7 @@ export default function CourseDetail() {
               </details>
             ))}
           </div>
+          )}
 
           {miniCalendarBlocks.length > 0 && (
             <div className="mt-6">
@@ -705,12 +840,7 @@ export default function CourseDetail() {
         <h2 className="text-lg font-semibold text-gray-900 mb-3">Reviews</h2>
 
         <ReviewForm
-          sections={course.sections.map((s) => ({
-            id: s.id,
-            sectionNumber: s.sectionNumber,
-            semester: s.semester,
-            instructorName: s.instructor?.name ?? null,
-          }))}
+          sections={sectionOptions}
           onSubmit={(data) => createReview.mutate(data)}
           isLoading={createReview.isPending}
         />
@@ -738,15 +868,83 @@ export default function CourseDetail() {
         </div>
       </div>
 
+      <Modal
+        isOpen={isReportModalOpen}
+        title="Report Inaccurate Details"
+        onClose={closeReportModal}
+      >
+        <form onSubmit={handleSubmitInaccurateReport} className="space-y-4">
+          <p className="text-sm text-gray-600">
+            Tell us what is inaccurate for <span className="font-medium text-gray-900">{course.code}</span>.
+          </p>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700" htmlFor="report-section">
+              Section (optional)
+            </label>
+            <select
+              id="report-section"
+              value={reportSectionId === "" ? "" : String(reportSectionId)}
+              onChange={(e) => setReportSectionId(e.target.value ? Number(e.target.value) : "")}
+              className="mt-1 w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
+            >
+              <option value="">Course page in general</option>
+              {sectionOptions.map((section) => (
+                <option key={section.id} value={section.id}>
+                  Section {section.sectionNumber ?? "—"} · {section.semester}
+                  {section.instructorName ? ` · ${section.instructorName}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700" htmlFor="report-message">
+              What is inaccurate?
+            </label>
+            <textarea
+              id="report-message"
+              value={reportMessage}
+              onChange={(e) => setReportMessage(e.target.value)}
+              rows={6}
+              required
+              minLength={10}
+              maxLength={4000}
+              placeholder="Example: Section 101 says open seats, but enrollment is closed in Atlas."
+              className="mt-1 w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
+            />
+            <div className="mt-1 text-xs text-gray-500">{reportMessage.length}/4000</div>
+          </div>
+
+          {submitFeedback.isError && (
+            <p className="text-sm text-red-600">
+              {(submitFeedback.error as any)?.message || "Failed to submit report"}
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeReportModal}
+              className="px-3 py-2 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitFeedback.isPending}
+              className="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+            >
+              {submitFeedback.isPending ? "Submitting..." : "Submit Report"}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       <EditReviewModal
         isOpen={!!editingReview}
         review={editingReview}
-        sections={course.sections.map((s) => ({
-          id: s.id,
-          sectionNumber: s.sectionNumber,
-          semester: s.semester,
-          instructorName: s.instructor?.name ?? null,
-        }))}
+        sections={editSectionOptions}
         isLoading={updateReview.isPending}
         error={
           updateReview.isError

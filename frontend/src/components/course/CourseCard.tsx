@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import type { CourseWithRatings } from "@betteratlas/shared";
 import RatingBadge from "./RatingBadge.js";
 import GerPills from "./GerPills.js";
@@ -8,11 +8,14 @@ interface CourseCardProps {
 }
 
 export default function CourseCard({ course }: CourseCardProps) {
+  const location = useLocation();
   const instructors = course.instructors ?? [];
+  const semester = new URLSearchParams(location.search).get("semester");
+  const detailSearch = semester ? `?semester=${encodeURIComponent(semester)}` : "";
 
   return (
     <Link
-      to={`/catalog/${course.id}`}
+      to={`/catalog/${course.id}${detailSearch}`}
       className="block bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:border-primary-300 transition-all"
     >
       <div className="flex justify-between items-start gap-3">

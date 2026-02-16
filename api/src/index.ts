@@ -10,6 +10,7 @@ import userRoutes from "./routes/users.js";
 import socialRoutes from "./routes/social.js";
 import scheduleRoutes from "./routes/schedule.js";
 import aiRoutes from "./routes/ai.js";
+import feedbackRoutes from "./routes/feedback.js";
 import programsRoutes from "./routes/programs.js";
 import adminProgramsRoutes, { recordAdminAppError } from "./routes/adminPrograms.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
@@ -39,6 +40,7 @@ app.use("/api/instructors", instructorRoutes);
 app.use("/api", reviewRoutes);
 app.use("/api", socialRoutes);
 app.use("/api", scheduleRoutes);
+app.use("/api", feedbackRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api", aiRoutes);
 

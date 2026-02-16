@@ -9,6 +9,7 @@ import ProfessorDetail from "./pages/ProfessorDetail.js";
 import Profile from "./pages/Profile.js";
 import Friends from "./pages/Friends.js";
 import Schedule from "./pages/Schedule.js";
+import Feedback from "./pages/Feedback.js";
 import AdminLayout from "./pages/admin/AdminLayout.js";
 import AdminSync from "./pages/admin/AdminSync.js";
 import AdminAiTrainer from "./pages/admin/AdminAiTrainer.js";
@@ -26,7 +27,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/" replace />;
+  if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
@@ -39,7 +40,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/" replace />;
+  if (!user) return <Navigate to="/login" replace />;
   if (!user.isAdmin) return <Navigate to="/profile" replace />;
   return <>{children}</>;
 }
@@ -57,9 +58,10 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      {user && <Navbar />}
+      <Navbar />
       <Routes>
-        <Route path="/" element={user ? <Home /> : <Landing />} />
+        <Route path="/" element={<Home />} />
+        <Route path="/login" element={user ? <Navigate to="/" replace /> : <Landing />} />
         <Route
           path="/catalog"
           element={
@@ -109,6 +111,14 @@ export default function App() {
           }
         />
         <Route
+          path="/feedback"
+          element={
+            <ProtectedRoute>
+              <Feedback />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/admin"
           element={
             <AdminRoute>
@@ -125,6 +135,7 @@ export default function App() {
           <Route path="users" element={<AdminUsers />} />
           <Route path="logs" element={<AdminLogs />} />
         </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );

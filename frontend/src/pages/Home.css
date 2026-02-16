@@ -49,7 +49,7 @@
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  font-size: 12px;
+  font-size: 16px;
   color: rgba(11, 18, 32, 0.7);
 }
 
@@ -57,7 +57,7 @@
   margin-top: 10px;
   font-family: var(--ba-font-display);
   font-weight: 700;
-  font-size: clamp(38px, 6vw, 68px);
+  font-size: clamp(44px, 6.8vw, 80px);
   line-height: 0.95;
   letter-spacing: -0.02em;
 }
@@ -72,7 +72,7 @@
 .home-tagline {
   margin-top: 14px;
   font-family: var(--ba-font-sans);
-  font-size: clamp(16px, 1.6vw, 19px);
+  font-size: clamp(21px, 2.2vw, 28px);
   color: var(--home-ink-2);
 }
 
@@ -108,11 +108,11 @@
 }
 
 .home-modeBtn {
-  height: 32px;
-  padding: 0 12px;
+  height: 38px;
+  padding: 0 14px;
   border-radius: 999px;
   font-family: var(--ba-font-sans);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 700;
   color: rgba(11, 18, 32, 0.70);
   transition: background 120ms ease, color 120ms ease;
@@ -137,7 +137,7 @@
   background: rgba(255, 255, 255, 0.75);
   border: 1px solid rgba(11, 18, 32, 0.12);
   box-shadow: var(--home-shadow);
-  padding: 10px 10px 10px 16px;
+  padding: 6px 8px 6px 14px;
   backdrop-filter: blur(10px);
   width: min(920px, 100%);
 }
@@ -195,7 +195,7 @@
   min-width: 0;
   height: 44px;
   font-family: var(--ba-font-sans);
-  font-size: 16px;
+  font-size: 20px;
   color: rgba(11, 18, 32, 0.92);
   background: transparent;
   outline: none;
@@ -208,11 +208,11 @@
 
 .home-searchBtn {
   height: 44px;
-  padding: 0 18px;
+  padding: 0 20px;
   border-radius: 999px;
   font-family: var(--ba-font-sans);
   font-weight: 700;
-  font-size: 14px;
+  font-size: 16px;
   background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
   color: white;
   border: 1px solid rgba(29, 78, 216, 0.65);
@@ -231,7 +231,7 @@
 .home-searchHint {
   margin-top: 10px;
   font-family: var(--ba-font-sans);
-  font-size: 13px;
+  font-size: 16px;
   color: rgba(11, 18, 32, 0.64);
   width: min(920px, 100%);
 }
@@ -249,7 +249,7 @@
 
 .home-marqueeLabel {
   font-family: var(--ba-font-sans);
-  font-size: 12px;
+  font-size: 15px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: rgba(11, 18, 32, 0.55);

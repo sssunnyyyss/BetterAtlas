@@ -136,7 +136,7 @@ export default function Home() {
         </section>
 
         <section className="home-marqueeSection mx-auto max-w-6xl px-5 sm:px-8 pb-16 sm:pb-20">
-          <div className="home-marqueeLabel">Some offerings (scrolling forever)</div>
+          <h2 className="home-marqueeLabel">Some offerings (scrolling forever)</h2>
 
           <div className="home-marquee" role="region" aria-label="Course ticker">
             <div
@@ -173,20 +173,20 @@ export default function Home() {
                       <div className="flex justify-between items-start gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="text-sm font-semibold text-primary-600">
+                            <span className="text-base font-semibold text-primary-600">
                               {asCourse.code}
                             </span>
                             {asCourse.credits && (
-                              <span className="text-xs text-gray-400">
+                              <span className="text-sm text-gray-400">
                                 {asCourse.credits} cr
                               </span>
                             )}
                           </div>
-                          <div className="font-medium text-gray-900 mt-0.5 truncate">
+                          <div className="font-medium text-lg text-gray-900 mt-0.5 truncate">
                             {asCourse.title}
                           </div>
                           {instructors.length > 0 && (
-                            <div className="text-xs text-gray-500 mt-0.5 truncate">
+                            <div className="text-sm text-gray-500 mt-0.5 truncate">
                               {instructors.slice(0, 2).join(", ")}
                               {instructors.length > 2 ? ` +${instructors.length - 2}` : ""}
                             </div>
@@ -199,7 +199,7 @@ export default function Home() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 mt-2">
-                        <span className="text-xs text-gray-400">
+                        <span className="text-sm text-gray-400">
                           {asCourse.reviewCount ?? 0} review{(asCourse.reviewCount ?? 0) !== 1 ? "s" : ""}
                         </span>
                       </div>
@@ -226,7 +226,7 @@ export default function Home() {
           </div>
 
           {coursesQuery.isError && (
-            <p className="mt-3 text-sm text-red-700">
+            <p className="mt-3 text-base text-red-700">
               Couldn’t load courses for the ticker. The catalog search still works.
             </p>
           )}

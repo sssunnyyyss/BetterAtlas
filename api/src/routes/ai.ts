@@ -39,13 +39,14 @@ const aiFilterSchema = z.object({
 
 const preferenceCourseSchema = z.object({
   id: z.number().int().positive(),
-  code: z.string().min(1).max(30),
-  title: z.string().min(1).max(240),
-  department: z.string().max(20).nullable().optional(),
-  gers: z.array(z.string().max(20)).max(12).optional(),
-  campuses: z.array(z.string().max(50)).max(12).optional(),
-  instructors: z.array(z.string().max(120)).max(12).optional(),
-  description: z.string().max(500).nullable().optional(),
+  // Allow fuller client snapshots; server-side normalization still truncates to stable limits.
+  code: z.string().min(1).max(80),
+  title: z.string().min(1).max(600),
+  department: z.string().max(40).nullable().optional(),
+  gers: z.array(z.string().max(40)).max(20).optional(),
+  campuses: z.array(z.string().max(120)).max(20).optional(),
+  instructors: z.array(z.string().max(240)).max(20).optional(),
+  description: z.string().max(8000).nullable().optional(),
 });
 
 const preferenceSignalsSchema = z.object({
@@ -1204,5 +1205,4 @@ router.post(
 );
 
 export default router;
-
 

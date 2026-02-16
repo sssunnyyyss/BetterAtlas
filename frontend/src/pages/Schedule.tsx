@@ -5,6 +5,7 @@ import { formatTimeRange12h } from "../lib/time.js";
 import Modal from "../components/ui/Modal.js";
 import { Link } from "react-router-dom";
 import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
+import { SEMESTERS } from "@betteratlas/shared";
 import { layoutOverlaps } from "../lib/calendarLayout.js";
 
 const DAYS: Array<{ key: string; label: string }> = [
@@ -19,6 +20,13 @@ const ENROLLMENT_STATUS_LABELS: Record<string, string> = {
   O: "Open",
   C: "Closed",
   W: "Wait List",
+};
+
+const TERM_SEASON_RANK: Record<string, number> = {
+  winter: 0,
+  spring: 1,
+  summer: 2,
+  fall: 3,
 };
 
 function parseHHMMColon(s: string) {
@@ -36,6 +44,36 @@ function hashColor(key: string) {
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return palette[h % palette.length];
+}
+
+function parseNamedTerm(value: string) {
+  const m = /^(Spring|Summer|Fall|Winter)\s+([0-9]{4})$/i.exec(value.trim());
+  if (!m) return null;
+  const season = m[1].toLowerCase();
+  const year = Number(m[2]);
+  if (!Number.isFinite(year)) return null;
+  return { season, year };
+}
+
+function compareTermValues(a: string, b: string) {
+  const pa = parseNamedTerm(a);
+  const pb = parseNamedTerm(b);
+
+  // Newest terms first when both are named terms.
+  if (pa && pb) {
+    if (pa.year !== pb.year) return pb.year - pa.year;
+    const sa = TERM_SEASON_RANK[pa.season] ?? -1;
+    const sb = TERM_SEASON_RANK[pb.season] ?? -1;
+    if (sa !== sb) return sb - sa;
+    return a.localeCompare(b);
+  }
+
+  // Prefer named terms ahead of raw codes/labels.
+  if (pa && !pb) return -1;
+  if (!pa && pb) return 1;
+
+  // Fallback for raw codes/labels.
+  return a.localeCompare(b);
 }
 
 type CalendarBlock = {
@@ -234,12 +272,13 @@ export default function Schedule() {
     const n = raw ? Number(raw) : NaN;
     return Number.isFinite(n) ? n : 7;
   });
+  const [selectedTerm, setSelectedTerm] = useState<string>("");
   const [friendView, setFriendView] = useState(false);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Record<string, boolean>>({});
   const [activeBlock, setActiveBlock] = useState<CalendarBlock | null>(null);
-  const { data: mine, isLoading } = useMySchedule();
-  const termCode = mine?.term.code;
-  const { data: friends, isLoading: friendsLoading } = useFriendsSchedules(termCode);
+  const { data: mine, isLoading } = useMySchedule(selectedTerm || undefined);
+  const friendTerm = selectedTerm || mine?.term.code;
+  const { data: friends, isLoading: friendsLoading } = useFriendsSchedules(friendTerm || undefined);
   const removeItem = useRemoveFromSchedule();
 
   useEffect(() => {
@@ -264,6 +303,18 @@ export default function Schedule() {
       return next;
     });
   }, [friendView, friends]);
+
+  const termOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const semester of SEMESTERS) set.add(semester);
+    if (mine?.term.name) set.add(mine.term.name);
+    else if (mine?.term.code) set.add(mine.term.code);
+    for (const item of mine?.items ?? []) {
+      if (item.section.semester) set.add(item.section.semester);
+    }
+    if (selectedTerm) set.add(selectedTerm);
+    return Array.from(set).sort(compareTermValues);
+  }, [mine, selectedTerm]);
 
   const myBlocks = useMemo(
     () => blocksFromSchedule(mine?.items ?? [], "me", "me"),
@@ -320,6 +371,21 @@ export default function Schedule() {
           <p className="text-sm text-gray-500 mt-1">{termLabel}</p>
         </div>
         <div className="flex items-center gap-4">
+          <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+            <span className="text-sm text-gray-600">Semester</span>
+            <select
+              value={selectedTerm}
+              onChange={(e) => setSelectedTerm(e.target.value)}
+              className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+            >
+              <option value="">My latest / default</option>
+              {termOptions.map((term) => (
+                <option key={term} value={term}>
+                  {term}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
             <span className="text-sm text-gray-600">Start</span>
             <select

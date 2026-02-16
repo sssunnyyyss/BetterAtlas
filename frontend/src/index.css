@@ -8,6 +8,10 @@
   --ba-font-sans: var(--ba-font-display);
 }
 
+html {
+  font-size: 17px;
+}
+
 body {
   font-family: var(--ba-font-sans);
   @apply bg-gray-50 text-gray-900 antialiased;

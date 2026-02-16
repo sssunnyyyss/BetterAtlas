@@ -73,22 +73,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await fetchUser();
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const result = await api.post<{
+        user: User;
+        session: { access_token: string; refresh_token: string } | null;
+      }>("/auth/login", {
+        email,
+        password,
+      });
 
-    if (error) {
-      throw new Error(error.message);
-    }
+      if (!result.session?.access_token || !result.session.refresh_token) {
+        throw new Error("Login did not return a valid session");
+      }
 
-    if (data.user) {
-      // Fetch user profile from our API
-      const userData = await api.get<User>("/auth/me");
-      setUser(userData);
-    }
-  }, []);
+      const { error } = await supabase.auth.setSession({
+        access_token: result.session.access_token,
+        refresh_token: result.session.refresh_token,
+      });
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      setUser(result.user);
+    },
+    []
+  );
 
   const register = useCallback(
     async (data: {

@@ -4,6 +4,7 @@ export const SEMESTERS = [
   "Summer 2025",
   "Fall 2025",
   "Spring 2026",
+  "Fall 2026",
 ] as const;
 
 export const SORT_OPTIONS = ["rating", "code", "title", "difficulty"] as const;

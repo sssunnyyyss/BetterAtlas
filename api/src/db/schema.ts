@@ -150,6 +150,30 @@ export const reviews = pgTable(
   })
 );
 
+// Feedback reports from users (general app feedback + data issue reports)
+export const feedbackReports = pgTable(
+  "feedback_reports",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
+    category: varchar("category", { length: 40 }).notNull(),
+    message: text("message").notNull(),
+    courseId: integer("course_id").references(() => courses.id),
+    sectionId: integer("section_id").references(() => sections.id),
+    pagePath: text("page_path"),
+    status: varchar("status", { length: 20 }).notNull().default("new"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("idx_feedback_reports_user").on(table.userId),
+    categoryIdx: index("idx_feedback_reports_category").on(table.category),
+    statusIdx: index("idx_feedback_reports_status").on(table.status),
+    createdAtIdx: index("idx_feedback_reports_created_at").on(table.createdAt),
+  })
+);
+
 // Course Ratings (aggregate cache)
 export const courseRatings = pgTable("course_ratings", {
   courseId: integer("course_id")

@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { label: "Catalog", path: "/catalog" },
   { label: "My Schedule", path: "/schedule" },
   { label: "Friends", path: "/friends" },
+  { label: "Feedback", path: "/feedback" },
   { label: "Profile", path: "/profile" },
 ];
 
@@ -47,7 +48,7 @@ export default function Navbar() {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            {user && (
+            {user ? (
               <>
                 <span className="text-sm text-gray-600">@{user.username}</span>
                 <button
@@ -57,6 +58,13 @@ export default function Navbar() {
                   Logout
                 </button>
               </>
+            ) : (
+              <Link
+                to="/login"
+                className="text-sm font-medium text-primary-600 hover:text-primary-700"
+              >
+                Login
+              </Link>
             )}
           </div>
         </div>

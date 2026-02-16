@@ -113,7 +113,7 @@ Starts PostgreSQL, Redis, API (port 3001), and frontend (port 5173) with hot rel
 docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-Requires `POSTGRES_PASSWORD` and `SESSION_SECRET` environment variables.
+This runs `api` in production mode and serves the built frontend on port `80`.
 
 ## Database Schema
 
