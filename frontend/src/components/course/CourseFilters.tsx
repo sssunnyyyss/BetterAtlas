@@ -17,8 +17,7 @@ interface CourseFiltersProps {
 }
 
 function programLabel(p: { name: string; kind: string; degree?: string | null }) {
-  const degree = p.degree ? ` (${p.degree})` : "";
-  return `${p.name}${degree}`;
+  return p.name;
 }
 
 export default function CourseFilters({
@@ -58,7 +57,20 @@ export default function CourseFilters({
     if (program) setProgramInput(programLabel(program));
   }, [program?.id]);
 
-  const programOptions = useMemo(() => programResults ?? [], [programResults]);
+  const programOptions = useMemo(() => {
+    const majorsOnly = (programResults ?? []).filter(
+      (p) => p.kind === "major" && (p.degree || "").toUpperCase() === "BA"
+    );
+
+    // Keep one dropdown entry per program name.
+    const byName = new Map<string, (typeof majorsOnly)[number]>();
+    for (const p of majorsOnly) {
+      const key = p.name.trim().toLowerCase();
+      if (!byName.has(key)) byName.set(key, p);
+    }
+
+    return [...byName.values()];
+  }, [programResults]);
 
   return (
     <div className="space-y-4">
