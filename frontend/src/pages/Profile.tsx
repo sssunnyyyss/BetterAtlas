@@ -8,6 +8,14 @@ import { useCourseDetail } from "../hooks/useCourses.js";
 import ReviewCard from "../components/review/ReviewCard.js";
 import EditReviewModal from "../components/review/EditReviewModal.js";
 
+type ProgramsSyncStats = {
+  fetchedPrograms: number;
+  upsertedPrograms: number;
+  updatedRequirements: number;
+  skippedUnchanged: number;
+  errors: Array<{ sourceUrl: string; error: string }>;
+};
+
 export default function Profile() {
   const { user, logout, refresh } = useAuth();
   const [editing, setEditing] = useState(false);
@@ -19,6 +27,9 @@ export default function Profile() {
   const [major, setMajor] = useState(user?.major || "");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [isSyncingPrograms, setIsSyncingPrograms] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+  const [syncStats, setSyncStats] = useState<ProgramsSyncStats | null>(null);
   const { data: myReviews, isLoading: myReviewsLoading } = useMyReviews();
   const deleteReview = useDeleteReview();
   const [editingReview, setEditingReview] = useState<UserReview | null>(null);
@@ -43,6 +54,20 @@ export default function Profile() {
       setMessage(err.message || "Failed to update profile");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRunProgramsSync() {
+    setIsSyncingPrograms(true);
+    setSyncMessage("");
+    try {
+      const stats = await api.post<ProgramsSyncStats>("/admin/programs/sync/me");
+      setSyncStats(stats);
+      setSyncMessage("Programs sync completed");
+    } catch (err: any) {
+      setSyncMessage(err.message || "Failed to run programs sync");
+    } finally {
+      setIsSyncingPrograms(false);
     }
   }
 
@@ -170,6 +195,64 @@ export default function Profile() {
           Sign out
         </button>
       </div>
+
+      {user.isAdmin && (
+        <div className="mt-6 bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900">Admin Tools</h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Trigger a programs sync from Emory catalog data.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRunProgramsSync}
+              disabled={isSyncingPrograms}
+              className="bg-gray-900 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
+            >
+              {isSyncingPrograms ? "Running sync..." : "Run Programs Sync"}
+            </button>
+            {syncMessage && <p className="text-sm text-gray-600">{syncMessage}</p>}
+          </div>
+
+          {syncStats && (
+            <div className="text-sm text-gray-700 grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div>
+                <p className="text-gray-500">Fetched</p>
+                <p className="font-semibold">{syncStats.fetchedPrograms}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Upserted</p>
+                <p className="font-semibold">{syncStats.upsertedPrograms}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Updated</p>
+                <p className="font-semibold">{syncStats.updatedRequirements}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Unchanged</p>
+                <p className="font-semibold">{syncStats.skippedUnchanged}</p>
+              </div>
+            </div>
+          )}
+
+          {syncStats && syncStats.errors.length > 0 && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3">
+              <p className="text-sm font-medium text-red-700 mb-2">
+                Sync completed with {syncStats.errors.length} errors.
+              </p>
+              <ul className="space-y-1">
+                {syncStats.errors.slice(0, 5).map((error, idx) => (
+                  <li key={`${error.sourceUrl}-${idx}`} className="text-xs text-red-700 break-words">
+                    {error.sourceUrl}: {error.error}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="mt-10">
         <h2 className="text-xl font-semibold text-gray-900">My Reviews</h2>

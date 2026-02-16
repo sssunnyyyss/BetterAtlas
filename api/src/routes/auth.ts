@@ -6,8 +6,16 @@ import { registerSchema, loginSchema } from "@betteratlas/shared";
 import { supabase, db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
+import { isAdminEmail } from "../utils/admin.js";
 
 const router = Router();
+
+function withAdminFlag<T extends { email: string }>(user: T) {
+  return {
+    ...user,
+    isAdmin: isAdminEmail(user.email),
+  };
+}
 
 router.post("/register", authLimiter, validate(registerSchema), async (req, res) => {
   try {
@@ -62,7 +70,7 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
       });
 
     res.status(201).json({
-      user,
+      user: withAdminFlag(user),
       session: authData.session,
     });
   } catch (err: any) {
@@ -134,7 +142,7 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
         });
       
       return res.json({
-        user: newUser,
+        user: withAdminFlag(newUser),
         session: authData.session,
       });
     }
@@ -156,12 +164,12 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
           createdAt: users.createdAt,
         });
       if (updated) {
-        return res.json({ user: updated, session: authData.session });
+        return res.json({ user: withAdminFlag(updated), session: authData.session });
       }
     }
 
     res.json({
-      user,
+      user: withAdminFlag(user),
       session: authData.session,
     });
   } catch (err: any) {
@@ -239,7 +247,7 @@ router.get("/me", requireAuth, async (req, res) => {
           createdAt: users.createdAt,
         });
 
-      if (created) return res.json(created);
+      if (created) return res.json(withAdminFlag(created));
 
       // In case of a race where another request inserted the row, re-read once.
       const [reloaded] = await db
@@ -257,7 +265,7 @@ router.get("/me", requireAuth, async (req, res) => {
         .limit(1);
 
       if (!reloaded) return res.status(404).json({ error: "User not found" });
-      return res.json(reloaded);
+      return res.json(withAdminFlag(reloaded));
     }
 
     if (!user.username) {
@@ -276,10 +284,10 @@ router.get("/me", requireAuth, async (req, res) => {
           major: users.major,
           createdAt: users.createdAt,
         });
-      if (updated) return res.json(updated);
+      if (updated) return res.json(withAdminFlag(updated));
     }
 
-    res.json(user);
+    res.json(withAdminFlag(user));
   } catch (err: any) {
     console.error("Get user error:", err);
     res.status(500).json({ error: err.message || "Failed to get user" });

@@ -1,6 +1,7 @@
 export interface User {
   id: string; // UUID from Supabase Auth
   email: string;
+  isAdmin: boolean;
   username: string; // stored without leading "@"
   fullName: string;
   graduationYear: number | null;

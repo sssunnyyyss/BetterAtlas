@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { env } from "../config/env.js";
 import { syncPrograms } from "../jobs/programsSync.js";
+import { requireAuth } from "../middleware/auth.js";
+import { isAdminEmail } from "../utils/admin.js";
 
 const router = Router();
 
@@ -13,7 +15,19 @@ function requireSyncSecret(req: any, res: any, next: any) {
   next();
 }
 
+function requireAdmin(req: any, res: any, next: any) {
+  if (!isAdminEmail(req.user?.email)) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
 router.post("/programs/sync", requireSyncSecret, async (_req, res) => {
+  const stats = await syncPrograms();
+  res.json(stats);
+});
+
+router.post("/programs/sync/me", requireAuth, requireAdmin, async (_req, res) => {
   const stats = await syncPrograms();
   res.json(stats);
 });

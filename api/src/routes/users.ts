@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { getUserById, updateUser } from "../services/userService.js";
 import { getReviewsForUser } from "../services/reviewService.js";
+import { isAdminEmail } from "../utils/admin.js";
 
 const router = Router();
 
@@ -10,7 +11,7 @@ router.get("/me", requireAuth, async (req, res) => {
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
-  res.json(user);
+  res.json({ ...user, isAdmin: isAdminEmail(user.email) });
 });
 
 router.patch("/me", requireAuth, async (req, res) => {
@@ -32,7 +33,7 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (!updated) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.json(updated);
+    res.json({ ...updated, isAdmin: isAdminEmail(updated.email) });
   } catch (err: any) {
     const msg = String(err?.message || "");
     if (msg.toLowerCase().includes("username")) {

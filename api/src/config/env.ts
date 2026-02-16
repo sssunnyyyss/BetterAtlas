@@ -31,4 +31,8 @@ export const env = {
 
   // Programs sync (admin-only trigger)
   programsSyncSecret: process.env.PROGRAMS_SYNC_SECRET || "",
+  adminEmails: (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean),
 } as const;
