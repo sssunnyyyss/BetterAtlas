@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import type { ProgramTab } from "@betteratlas/shared";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
 import { useAiCourseRecommendations, type AiCourseRecommendation, type AiMessage } from "../hooks/useAi.js";
+import { useProgramCourses } from "../hooks/usePrograms.js";
 import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
@@ -34,9 +36,7 @@ export default function Catalog() {
       ? "ai"
       : "search";
   const [mode, setMode] = useState<"search" | "ai">(initialMode);
-  const [searchInput, setSearchInput] = useState(
-    searchParams.get("q") || ""
-  );
+  const [searchInput, setSearchInput] = useState(searchParams.get("q") || "");
   const [debouncedSearch, setDebouncedSearch] = useState(searchInput);
 
   const [aiInput, setAiInput] = useState(searchParams.get("prompt") || "");
@@ -67,11 +67,25 @@ export default function Catalog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams.toString()]);
 
-  // Build filters from URL
+  // Build filters from URL (everything except the free-text search param "q")
   const filters: Record<string, string> = {};
   for (const [key, value] of searchParams.entries()) {
     if (key !== "q") filters[key] = value;
   }
+
+  const programId = parseInt(searchParams.get("programId") || "0", 10) || 0;
+  const programTab = (searchParams.get("programTab") as ProgramTab | null) || "required";
+  const isProgramMode = mode === "search" && programId > 0;
+
+  useEffect(() => {
+    if (!isProgramMode) return;
+    if (searchParams.get("programTab")) return;
+    setSearchParams((prev) => {
+      prev.set("programTab", "required");
+      return prev;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isProgramMode]);
 
   const handleFilterChange = useCallback(
     (key: string, value: string) => {
@@ -89,13 +103,33 @@ export default function Catalog() {
     [setSearchParams]
   );
 
-  // Use search or browse
+  // Use search or browse (or program mode)
   const isSearching = mode === "search" && debouncedSearch.length > 0;
   const page = parseInt(searchParams.get("page") || "1", 10);
-  const browseResult = useCourses({ ...filters, page: String(page) }, mode === "search");
-  const searchResult = useCourseSearch(debouncedSearch, page, mode === "search");
 
-  const result = isSearching ? searchResult : browseResult;
+  const browseResult = useCourses(
+    { ...filters, page: String(page) },
+    mode === "search" && !isProgramMode
+  );
+  const searchResult = useCourseSearch(
+    debouncedSearch,
+    page,
+    mode === "search" && !isProgramMode
+  );
+
+  const programParams: Record<string, string> = { ...filters, page: String(page) };
+  delete programParams.programId;
+  delete programParams.programTab;
+  delete programParams.mode;
+  delete programParams.ai;
+  delete programParams.prompt;
+  delete programParams.department;
+  if (debouncedSearch.trim()) programParams.q = debouncedSearch.trim();
+  else delete programParams.q;
+
+  const programResult = useProgramCourses(programId, programTab, programParams);
+
+  const result = isProgramMode ? programResult : isSearching ? searchResult : browseResult;
   const courses = result.data?.data ?? [];
   const meta = result.data?.meta;
 
@@ -157,7 +191,9 @@ export default function Catalog() {
     const trimmed = prompt.trim();
     if (!trimmed) return;
 
-    const nextMessages = [...aiMessages, { role: "user" as const, content: trimmed }].slice(-12);
+    const nextMessages = [...aiMessages, { role: "user" as const, content: trimmed }].slice(
+      -12
+    );
     setAiMessages(nextMessages);
     setSearchParams((prev) => {
       prev.set("mode", "ai");
@@ -225,7 +261,24 @@ export default function Catalog() {
   return (
     <div className="flex min-h-[calc(100vh-4rem)]">
       <Sidebar>
-        <CourseFilters filters={filters} onChange={handleFilterChange} />
+        <CourseFilters
+          filters={filters}
+          onChange={handleFilterChange}
+          onSetQuery={(q) => {
+            const v = q.trim();
+            setMode("search");
+            setSearchInput(v);
+            setSearchParams((prev) => {
+              prev.delete("mode");
+              prev.delete("ai");
+              prev.delete("prompt");
+              if (v) prev.set("q", v);
+              else prev.delete("q");
+              prev.set("page", "1");
+              return prev;
+            });
+          }}
+        />
       </Sidebar>
 
       <main className="flex-1 p-6">
@@ -390,7 +443,9 @@ export default function Catalog() {
             {aiDebug?.totalMs != null && (
               <div className="mb-4 text-xs text-gray-500">
                 AI timings: {Math.round(aiDebug.totalMs)}ms total
-                {aiDebug.candidatesMs != null ? `, ${Math.round(aiDebug.candidatesMs)}ms catalog` : ""}
+                {aiDebug.candidatesMs != null
+                  ? `, ${Math.round(aiDebug.candidatesMs)}ms catalog`
+                  : ""}
                 {aiDebug.openaiMs != null ? `, ${Math.round(aiDebug.openaiMs)}ms OpenAI` : ""}
                 {aiDebug.model ? ` (${aiDebug.model})` : ""}
                 {aiDebug.searchTerms && aiDebug.searchTerms.length > 0
@@ -419,13 +474,9 @@ export default function Catalog() {
                             {rec.course.code}
                           </span>
                           {rec.course.credits && (
-                            <span className="text-xs text-gray-400">
-                              {rec.course.credits} cr
-                            </span>
+                            <span className="text-xs text-gray-400">{rec.course.credits} cr</span>
                           )}
-                          <span className="text-xs text-gray-400">
-                            Fit {rec.fitScore}/10
-                          </span>
+                          <span className="text-xs text-gray-400">Fit {rec.fitScore}/10</span>
                         </div>
                         <h3 className="font-medium text-gray-900 mt-0.5 truncate">
                           {rec.course.title}
@@ -485,11 +536,7 @@ export default function Catalog() {
             {aiRec.isPending && !aiData && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                 {Array.from({ length: 6 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="bg-white rounded-lg border border-gray-200 p-4"
-                    aria-hidden="true"
-                  >
+                  <div key={i} className="bg-white rounded-lg border border-gray-200 p-4" aria-hidden="true">
                     <div className="animate-pulse">
                       <div className="h-4 bg-gray-200 rounded w-1/3 mb-2" />
                       <div className="h-5 bg-gray-200 rounded w-5/6 mb-3" />
@@ -510,43 +557,73 @@ export default function Catalog() {
           </>
         ) : (
           <>
-        {/* Results count */}
-        {meta && (
-          <p className="text-sm text-gray-500 mb-4">
-            {meta.total} course{meta.total !== 1 ? "s" : ""} found
-            {isSearching && ` for "${debouncedSearch}"`}
-          </p>
-        )}
+            {isProgramMode && (
+              <div className="flex items-center gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange("programTab", "required")}
+                  className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                    programTab === "required"
+                      ? "bg-primary-600 text-white border-primary-600"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  Required
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleFilterChange("programTab", "electives")}
+                  className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                    programTab === "electives"
+                      ? "bg-primary-600 text-white border-primary-600"
+                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  Electives
+                </button>
+                {debouncedSearch.trim() && (
+                  <span className="text-xs text-gray-500 ml-2">
+                    Filtering within {programTab} for "{debouncedSearch.trim()}"
+                  </span>
+                )}
+              </div>
+            )}
 
-        <CourseGrid courses={courses} isLoading={result.isLoading} />
+            {/* Results count */}
+            {meta && (
+              <p className="text-sm text-gray-500 mb-4">
+                {meta.total} course{meta.total !== 1 ? "s" : ""} found
+                {!isProgramMode && isSearching && ` for "${debouncedSearch}"`}
+              </p>
+            )}
 
-        {/* Pagination */}
-        {meta && meta.totalPages > 1 && (
-          <div className="flex justify-center gap-2 mt-8">
-            <button
-              disabled={page <= 1}
-              onClick={() => handleFilterChange("page", String(page - 1))}
-              className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
-            >
-              Previous
-            </button>
-            <span className="px-3 py-1.5 text-sm text-gray-600">
-              Page {page} of {meta.totalPages}
-            </span>
-            <button
-              disabled={page >= meta.totalPages}
-              onClick={() => handleFilterChange("page", String(page + 1))}
-              className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
-            >
-              Next
-            </button>
-          </div>
-        )}
+            <CourseGrid courses={courses} isLoading={result.isLoading} />
+
+            {/* Pagination */}
+            {meta && meta.totalPages > 1 && (
+              <div className="flex justify-center gap-2 mt-8">
+                <button
+                  disabled={page <= 1}
+                  onClick={() => handleFilterChange("page", String(page - 1))}
+                  className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
+                >
+                  Previous
+                </button>
+                <span className="px-3 py-1.5 text-sm text-gray-600">
+                  Page {page} of {meta.totalPages}
+                </span>
+                <button
+                  disabled={page >= meta.totalPages}
+                  onClick={() => handleFilterChange("page", String(page + 1))}
+                  className="px-3 py-1.5 text-sm rounded-md border border-gray-300 disabled:opacity-50 hover:bg-gray-50"
+                >
+                  Next
+                </button>
+              </div>
+            )}
           </>
         )}
       </main>
     </div>
   );
 }
-
-
