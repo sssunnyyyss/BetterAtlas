@@ -424,6 +424,23 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_log_action
   ON admin_audit_log (action);
 
 -- ============================================================
+-- 12b. CREATE admin course sync schedule table
+-- ============================================================
+CREATE TABLE IF NOT EXISTS admin_course_sync_schedule (
+  id SERIAL PRIMARY KEY,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  hour SMALLINT NOT NULL DEFAULT 3,
+  minute SMALLINT NOT NULL DEFAULT 0,
+  timezone VARCHAR(64) NOT NULL DEFAULT 'America/New_York',
+  term_code VARCHAR(10),
+  updated_by UUID NULL REFERENCES users(id),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_course_sync_schedule_updated_at
+  ON admin_course_sync_schedule (updated_at);
+
+-- ============================================================
 -- 13. Enable pgvector + course embeddings for AI retrieval
 -- ============================================================
 

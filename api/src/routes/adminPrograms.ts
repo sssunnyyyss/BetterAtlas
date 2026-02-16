@@ -1,12 +1,16 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import os from "node:os";
 import { statfs } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { spawn } from "node:child_process";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { env } from "../config/env.js";
 import { syncPrograms } from "../jobs/programsSync.js";
 import { requireAuth } from "../middleware/auth.js";
 import { isAdminEmail } from "../utils/admin.js";
 import { db, supabase } from "../db/index.js";
-import { courses, friendships, programs, reviews, sections, users } from "../db/schema.js";
+import { courses, friendships, programs, reviews, sections, terms, users } from "../db/schema.js";
 import { desc, eq, gte, ilike, or, sql } from "drizzle-orm";
 
 const router = Router();
@@ -53,16 +57,60 @@ type AdminAppError = {
   userId: string | null;
 };
 
+type CourseSyncRun = {
+  id: number;
+  type: "courses_sync";
+  status: RunStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  requestedBy: string;
+  requestedEmail: string;
+  termCode: string | null;
+  scheduleTriggered: boolean;
+  error: string | null;
+  logs: SyncRunLog[];
+};
+
+type CourseSyncSchedule = {
+  enabled: boolean;
+  hour: number;
+  minute: number;
+  timezone: string;
+  termCode: string | null;
+  updatedBy: string | null;
+  updatedAt: string;
+};
+
 const MAX_RUNS = 100;
 const MAX_LOGS_PER_RUN = 1000;
 const MAX_APP_ERRORS = 500;
 const BAN_DURATION = "876000h";
+const DEFAULT_COURSE_SCHEDULE_TIMEZONE = "America/New_York";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const apiRootDir = path.resolve(__dirname, "../..");
+const atlasSyncDistPath = path.resolve(apiRootDir, "dist/jobs/atlasSync.js");
 
 const syncRuns: SyncRun[] = [];
+const courseSyncRuns: CourseSyncRun[] = [];
 const appErrors: AdminAppError[] = [];
 let nextRunId = 1;
 let nextRunLogId = 1;
 let nextAppErrorId = 1;
+
+let courseSyncSchedule: CourseSyncSchedule = {
+  enabled: false,
+  hour: 3,
+  minute: 0,
+  timezone: DEFAULT_COURSE_SCHEDULE_TIMEZONE,
+  termCode: null,
+  updatedBy: null,
+  updatedAt: nowIso(),
+};
+let courseScheduleLoaded = false;
+let courseScheduleInitStarted = false;
+let courseScheduleLastTriggerKey: string | null = null;
 
 function nowIso() {
   return new Date().toISOString();
@@ -94,7 +142,11 @@ function findRunById(rawId: string) {
   return syncRuns.find((run) => run.id === id) || null;
 }
 
-function pushRunLog(run: SyncRun, level: SyncRunLog["level"], message: string) {
+function pushRunLog(
+  run: { logs: SyncRunLog[] },
+  level: SyncRunLog["level"],
+  message: string
+) {
   run.logs.push({
     id: nextRunLogId++,
     ts: nowIso(),
@@ -153,6 +205,310 @@ async function executeSyncRun(run: SyncRun) {
     run.error = message;
     pushRunLog(run, "error", message);
   }
+}
+
+function summarizeCourseSyncRun(run: CourseSyncRun) {
+  return {
+    id: run.id,
+    type: run.type,
+    status: run.status,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    requestedBy: run.requestedBy,
+    requestedEmail: run.requestedEmail,
+    termCode: run.termCode,
+    scheduleTriggered: run.scheduleTriggered,
+    error: run.error,
+    logCount: run.logs.length,
+  };
+}
+
+function getRunningCourseSyncRun() {
+  return (
+    courseSyncRuns.find((run) => run.status === "queued" || run.status === "running") || null
+  );
+}
+
+function findCourseSyncRunById(rawId: string) {
+  const id = Number.parseInt(rawId, 10);
+  if (!Number.isFinite(id)) return null;
+  return courseSyncRuns.find((run) => run.id === id) || null;
+}
+
+function createCourseSyncRun(input: {
+  requestedBy: string;
+  requestedEmail: string;
+  termCode: string | null;
+  scheduleTriggered: boolean;
+}) {
+  const run: CourseSyncRun = {
+    id: nextRunId++,
+    type: "courses_sync",
+    status: "queued",
+    createdAt: nowIso(),
+    startedAt: null,
+    finishedAt: null,
+    requestedBy: input.requestedBy,
+    requestedEmail: input.requestedEmail,
+    termCode: input.termCode,
+    scheduleTriggered: input.scheduleTriggered,
+    error: null,
+    logs: [],
+  };
+  courseSyncRuns.unshift(run);
+  if (courseSyncRuns.length > MAX_RUNS) {
+    courseSyncRuns.splice(MAX_RUNS);
+  }
+  return run;
+}
+
+function isValidTimezone(tz: string) {
+  try {
+    Intl.DateTimeFormat("en-US", { timeZone: tz }).format(new Date());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function timePartsForZone(date: Date, timeZone: string) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const parts = formatter.formatToParts(date);
+  const lookup = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+  const year = lookup("year");
+  const month = lookup("month");
+  const day = lookup("day");
+  const hour = Number.parseInt(lookup("hour"), 10);
+  const minute = Number.parseInt(lookup("minute"), 10);
+  return {
+    year,
+    month,
+    day,
+    hour: Number.isFinite(hour) ? hour : 0,
+    minute: Number.isFinite(minute) ? minute : 0,
+  };
+}
+
+function lineSplitPump(
+  run: { logs: SyncRunLog[] },
+  level: SyncRunLog["level"],
+  chunk: string,
+  buffer: { value: string }
+) {
+  buffer.value += chunk;
+  const lines = buffer.value.split(/\r?\n/);
+  buffer.value = lines.pop() ?? "";
+  for (const line of lines) {
+    const message = line.trim();
+    if (message) pushRunLog(run, level, message);
+  }
+}
+
+async function executeCourseSyncRun(run: CourseSyncRun) {
+  run.status = "running";
+  run.startedAt = nowIso();
+  const termLabel = run.termCode || "active-term-default";
+  pushRunLog(run, "info", `Course sync started (term=${termLabel})`);
+
+  const envVars: NodeJS.ProcessEnv = { ...process.env };
+  if (run.termCode) {
+    envVars.ATLAS_TERM_CODE = run.termCode;
+  } else {
+    delete envVars.ATLAS_TERM_CODE;
+  }
+
+  const useDistScript = existsSync(atlasSyncDistPath);
+  const command = useDistScript ? process.execPath : "pnpm";
+  const args = useDistScript ? [atlasSyncDistPath] : ["atlas:sync"];
+
+  pushRunLog(
+    run,
+    "info",
+    `Launching ${useDistScript ? `node ${atlasSyncDistPath}` : "pnpm atlas:sync"}`
+  );
+
+  const child = spawn(command, args, {
+    cwd: apiRootDir,
+    env: envVars,
+    shell: !useDistScript && process.platform === "win32",
+  });
+
+  const stdoutBuffer = { value: "" };
+  const stderrBuffer = { value: "" };
+
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+
+  child.stdout?.on("data", (chunk: string) => {
+    lineSplitPump(run, "info", chunk, stdoutBuffer);
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    lineSplitPump(run, "warn", chunk, stderrBuffer);
+  });
+
+  await new Promise<void>((resolve) => {
+    child.on("error", (err) => {
+      run.status = "failed";
+      run.finishedAt = nowIso();
+      run.error = err.message || "Failed to launch course sync process";
+      pushRunLog(run, "error", run.error);
+      resolve();
+    });
+
+    child.on("close", (code, signal) => {
+      if (stdoutBuffer.value.trim()) {
+        pushRunLog(run, "info", stdoutBuffer.value.trim());
+      }
+      if (stderrBuffer.value.trim()) {
+        pushRunLog(run, "warn", stderrBuffer.value.trim());
+      }
+
+      if (code === 0) {
+        run.status = "succeeded";
+        run.finishedAt = nowIso();
+        pushRunLog(run, "info", "Course sync completed successfully");
+      } else {
+        run.status = "failed";
+        run.finishedAt = nowIso();
+        run.error = `Course sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
+        pushRunLog(run, "error", run.error);
+      }
+      resolve();
+    });
+  });
+}
+
+async function ensureCourseScheduleTable() {
+  await db.execute(sql`
+    create table if not exists admin_course_sync_schedule (
+      id serial primary key,
+      enabled boolean not null default false,
+      hour smallint not null default 3,
+      minute smallint not null default 0,
+      timezone varchar(64) not null default 'America/New_York',
+      term_code varchar(10),
+      updated_by uuid references users(id),
+      updated_at timestamptz not null default now()
+    )
+  `);
+}
+
+async function loadCourseSyncScheduleFromDb() {
+  await ensureCourseScheduleTable();
+  const rows = (await db.execute(sql`
+    select
+      enabled,
+      hour,
+      minute,
+      timezone,
+      term_code as "termCode",
+      updated_by as "updatedBy",
+      updated_at as "updatedAt"
+    from admin_course_sync_schedule
+    order by id desc
+    limit 1
+  `)) as any[];
+
+  const row = rows[0];
+  if (!row) {
+    courseScheduleLoaded = true;
+    return courseSyncSchedule;
+  }
+
+  const timezone = String(row.timezone || DEFAULT_COURSE_SCHEDULE_TIMEZONE);
+  courseSyncSchedule = {
+    enabled: Boolean(row.enabled),
+    hour: Number(row.hour ?? 3),
+    minute: Number(row.minute ?? 0),
+    timezone: isValidTimezone(timezone) ? timezone : DEFAULT_COURSE_SCHEDULE_TIMEZONE,
+    termCode: row.termCode ? String(row.termCode) : null,
+    updatedBy: row.updatedBy ? String(row.updatedBy) : null,
+    updatedAt: row.updatedAt ? new Date(row.updatedAt).toISOString() : nowIso(),
+  };
+  courseScheduleLoaded = true;
+  return courseSyncSchedule;
+}
+
+async function saveCourseSyncScheduleToDb(input: {
+  enabled: boolean;
+  hour: number;
+  minute: number;
+  timezone: string;
+  termCode: string | null;
+  updatedBy: string;
+}) {
+  await ensureCourseScheduleTable();
+  const [saved] = (await db.execute(sql`
+    insert into admin_course_sync_schedule (enabled, hour, minute, timezone, term_code, updated_by)
+    values (${input.enabled}, ${input.hour}, ${input.minute}, ${input.timezone}, ${input.termCode}, ${input.updatedBy}::uuid)
+    returning
+      enabled,
+      hour,
+      minute,
+      timezone,
+      term_code as "termCode",
+      updated_by as "updatedBy",
+      updated_at as "updatedAt"
+  `)) as any[];
+
+  courseSyncSchedule = {
+    enabled: Boolean(saved.enabled),
+    hour: Number(saved.hour),
+    minute: Number(saved.minute),
+    timezone: String(saved.timezone),
+    termCode: saved.termCode ? String(saved.termCode) : null,
+    updatedBy: saved.updatedBy ? String(saved.updatedBy) : null,
+    updatedAt: saved.updatedAt ? new Date(saved.updatedAt).toISOString() : nowIso(),
+  };
+  return courseSyncSchedule;
+}
+
+async function maybeTriggerScheduledCourseSyncRun() {
+  if (!courseScheduleLoaded) {
+    await loadCourseSyncScheduleFromDb();
+  }
+  if (!courseSyncSchedule.enabled) return;
+
+  const parts = timePartsForZone(new Date(), courseSyncSchedule.timezone);
+  if (parts.hour !== courseSyncSchedule.hour || parts.minute !== courseSyncSchedule.minute) {
+    return;
+  }
+
+  const minuteKey = `${parts.year}-${parts.month}-${parts.day} ${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+  if (courseScheduleLastTriggerKey === minuteKey) return;
+  courseScheduleLastTriggerKey = minuteKey;
+
+  const running = getRunningCourseSyncRun();
+  if (running) return;
+
+  const run = createCourseSyncRun({
+    requestedBy: "scheduler",
+    requestedEmail: `scheduler@${courseSyncSchedule.timezone}`,
+    termCode: courseSyncSchedule.termCode,
+    scheduleTriggered: true,
+  });
+  queueMicrotask(() => {
+    void executeCourseSyncRun(run);
+  });
+}
+
+function startCourseSyncScheduler() {
+  if (courseScheduleInitStarted) return;
+  courseScheduleInitStarted = true;
+  void loadCourseSyncScheduleFromDb();
+  setInterval(() => {
+    void maybeTriggerScheduledCourseSyncRun();
+  }, 30_000);
 }
 
 function requireSyncSecret(req: Request, res: Response, next: NextFunction) {
@@ -232,6 +588,7 @@ router.post("/programs/sync", requireSyncSecret, async (_req, res) => {
 });
 
 router.use(requireAuth, requireAdmin);
+startCourseSyncScheduler();
 
 // Compatibility endpoint used by existing profile admin tools.
 router.post("/programs/sync/me", async (_req, res) => {
@@ -269,6 +626,164 @@ router.get("/sync/runs/:id", async (req, res) => {
 
 router.get("/sync/runs/:id/logs", async (req, res) => {
   const run = findRunById(req.params.id);
+  if (!run) return res.status(404).json({ error: "Run not found" });
+
+  const afterIdRaw = String(req.query.afterId || "0");
+  const afterId = Number.parseInt(afterIdRaw, 10);
+  const logs = Number.isFinite(afterId)
+    ? run.logs.filter((log) => log.id > afterId)
+    : run.logs;
+
+  res.json(logs);
+});
+
+router.get("/course-sync/config", async (_req, res) => {
+  const schedule = await loadCourseSyncScheduleFromDb();
+  const termsRows = await db
+    .select({
+      srcdb: terms.srcdb,
+      name: terms.name,
+      season: terms.season,
+      year: terms.year,
+      isActive: terms.isActive,
+    })
+    .from(terms)
+    .orderBy(desc(terms.year), desc(terms.srcdb));
+
+  const activeTerm = termsRows.find((term) => term.isActive) || null;
+
+  res.json({
+    schedule,
+    terms: termsRows,
+    activeTermCode: activeTerm?.srcdb || null,
+  });
+});
+
+router.put("/course-sync/config", async (req, res) => {
+  const enabled = Boolean(req.body?.enabled);
+  const hour = Number.parseInt(String(req.body?.hour ?? "0"), 10);
+  const minute = Number.parseInt(String(req.body?.minute ?? "0"), 10);
+  const timezoneRaw = String(
+    req.body?.timezone || DEFAULT_COURSE_SCHEDULE_TIMEZONE
+  ).trim();
+  const termCodeRaw = String(req.body?.termCode || "").trim();
+  const termCode = termCodeRaw ? termCodeRaw : null;
+  const activeTermCodeRaw = String(req.body?.activeTermCode || "").trim();
+  const activeTermCode = activeTermCodeRaw ? activeTermCodeRaw : null;
+
+  if (!Number.isFinite(hour) || hour < 0 || hour > 23) {
+    return res.status(400).json({ error: "hour must be between 0 and 23" });
+  }
+  if (!Number.isFinite(minute) || minute < 0 || minute > 59) {
+    return res.status(400).json({ error: "minute must be between 0 and 59" });
+  }
+  if (!isValidTimezone(timezoneRaw)) {
+    return res.status(400).json({ error: "Invalid timezone" });
+  }
+
+  if (termCode) {
+    const [termExists] = await db
+      .select({ srcdb: terms.srcdb })
+      .from(terms)
+      .where(eq(terms.srcdb, termCode))
+      .limit(1);
+    if (!termExists) {
+      return res.status(400).json({ error: `Unknown term code: ${termCode}` });
+    }
+  }
+
+  if (activeTermCode) {
+    const [activeExists] = await db
+      .select({ srcdb: terms.srcdb })
+      .from(terms)
+      .where(eq(terms.srcdb, activeTermCode))
+      .limit(1);
+    if (!activeExists) {
+      return res.status(400).json({ error: `Unknown activeTermCode: ${activeTermCode}` });
+    }
+
+    await db.transaction(async (tx) => {
+      await tx.update(terms).set({ isActive: false });
+      await tx.update(terms).set({ isActive: true }).where(eq(terms.srcdb, activeTermCode));
+    });
+  }
+
+  const schedule = await saveCourseSyncScheduleToDb({
+    enabled,
+    hour,
+    minute,
+    timezone: timezoneRaw,
+    termCode,
+    updatedBy: req.user!.id,
+  });
+
+  const termsRows = await db
+    .select({
+      srcdb: terms.srcdb,
+      name: terms.name,
+      season: terms.season,
+      year: terms.year,
+      isActive: terms.isActive,
+    })
+    .from(terms)
+    .orderBy(desc(terms.year), desc(terms.srcdb));
+
+  const activeTerm = termsRows.find((term) => term.isActive) || null;
+  res.json({
+    schedule,
+    terms: termsRows,
+    activeTermCode: activeTerm?.srcdb || null,
+  });
+});
+
+router.post("/course-sync/runs", async (req, res) => {
+  const running = getRunningCourseSyncRun();
+  if (running) {
+    return res.status(409).json({
+      error: "A course sync run is already in progress",
+      run: summarizeCourseSyncRun(running),
+    });
+  }
+
+  const termCodeRaw = String(req.body?.termCode || "").trim();
+  const termCode = termCodeRaw ? termCodeRaw : null;
+
+  if (termCode) {
+    const [termExists] = await db
+      .select({ srcdb: terms.srcdb })
+      .from(terms)
+      .where(eq(terms.srcdb, termCode))
+      .limit(1);
+    if (!termExists) {
+      return res.status(400).json({ error: `Unknown term code: ${termCode}` });
+    }
+  }
+
+  const run = createCourseSyncRun({
+    requestedBy: req.user!.id,
+    requestedEmail: req.user!.email,
+    termCode,
+    scheduleTriggered: false,
+  });
+  queueMicrotask(() => {
+    void executeCourseSyncRun(run);
+  });
+
+  res.status(202).json(summarizeCourseSyncRun(run));
+});
+
+router.get("/course-sync/runs", async (_req, res) => {
+  res.json(courseSyncRuns.map(summarizeCourseSyncRun));
+});
+
+router.get("/course-sync/runs/:id", async (req, res) => {
+  const run = findCourseSyncRunById(req.params.id);
+  if (!run) return res.status(404).json({ error: "Run not found" });
+  res.json(summarizeCourseSyncRun(run));
+});
+
+router.get("/course-sync/runs/:id/logs", async (req, res) => {
+  const run = findCourseSyncRunById(req.params.id);
   if (!run) return res.status(404).json({ error: "Run not found" });
 
   const afterIdRaw = String(req.query.afterId || "0");
@@ -549,10 +1064,15 @@ router.get("/logs", async (_req, res) => {
     ...summarizeRun(run),
     latestLogs: run.logs.slice(-20),
   }));
+  const recentCourseRuns = courseSyncRuns.slice(0, 20).map((run) => ({
+    ...summarizeCourseSyncRun(run),
+    latestLogs: run.logs.slice(-20),
+  }));
 
   res.json({
     appErrors: appErrors.slice(0, 200),
     recentRuns,
+    recentCourseRuns,
   });
 });
 

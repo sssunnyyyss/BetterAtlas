@@ -21,7 +21,7 @@ type RunLog = {
 
 type RecentRun = {
   id: number;
-  type: "programs_sync";
+  type: "programs_sync" | "courses_sync";
   status: "queued" | "running" | "succeeded" | "failed";
   createdAt: string;
   startedAt: string | null;
@@ -37,6 +37,7 @@ type RecentRun = {
 type AdminLogsResponse = {
   appErrors: AppError[];
   recentRuns: RecentRun[];
+  recentCourseRuns?: RecentRun[];
 };
 
 export default function AdminLogs() {
@@ -125,15 +126,19 @@ export default function AdminLogs() {
       <div className="bg-white rounded-lg border border-gray-200 p-4">
         <h2 className="font-semibold text-gray-900 mb-2">Recent Sync Diagnostics</h2>
         <div className="space-y-3">
-          {data.recentRuns.length === 0 && (
+          {data.recentRuns.length === 0 &&
+            (data.recentCourseRuns?.length ?? 0) === 0 && (
             <p className="text-sm text-gray-500">No sync runs recorded yet.</p>
           )}
-          {data.recentRuns.map((run) => (
+          {[...data.recentRuns, ...(data.recentCourseRuns ?? [])].map((run) => (
             <div key={run.id} className="rounded border border-gray-200 p-3">
               <div className="flex flex-wrap items-center gap-2 mb-2">
                 <span className="text-sm font-medium text-gray-900">Run #{run.id}</span>
                 <span className="text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-700">
                   {run.status}
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded bg-primary-50 text-primary-700">
+                  {run.type}
                 </span>
                 <span className="text-xs text-gray-500">
                   {new Date(run.createdAt).toLocaleString()}
