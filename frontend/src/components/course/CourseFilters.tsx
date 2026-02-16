@@ -17,43 +17,8 @@ interface CourseFiltersProps {
 }
 
 function programLabel(p: { name: string; kind: string; degree?: string | null }) {
-  const kindLabel = p.kind === "minor" ? "Minor" : "Major";
   const degree = p.degree ? ` (${p.degree})` : "";
-  return `${p.name} - ${kindLabel}${degree}`;
-}
-
-function renderTextWithCourseLinks(text: string, onClickCode: (code: string) => void) {
-  const re =
-    /\b([A-Z][A-Z0-9_]{1,}(?:\/[A-Z][A-Z0-9_]{1,})*)\s*([0-9]{3,4})([A-Z]{0,3})\b/g;
-
-  const parts: React.ReactNode[] = [];
-  let last = 0;
-  let m: RegExpExecArray | null;
-
-  const upper = text.toUpperCase();
-  while ((m = re.exec(upper))) {
-    const start = m.index;
-    const end = start + m[0].length;
-    if (start > last) parts.push(text.slice(last, start));
-
-    const code = `${m[1]!} ${m[2]!}${m[3] || ""}`;
-    parts.push(
-      <button
-        key={`${start}-${code}`}
-        type="button"
-        onClick={() => onClickCode(code)}
-        className="inline-flex items-center px-1.5 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-900 font-medium"
-        title={`Search ${code}`}
-      >
-        {code}
-      </button>
-    );
-
-    last = end;
-  }
-
-  if (last < text.length) parts.push(text.slice(last));
-  return <>{parts}</>;
+  return `${p.name}${degree}`;
 }
 
 export default function CourseFilters({
@@ -358,40 +323,6 @@ export default function CourseFilters({
                 </option>
               ))}
             </select>
-          </div>
-        </div>
-      )}
-
-      {program && (
-        <div className="pt-2 border-t border-gray-100 space-y-2">
-          <div className="text-sm font-semibold text-gray-900">Requirements</div>
-          <div className="text-xs text-gray-500">
-            Some requirements (like \"approved electives\") can't be fully interpreted yet.
-          </div>
-          <div className="space-y-2">
-            {program.requirements.map((n) => {
-              const key = `${n.ord}-${n.id}`;
-              if (n.nodeType === "heading") {
-                return (
-                  <div key={key} className="text-sm font-semibold text-gray-900">
-                    {n.text}
-                  </div>
-                );
-              }
-              if (n.nodeType === "list_item") {
-                return (
-                  <div key={key} className="text-sm text-gray-700 flex gap-2">
-                    <span className="text-gray-400">•</span>
-                    <span>{renderTextWithCourseLinks(n.text, (code) => onSetQuery(code))}</span>
-                  </div>
-                );
-              }
-              return (
-                <div key={key} className="text-sm text-gray-700">
-                  {renderTextWithCourseLinks(n.text, (code) => onSetQuery(code))}
-                </div>
-              );
-            })}
           </div>
         </div>
       )}
