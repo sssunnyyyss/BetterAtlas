@@ -10,13 +10,27 @@ interface WelcomeModalProps {
   onSkipForNow: () => void;
 }
 
-const FEATURES = [
-  { icon: "\u2728", label: "AI-powered recommendations" },
-  { icon: "\u2B50", label: "Honest ratings & reviews" },
-  { icon: "\uD83D\uDD0D", label: "Intent-aware search" },
-  { icon: "\uD83D\uDCC5", label: "Visual schedule builder" },
-  { icon: "\uD83D\uDC65", label: "Friends & wishlists" },
-  { icon: "\uD83C\uDF93", label: "Degree tracking" },
+const TOTAL_STEPS = 6;
+
+const EXAMPLE_QUERIES = [
+  "easy science electives for non-majors",
+  "small seminars about philosophy or ethics",
+  "highly rated CS classes with light workload",
+  "MWF morning classes that fit my schedule",
+];
+
+const FRIEND_FEATURES = [
+  { icon: "\uD83D\uDC40", text: "Browse friends\u2019 public course lists and wishlists" },
+  { icon: "\uD83D\uDD17", text: "Send requests and build your campus network" },
+  { icon: "\uD83D\uDCC6", text: "Compare schedules and plan semesters together" },
+  { icon: "\u26A1", text: "Jump to any friend\u2019s profile in one tap" },
+];
+
+const DISCOVERY_FEATURES = [
+  { icon: "\uD83C\uDFAF", text: "Search and filter courses by major requirements" },
+  { icon: "\u2B50", text: "Read honest ratings and reviews from Emory students" },
+  { icon: "\uD83D\uDCC5", text: "Visual weekly schedule builder with conflict detection" },
+  { icon: "\uD83D\uDCCA", text: "Track your degree progress at a glance" },
 ];
 
 export default function WelcomeModal({
@@ -57,8 +71,7 @@ export default function WelcomeModal({
 
   if (!isOpen) return null;
 
-  const totalSteps = 4;
-  const progress = ((step + 1) / totalSteps) * 100;
+  const progress = ((step + 1) / TOTAL_STEPS) * 100;
 
   return createPortal(
     <div
@@ -104,21 +117,23 @@ export default function WelcomeModal({
 
         {/* Step content */}
         <div
-          className="relative z-10 flex flex-1 items-center justify-center overflow-hidden px-6 py-8 sm:px-12"
+          className="relative z-10 flex flex-1 items-center justify-center overflow-hidden overflow-y-auto px-6 py-8 sm:px-12"
           aria-live="polite"
         >
           <div key={step} className="ob-step-enter w-full max-w-lg text-center">
             {step === 0 && <StepWelcome />}
             {step === 1 && <StepBadge badge={earlyAdopter} />}
-            {step === 2 && <StepFeatures />}
-            {step === 3 && <StepReady />}
+            {step === 2 && <StepAISearch />}
+            {step === 3 && <StepFriends />}
+            {step === 4 && <StepDiscovery />}
+            {step === 5 && <StepReady />}
           </div>
         </div>
 
         {/* Bottom navigation */}
         <div className="relative z-10 flex items-center justify-between border-t border-gray-100 px-6 py-4 sm:px-8 sm:py-5">
           <div className="flex items-center gap-2">
-            {Array.from({ length: totalSteps }, (_, i) => (
+            {Array.from({ length: TOTAL_STEPS }, (_, i) => (
               <button
                 key={i}
                 type="button"
@@ -145,10 +160,10 @@ export default function WelcomeModal({
                 Back
               </button>
             )}
-            {step < 3 ? (
+            {step < TOTAL_STEPS - 1 ? (
               <button
                 type="button"
-                onClick={() => setStep((s) => Math.min(s + 1, 3))}
+                onClick={() => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1))}
                 className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary-600/25 transition-all hover:bg-primary-700 hover:shadow-primary-700/30"
               >
                 Continue
@@ -212,26 +227,92 @@ function StepBadge({ badge }: { badge: Badge | null }) {
   );
 }
 
-function StepFeatures() {
+function StepAISearch() {
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
+      <div className="ob-float mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-50 to-primary-50 text-4xl shadow-sm">
+        ✨
+      </div>
+      <div className="space-y-3">
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-5xl">
-          What you&rsquo;re getting
+          Search that thinks like you
         </h2>
-        <p className="text-base text-gray-500 sm:text-lg">
-          Everything you need to plan smarter.
+        <p className="mx-auto max-w-md text-base text-gray-500 sm:text-lg">
+          Forget rigid keyword filters. Describe what you want in plain English
+          and our AI finds courses that match your intent&mdash;not just your words.
         </p>
       </div>
-      <div className="mx-auto grid max-w-md gap-3 sm:grid-cols-2">
-        {FEATURES.map((f, i) => (
+      <div className="mx-auto max-w-md space-y-2">
+        {EXAMPLE_QUERIES.map((q, i) => (
           <div
-            key={f.label}
-            className="ob-feature-card flex items-center gap-3 rounded-xl border border-gray-200 bg-gray-50/80 px-4 py-3 text-left transition-colors hover:bg-gray-100"
+            key={q}
+            className="ob-feature-card flex items-center gap-2.5 rounded-lg border border-gray-200 bg-white px-3.5 py-2.5 text-left text-sm text-gray-600"
+            style={{ animationDelay: `${i * 100}ms` }}
+          >
+            <span className="text-primary-400">🔍</span>
+            <span className="italic">&ldquo;{q}&rdquo;</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StepFriends() {
+  return (
+    <div className="space-y-6">
+      <div className="ob-float mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-pink-50 to-orange-50 text-4xl shadow-sm">
+        👥
+      </div>
+      <div className="space-y-3">
+        <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-5xl">
+          See what friends are taking
+        </h2>
+        <p className="mx-auto max-w-md text-base text-gray-500 sm:text-lg">
+          Connect with classmates to view their course lists, compare schedules,
+          and plan your semesters together.
+        </p>
+      </div>
+      <div className="mx-auto max-w-sm space-y-2">
+        {FRIEND_FEATURES.map((f, i) => (
+          <div
+            key={f.text}
+            className="ob-feature-card flex items-start gap-3 rounded-lg px-3 py-2 text-left"
             style={{ animationDelay: `${i * 80}ms` }}
           >
-            <span className="text-xl">{f.icon}</span>
-            <span className="text-sm font-medium text-gray-700">{f.label}</span>
+            <span className="mt-0.5 text-lg leading-none">{f.icon}</span>
+            <span className="text-sm text-gray-600">{f.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StepDiscovery() {
+  return (
+    <div className="space-y-6">
+      <div className="ob-float mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-50 to-emerald-50 text-4xl shadow-sm">
+        🎯
+      </div>
+      <div className="space-y-3">
+        <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-5xl">
+          Your major, your roadmap
+        </h2>
+        <p className="mx-auto max-w-md text-base text-gray-500 sm:text-lg">
+          Search by major requirements, read honest student reviews, build your
+          weekly schedule, and track your progress toward graduation.
+        </p>
+      </div>
+      <div className="mx-auto max-w-sm space-y-2">
+        {DISCOVERY_FEATURES.map((f, i) => (
+          <div
+            key={f.text}
+            className="ob-feature-card flex items-start gap-3 rounded-lg px-3 py-2 text-left"
+            style={{ animationDelay: `${i * 80}ms` }}
+          >
+            <span className="mt-0.5 text-lg leading-none">{f.icon}</span>
+            <span className="text-sm text-gray-600">{f.text}</span>
           </div>
         ))}
       </div>
