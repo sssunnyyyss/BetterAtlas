@@ -78,7 +78,7 @@ export default function Friends() {
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Friends</h1>
 
       {/* Send friend request */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6" data-tour-id="friends-add-form">
         <h3 className="font-medium text-gray-900 mb-2">Add a Friend</h3>
         <form onSubmit={handleSendRequest} className="flex gap-2">
           <input

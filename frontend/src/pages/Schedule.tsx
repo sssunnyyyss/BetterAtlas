@@ -405,7 +405,7 @@ export default function Schedule() {
               ))}
             </select>
           </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+          <label className="flex items-center gap-2 text-sm text-gray-700 select-none" data-tour-id="schedule-friend-toggle">
             <input
               type="checkbox"
               checked={friendView}

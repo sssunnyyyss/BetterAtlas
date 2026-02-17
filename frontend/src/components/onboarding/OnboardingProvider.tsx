@@ -57,6 +57,32 @@ const TOUR_STEPS: TourStep[] = [
     title: "Track Your Progress",
     body: "Your profile stores badges and activity history so you can revisit progress anytime.",
   },
+  {
+    id: "friends-add-friend",
+    route: "/friends",
+    targetId: "friends-add-form",
+    title: "Add Your First Friend",
+    body: "Try adding @johndoe — they already have a schedule loaded.",
+    interactive: {
+      actionLabel: "Type @johndoe and click Send Request",
+      completionQueryKey: ["friends"],
+    },
+  },
+  {
+    id: "schedule-friend-view",
+    route: "/schedule",
+    targetId: "schedule-friend-toggle",
+    title: "See Friend Schedules",
+    body: "Toggle Friend view to see John Doe's courses on your calendar.",
+    interactive: {
+      actionLabel: "Check the Friend view box",
+      completionCheck: () => {
+        const label = document.querySelector('[data-tour-id="schedule-friend-toggle"]');
+        const checkbox = label?.querySelector('input[type="checkbox"]');
+        return checkbox instanceof HTMLInputElement && checkbox.checked;
+      },
+    },
+  },
 ];
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
@@ -66,6 +92,12 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [isSavingTourState, setIsSavingTourState] = useState(false);
+  const [interactionComplete, setInteractionComplete] = useState(false);
+
+  // Reset interactionComplete when step changes.
+  useEffect(() => {
+    setInteractionComplete(false);
+  }, [currentStepIndex]);
 
   useEffect(() => {
     if (!user) {
@@ -92,6 +124,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     setHasDismissedWelcome(true);
     setIsWelcomeOpen(false);
     setCurrentStepIndex(0);
+    setInteractionComplete(false);
     setIsTourOpen(true);
   }, [user]);
 
@@ -104,6 +137,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     if (!user) return;
     setIsTourOpen(false);
     setCurrentStepIndex(0);
+    setInteractionComplete(false);
     setHasDismissedWelcome(false);
     setIsWelcomeOpen(true);
   }, [user]);
@@ -133,6 +167,10 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   }, [persistOnboardingCompletion]);
 
   const handleTourNext = useCallback(async () => {
+    // Block advance on interactive steps until the interaction is done.
+    const step = TOUR_STEPS[currentStepIndex];
+    if (step?.interactive && !interactionComplete) return;
+
     if (currentStepIndex >= TOUR_STEPS.length - 1) {
       setIsTourOpen(false);
       setCurrentStepIndex(0);
@@ -141,7 +179,11 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
 
     setCurrentStepIndex((current) => Math.min(current + 1, TOUR_STEPS.length - 1));
-  }, [currentStepIndex, persistOnboardingCompletion]);
+  }, [currentStepIndex, interactionComplete, persistOnboardingCompletion]);
+
+  const handleInteractionComplete = useCallback(() => {
+    setInteractionComplete(true);
+  }, []);
 
   const contextValue = useMemo<OnboardingContextValue>(
     () => ({
@@ -168,6 +210,8 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
             steps={TOUR_STEPS}
             currentIndex={currentStepIndex}
             isBusy={isSavingTourState}
+            interactionComplete={interactionComplete}
+            onInteractionComplete={handleInteractionComplete}
             onNext={handleTourNext}
             onSkip={handleTourSkip}
           />

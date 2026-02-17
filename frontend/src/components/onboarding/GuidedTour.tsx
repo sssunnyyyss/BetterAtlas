@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import TourOverlay, { type HighlightRect } from "./TourOverlay.js";
 import TourTooltip from "./TourTooltip.js";
 
@@ -12,6 +13,11 @@ export interface TourStep {
   title: string;
   body: string;
   routeKind?: RouteKind;
+  interactive?: {
+    actionLabel: string;
+    completionQueryKey?: string[];
+    completionCheck?: () => boolean;
+  };
 }
 
 interface GuidedTourProps {
@@ -19,6 +25,8 @@ interface GuidedTourProps {
   steps: TourStep[];
   currentIndex: number;
   isBusy?: boolean;
+  interactionComplete?: boolean;
+  onInteractionComplete?: () => void;
   onNext: () => void | Promise<void>;
   onSkip: () => void | Promise<void>;
 }
@@ -62,14 +70,19 @@ export default function GuidedTour({
   steps,
   currentIndex,
   isBusy = false,
+  interactionComplete = false,
+  onInteractionComplete,
   onNext,
   onSkip,
 }: GuidedTourProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const currentStep = isOpen ? steps[currentIndex] : null;
   const [targetRect, setTargetRect] = useState<HighlightRect | null>(null);
+  const isInteractive = !!currentStep?.interactive;
 
+  // Target element discovery & position tracking
   useEffect(() => {
     if (!isOpen || !currentStep) {
       setTargetRect(null);
@@ -166,6 +179,45 @@ export default function GuidedTour({
     };
   }, [currentStep, isOpen, location.pathname, navigate]);
 
+  // Query cache subscription for interactive steps with completionQueryKey
+  useEffect(() => {
+    if (!isOpen || !currentStep?.interactive?.completionQueryKey || interactionComplete) return;
+    if (!onInteractionComplete) return;
+
+    const targetKey = currentStep.interactive.completionQueryKey;
+    const cache = queryClient.getQueryCache();
+
+    // Record the current dataUpdatedAt so we only trigger on new fetches.
+    const existing = cache.findAll({ queryKey: targetKey })[0];
+    const initialTimestamp = existing?.state.dataUpdatedAt ?? 0;
+
+    const unsubscribe = cache.subscribe((event) => {
+      if (!event?.query) return;
+      const qk = event.query.queryKey;
+      if (targetKey.every((part, i) => qk[i] === part)) {
+        if (event.query.state.dataUpdatedAt > initialTimestamp) {
+          onInteractionComplete();
+        }
+      }
+    });
+
+    return unsubscribe;
+  }, [currentStep, isOpen, interactionComplete, queryClient, onInteractionComplete]);
+
+  // DOM polling for interactive steps with completionCheck
+  useEffect(() => {
+    if (!isOpen || !currentStep?.interactive?.completionCheck || interactionComplete) return;
+    if (!onInteractionComplete) return;
+
+    const check = currentStep.interactive.completionCheck;
+    const id = window.setInterval(() => {
+      if (check()) onInteractionComplete();
+    }, 500);
+
+    return () => window.clearInterval(id);
+  }, [currentStep, isOpen, interactionComplete, onInteractionComplete]);
+
+  // Keyboard navigation
   useEffect(() => {
     if (!isOpen) return;
 
@@ -174,6 +226,8 @@ export default function GuidedTour({
         event.preventDefault();
         void onSkip();
       } else if (event.key === "ArrowRight") {
+        // Block advance on interactive steps until interaction is complete.
+        if (isInteractive && !interactionComplete) return;
         event.preventDefault();
         void onNext();
       }
@@ -181,13 +235,13 @@ export default function GuidedTour({
 
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [isOpen, onNext, onSkip]);
+  }, [isOpen, isInteractive, interactionComplete, onNext, onSkip]);
 
   if (!isOpen || !currentStep) return null;
 
   return (
     <>
-      <TourOverlay rect={targetRect} />
+      <TourOverlay rect={targetRect} isInteractive={isInteractive} />
       <TourTooltip
         title={currentStep.title}
         body={currentStep.body}
@@ -195,6 +249,9 @@ export default function GuidedTour({
         targetRect={targetRect}
         isLastStep={currentIndex === steps.length - 1}
         isBusy={isBusy}
+        isInteractive={isInteractive}
+        isInteractionComplete={interactionComplete}
+        actionLabel={currentStep.interactive?.actionLabel}
         onNext={onNext}
         onSkip={onSkip}
       />
