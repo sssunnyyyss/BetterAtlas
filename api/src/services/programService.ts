@@ -411,6 +411,24 @@ export async function getProgramVariants(programId: number) {
   return { programId, name: p.name, majors, minors };
 }
 
+// OpenAI Structured Output schema for program requirement summaries.
+const programSummaryJsonSchema = {
+  name: "program_summary",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      summary: { type: "string" },
+      highlights: {
+        type: "array",
+        items: { type: "string" },
+      },
+    },
+    required: ["summary", "highlights"],
+    additionalProperties: false,
+  },
+};
+
 export async function getProgramAiRequirementsSummary(programId: number, opts?: { refresh?: boolean }) {
   const refresh = !!opts?.refresh;
 
@@ -524,7 +542,7 @@ export async function getProgramAiRequirementsSummary(programId: number, opts?: 
   const { parsed } = await openAiChatJson({
     temperature: 0.2,
     maxTokens: 450,
-    responseFormat: { type: "json_object" },
+    responseFormat: { type: "json_schema", json_schema: programSummaryJsonSchema },
     messages: [
       {
         role: "system",

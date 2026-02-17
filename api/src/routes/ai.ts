@@ -90,6 +90,44 @@ const modelResponseSchema = z.object({
     .max(16),
 });
 
+// OpenAI Structured Output schema — mirrors modelResponseSchema above.
+// Guarantees the model MUST produce valid JSON matching this exact shape.
+const modelResponseJsonSchema = {
+  name: "course_recommendations",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      assistant_message: { type: "string" },
+      follow_up_question: {
+        anyOf: [{ type: "string" }, { type: "null" }],
+      },
+      recommendations: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            course_id: { type: "integer" },
+            fit_score: { type: "integer" },
+            why: {
+              type: "array",
+              items: { type: "string" },
+            },
+            cautions: {
+              type: "array",
+              items: { type: "string" },
+            },
+          },
+          required: ["course_id", "fit_score", "why", "cautions"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["assistant_message", "follow_up_question", "recommendations"],
+    additionalProperties: false,
+  },
+};
+
 function truncate(str: string, max: number) {
   if (str.length <= max) return str;
   return str.slice(0, Math.max(0, max - 1)).trimEnd() + "...";
@@ -1102,8 +1140,8 @@ router.post(
         messages: openAiMessages,
         model: env.openaiModel,
         temperature: 0.2,
-        maxTokens: 700,
-        responseFormat: { type: "json_object" },
+        maxTokens: 1500,
+        responseFormat: { type: "json_schema", json_schema: modelResponseJsonSchema },
       });
       const openaiMs = Date.now() - tOpenAiStart;
 

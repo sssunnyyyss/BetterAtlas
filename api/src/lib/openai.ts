@@ -5,7 +5,16 @@ export type OpenAiChatMessage = {
   content: string;
 };
 
-type OpenAiResponseFormat = { type: "json_object" };
+type OpenAiResponseFormat =
+  | { type: "json_object" }
+  | {
+      type: "json_schema";
+      json_schema: {
+        name: string;
+        strict?: boolean;
+        schema: Record<string, unknown>;
+      };
+    };
 
 function tryParseJson(text: string) {
   try {
@@ -102,8 +111,15 @@ export async function openAiChatJson({
   }
 
   if (!res.ok && res.status === 400 && payload.response_format && isUnsupportedParam("response_format")) {
-    delete payload.response_format;
-    ({ res, bodyText } = await doRequest(payload));
+    // Fallback chain: json_schema → json_object → none
+    if (payload.response_format.type === "json_schema") {
+      payload.response_format = { type: "json_object" };
+      ({ res, bodyText } = await doRequest(payload));
+    }
+    if (!res.ok && res.status === 400 && isUnsupportedParam("response_format")) {
+      delete payload.response_format;
+      ({ res, bodyText } = await doRequest(payload));
+    }
   }
 
   if (!res.ok && res.status === 400 && payload.max_tokens !== undefined && isUnsupportedParam("max_tokens")) {
@@ -120,6 +136,13 @@ export async function openAiChatJson({
     data = JSON.parse(bodyText);
   } catch {
     throw new Error("OpenAI returned invalid JSON response envelope");
+  }
+
+  const finishReason = data?.choices?.[0]?.finish_reason;
+  if (finishReason === "length") {
+    throw new Error(
+      "OpenAI response was truncated (max_tokens too low) — increase maxTokens or reduce prompt size"
+    );
   }
 
   const raw: string | undefined = data?.choices?.[0]?.message?.content;
