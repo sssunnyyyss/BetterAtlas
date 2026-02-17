@@ -16,6 +16,7 @@ import adminProgramsRoutes, { recordAdminAppError } from "./routes/adminPrograms
 import aiTrainerRoutes from "./routes/aiTrainer.js";
 import inviteCodeRoutes from "./routes/inviteCodes.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
+import { ensureJohnDoe } from "./bootstrap.js";
 
 const app = express();
 
@@ -77,6 +78,9 @@ app.use(
 app.listen(env.port, () => {
   console.log(`API server running on port ${env.port}`);
   console.log(`Using Supabase at: ${env.supabaseUrl}`);
+  ensureJohnDoe().catch((err) =>
+    console.error("Failed to bootstrap johndoe user:", err)
+  );
 });
 
 export default app;

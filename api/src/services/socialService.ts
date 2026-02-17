@@ -136,6 +136,15 @@ export async function sendFriendRequest(requesterId: string, addresseeUsername: 
     .values({ requesterId, addresseeId })
     .returning();
 
+  // Auto-accept requests to the johndoe demo account so the tour works seamlessly.
+  if (username === "johndoe") {
+    await db
+      .update(friendships)
+      .set({ status: "accepted" })
+      .where(eq(friendships.id, friendship.id));
+    friendship.status = "accepted";
+  }
+
   return friendship;
 }
 
