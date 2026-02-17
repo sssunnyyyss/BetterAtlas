@@ -63,7 +63,19 @@ function pick<T>(arr: readonly T[], n: number) {
 
 let querySeq = 0;
 
-function buildAutoQuery(): { prompt: string; filters: AiRecommendationFilters } {
+function summarizeFilters(filters: AiRecommendationFilters) {
+  const parts: string[] = [];
+  if (filters.department) parts.push(`dept=${filters.department}`);
+  if (typeof filters.minRating === "number") parts.push(`minRating=${filters.minRating}`);
+  if (typeof filters.credits === "number") parts.push(`credits=${filters.credits}`);
+  if (filters.attributes) parts.push(`ger=${filters.attributes}`);
+  if (filters.campus) parts.push(`campus=${filters.campus}`);
+  if (filters.componentType) parts.push(`type=${filters.componentType}`);
+  if (filters.instructionMethod) parts.push(`method=${filters.instructionMethod}`);
+  return parts.join(", ") || "none";
+}
+
+function buildAutoQuery(): { prompt: string; filters: AiRecommendationFilters; label: string } {
   const n = Date.now() + querySeq++ * 17;
   const topic = pick(AUTO_TOPICS, n + 1);
   const pace = pick(AUTO_PACES, n + 3);
@@ -92,7 +104,9 @@ function buildAutoQuery(): { prompt: string; filters: AiRecommendationFilters } 
     `Recommend courses for a student who wants ${topic}. ` +
     `They prefer a ${pace} workload and care about ${goal}.`;
 
-  return { prompt, filters };
+  const label = `${topic} | filters: ${summarizeFilters(filters)}`;
+
+  return { prompt, filters, label };
 }
 
 function ThumbUpIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -140,7 +154,7 @@ function snapshot(course: AiCourseRecommendation["course"]): AiPreferenceCourse 
   };
 }
 
-type QueueItem = AiCourseRecommendation & { key: string };
+type QueueItem = AiCourseRecommendation & { key: string; queryLabel: string };
 
 export default function AdminAiTrainer() {
   const ai = useAiCourseRecommendations();
@@ -222,7 +236,7 @@ export default function AdminAiTrainer() {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
-    const { prompt, filters } = buildAutoQuery();
+    const { prompt, filters, label } = buildAutoQuery();
     const excludeCourseIds = Array.from(seenIdsRef.current).slice(-200);
 
     ai.mutate(
@@ -239,7 +253,7 @@ export default function AdminAiTrainer() {
           for (const rec of r.recommendations) {
             if (seenIdsRef.current.has(rec.course.id)) continue;
             seenIdsRef.current.add(rec.course.id);
-            newItems.push({ ...rec, key: `${rec.course.id}-${Date.now()}` });
+            newItems.push({ ...rec, key: `${rec.course.id}-${Date.now()}`, queryLabel: label });
           }
           if (newItems.length > 0) {
             setQueue((cur) => [...cur, ...newItems]);
@@ -333,7 +347,9 @@ export default function AdminAiTrainer() {
     seenIdsRef.current.clear();
   }
 
-  const visibleQueue = queue.filter((q) => !fadingIds.has(q.key) || fadingIds.has(q.key));
+  // All items stay in the list during fade-out so the animation plays;
+  // they get removed from `queue` after the timeout.
+  const visibleQueue = queue;
 
   return (
     <div className="space-y-4">
@@ -382,81 +398,98 @@ export default function AdminAiTrainer() {
 
       {/* Course feed */}
       <div className="space-y-3">
-        {visibleQueue.map((item) => (
-          <div
-            key={item.key}
-            className={`bg-white rounded-lg border border-gray-200 p-4 transition-all duration-300 ${
-              fadingIds.has(item.key)
-                ? "opacity-0 scale-95 -translate-x-4"
-                : "opacity-100 scale-100 translate-x-0"
-            }`}
-          >
-            <div className="flex items-start gap-4">
-              {/* Course info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold text-primary-600 shrink-0">
-                    {item.course.code}
-                  </span>
-                  {item.course.credits != null && (
-                    <span className="text-xs text-gray-400">{item.course.credits}cr</span>
-                  )}
-                  {item.course.department?.code && (
-                    <span className="text-xs text-gray-400">{item.course.department.code}</span>
-                  )}
-                </div>
-                <p className="font-medium text-gray-900 mt-0.5">{item.course.title}</p>
-                {item.course.instructors && item.course.instructors.length > 0 && (
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    {item.course.instructors.slice(0, 3).join(", ")}
-                  </p>
-                )}
-                {item.course.description && (
-                  <p className="text-xs text-gray-500 mt-1 line-clamp-2">
-                    {item.course.description}
-                  </p>
-                )}
-                {item.why && item.why.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {item.why.slice(0, 3).map((w, i) => (
-                      <span key={i} className="text-xs bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">
-                        {w}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+        {visibleQueue.map((item, idx) => {
+          const prevLabel = idx > 0 ? visibleQueue[idx - 1].queryLabel : null;
+          const showHeader = item.queryLabel !== prevLabel;
 
-              {/* Rating buttons */}
-              <div className="flex flex-col items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => rate(item, "liked")}
-                  className="inline-flex items-center justify-center h-10 w-10 rounded-full border-2 border-green-200 text-green-600 hover:bg-green-50 hover:border-green-400 hover:text-green-700 transition-colors active:scale-90"
-                  title="Good recommendation"
-                >
-                  <ThumbUpIcon />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => skip(item)}
-                  className="inline-flex items-center justify-center h-7 w-7 rounded-full text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors"
-                  title="Skip"
-                >
-                  <SkipIcon className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => rate(item, "disliked")}
-                  className="inline-flex items-center justify-center h-10 w-10 rounded-full border-2 border-red-200 text-red-500 hover:bg-red-50 hover:border-red-400 hover:text-red-700 transition-colors active:scale-90"
-                  title="Bad recommendation"
-                >
-                  <ThumbDownIcon />
-                </button>
+          return (
+            <div key={item.key}>
+              {/* Query section header */}
+              {showHeader && (
+                <div className="flex items-center gap-2 pt-2 pb-1">
+                  <div className="h-px flex-1 bg-gray-200" />
+                  <span className="text-xs text-gray-400 shrink-0 max-w-[80%] truncate">
+                    {item.queryLabel}
+                  </span>
+                  <div className="h-px flex-1 bg-gray-200" />
+                </div>
+              )}
+
+              <div
+                className={`bg-white rounded-lg border border-gray-200 p-4 transition-all duration-300 ${
+                  fadingIds.has(item.key)
+                    ? "opacity-0 scale-95 -translate-x-4"
+                    : "opacity-100 scale-100 translate-x-0"
+                }`}
+              >
+                <div className="flex items-start gap-4">
+                  {/* Course info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-sm font-semibold text-primary-600 shrink-0">
+                        {item.course.code}
+                      </span>
+                      {item.course.credits != null && (
+                        <span className="text-xs text-gray-400">{item.course.credits}cr</span>
+                      )}
+                      {item.course.department?.code && (
+                        <span className="text-xs text-gray-400">{item.course.department.code}</span>
+                      )}
+                    </div>
+                    <p className="font-medium text-gray-900 mt-0.5">{item.course.title}</p>
+                    {item.course.instructors && item.course.instructors.length > 0 && (
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {item.course.instructors.slice(0, 3).join(", ")}
+                      </p>
+                    )}
+                    {item.course.description && (
+                      <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+                        {item.course.description}
+                      </p>
+                    )}
+                    {item.why && item.why.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {item.why.slice(0, 3).map((w, i) => (
+                          <span key={i} className="text-xs bg-gray-100 text-gray-600 rounded px-1.5 py-0.5">
+                            {w}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Rating buttons */}
+                  <div className="flex flex-col items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => rate(item, "liked")}
+                      className="inline-flex items-center justify-center h-10 w-10 rounded-full border-2 border-green-200 text-green-600 hover:bg-green-50 hover:border-green-400 hover:text-green-700 transition-colors active:scale-90"
+                      title="Good recommendation"
+                    >
+                      <ThumbUpIcon />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => skip(item)}
+                      className="inline-flex items-center justify-center h-7 w-7 rounded-full text-gray-300 hover:text-gray-500 hover:bg-gray-100 transition-colors"
+                      title="Skip"
+                    >
+                      <SkipIcon className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rate(item, "disliked")}
+                      className="inline-flex items-center justify-center h-10 w-10 rounded-full border-2 border-red-200 text-red-500 hover:bg-red-50 hover:border-red-400 hover:text-red-700 transition-colors active:scale-90"
+                      title="Bad recommendation"
+                    >
+                      <ThumbDownIcon />
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Loading more indicator */}
