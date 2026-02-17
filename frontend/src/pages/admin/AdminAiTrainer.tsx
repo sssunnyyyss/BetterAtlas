@@ -188,6 +188,8 @@ export default function AdminAiTrainer() {
   const initialLoadFired = useRef(false);
   // Ref to track if a fetch is in-flight (more reliable than ai.isPending across closures).
   const fetchingRef = useRef(false);
+  // State mirror of fetchingRef so UI re-renders when fetch state changes.
+  const [isFetching, setIsFetching] = useState(false);
   // Custom prompt input.
   const [customPrompt, setCustomPrompt] = useState("");
 
@@ -249,6 +251,7 @@ export default function AdminAiTrainer() {
     (override?: { prompt: string; filters: AiRecommendationFilters; label: string }) => {
       if (fetchingRef.current) return;
       fetchingRef.current = true;
+      setIsFetching(true);
 
       const { prompt, filters, label } = override ?? buildAutoQuery();
       const excludeCourseIds = Array.from(seenIdsRef.current).slice(-200);
@@ -273,9 +276,11 @@ export default function AdminAiTrainer() {
               setQueue((cur) => [...cur, ...newItems]);
             }
             fetchingRef.current = false;
+            setIsFetching(false);
           },
           onError: () => {
             fetchingRef.current = false;
+            setIsFetching(false);
           },
         }
       );
@@ -295,7 +300,7 @@ export default function AdminAiTrainer() {
   const unreatedCount = queue.filter((q) => !fadingIds.has(q.key)).length;
 
   useEffect(() => {
-    if (unreatedCount < REFILL_THRESHOLD && dbHydrated && !fetchingRef.current) {
+    if (unreatedCount < REFILL_THRESHOLD && dbHydrated && !isFetching) {
       fetchBatch();
     }
   }, [unreatedCount, dbHydrated, fetchBatch]);
@@ -436,7 +441,7 @@ export default function AdminAiTrainer() {
           />
           <button
             type="submit"
-            disabled={!customPrompt.trim() || fetchingRef.current}
+            disabled={!customPrompt.trim() || isFetching}
             className="shrink-0 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             Go
@@ -444,7 +449,7 @@ export default function AdminAiTrainer() {
           <button
             type="button"
             onClick={shufflePrompt}
-            disabled={fetchingRef.current}
+            disabled={isFetching}
             className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             title="Generate a random student prompt"
           >
@@ -457,7 +462,7 @@ export default function AdminAiTrainer() {
       </div>
 
       {/* Loading state */}
-      {visibleQueue.length === 0 && fetchingRef.current && (
+      {visibleQueue.length === 0 && isFetching && (
         <div className="text-center py-12 text-gray-500 text-sm">
           Loading courses to rate...
         </div>
@@ -558,7 +563,7 @@ export default function AdminAiTrainer() {
       </div>
 
       {/* Loading more indicator */}
-      {visibleQueue.length > 0 && fetchingRef.current && (
+      {visibleQueue.length > 0 && isFetching && (
         <div className="text-center py-4 text-gray-400 text-xs">
           Loading more...
         </div>
