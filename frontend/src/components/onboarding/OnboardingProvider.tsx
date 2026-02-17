@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client.js";
 import { useAuth } from "../../lib/auth.js";
 import GuidedTour, { type TourStep } from "./GuidedTour.js";
@@ -87,6 +88,7 @@ const TOUR_STEPS: TourStep[] = [
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const { user, refresh } = useAuth();
+  const queryClient = useQueryClient();
   const [hasDismissedWelcome, setHasDismissedWelcome] = useState(false);
   const [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
@@ -171,6 +173,12 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     const step = TOUR_STEPS[currentStepIndex];
     if (step?.interactive && !interactionComplete) return;
 
+    // After adding a friend, invalidate schedule data so the next step
+    // shows John Doe's courses immediately.
+    if (step?.id === "friends-add-friend") {
+      void queryClient.invalidateQueries({ queryKey: ["schedule", "friends"] });
+    }
+
     if (currentStepIndex >= TOUR_STEPS.length - 1) {
       setIsTourOpen(false);
       setCurrentStepIndex(0);
@@ -179,7 +187,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     }
 
     setCurrentStepIndex((current) => Math.min(current + 1, TOUR_STEPS.length - 1));
-  }, [currentStepIndex, interactionComplete, persistOnboardingCompletion]);
+  }, [currentStepIndex, interactionComplete, persistOnboardingCompletion, queryClient]);
 
   const handleInteractionComplete = useCallback(() => {
     setInteractionComplete(true);
