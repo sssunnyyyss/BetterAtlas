@@ -1195,6 +1195,10 @@ router.post("/users", async (req, res) => {
     return res.status(400).json({ error: "email, password, fullName, and username are required" });
   }
 
+  if (password.length < 8) {
+    return res.status(400).json({ error: "Password must be at least 8 characters" });
+  }
+
   const [usernameTaken] = await db
     .select({ id: users.id })
     .from(users)
@@ -1214,7 +1218,12 @@ router.post("/users", async (req, res) => {
   });
 
   if (createAuthError || !createdAuth.user) {
-    return res.status(400).json({ error: createAuthError?.message || "Failed to create auth user" });
+    console.error("Admin user creation failed:", createAuthError?.message);
+    const msg = createAuthError?.message || "";
+    const safeMsg = msg.includes("already been registered")
+      ? "A user with this email already exists"
+      : "Failed to create user";
+    return res.status(400).json({ error: safeMsg });
   }
 
   const [createdUser] = await db
@@ -1257,7 +1266,8 @@ router.post("/users/:id/ban", async (req, res) => {
   });
 
   if (error) {
-    return res.status(400).json({ error: error.message || "Failed to update user access" });
+    console.error("Ban/unban failed:", error.message);
+    return res.status(400).json({ error: "Failed to update user access" });
   }
 
   res.json({ ok: true, userId, banned });
@@ -1272,7 +1282,8 @@ router.delete("/users/:id", async (req, res) => {
 
   const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
   if (authDeleteError) {
-    return res.status(400).json({ error: authDeleteError.message || "Failed to delete auth user" });
+    console.error("User deletion failed:", authDeleteError.message);
+    return res.status(400).json({ error: "Failed to delete user" });
   }
 
   // Keep relational integrity: try to delete profile row, and if blocked by FKs,

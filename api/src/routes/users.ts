@@ -53,7 +53,7 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (msg.toLowerCase().includes("username")) {
       return res.status(409).json({ error: "Username already taken" });
     }
-    res.status(400).json({ error: msg || "Failed to update user" });
+    res.status(400).json({ error: "Failed to update user" });
   }
 });
 

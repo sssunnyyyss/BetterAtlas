@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { validate } from "../middleware/validate.js";
 import { requireAuth } from "../middleware/auth.js";
+import { reviewLimiter } from "../middleware/rateLimit.js";
 import { createReviewSchema, updateReviewSchema } from "@betteratlas/shared";
 import {
   getReviewsForCourse,
@@ -36,6 +37,7 @@ router.get("/sections/:id/reviews", async (req, res) => {
 router.post(
   "/courses/:id/reviews",
   requireAuth,
+  reviewLimiter,
   validate(createReviewSchema),
   async (req, res) => {
     const courseId = parseInt(req.params.id, 10);
@@ -63,6 +65,7 @@ router.post(
 router.patch(
   "/reviews/:id",
   requireAuth,
+  reviewLimiter,
   validate(updateReviewSchema),
   async (req, res) => {
     const reviewId = parseInt(req.params.id, 10);
@@ -78,7 +81,7 @@ router.patch(
 );
 
 // DELETE /api/reviews/:id
-router.delete("/reviews/:id", requireAuth, async (req, res) => {
+router.delete("/reviews/:id", requireAuth, reviewLimiter, async (req, res) => {
   const reviewId = parseInt(req.params.id, 10);
   if (isNaN(reviewId)) {
     return res.status(400).json({ error: "Invalid review ID" });

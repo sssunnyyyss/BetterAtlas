@@ -22,6 +22,14 @@ export const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+export const reviewLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDev ? 1_000 : 30,
+  message: { error: "Too many review submissions, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export const aiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   // AI calls are expensive; keep tighter in prod.

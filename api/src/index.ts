@@ -23,7 +23,23 @@ const app = express();
 // Middleware
 // Needed for express-rate-limit when requests are proxied (e.g. dev server, reverse proxy).
 app.set("trust proxy", 1);
-app.use(helmet());
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+        connectSrc: ["'self'"],
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
 app.use(
   cors({
     origin: env.corsOrigins,
@@ -78,6 +94,9 @@ app.use(
 app.listen(env.port, () => {
   console.log(`API server running on port ${env.port}`);
   console.log(`Using Supabase at: ${env.supabaseUrl}`);
+  if (env.nodeEnv === "production" && env.adminEmails.length === 0) {
+    console.warn("WARNING: ADMIN_EMAILS is not configured. No users will have admin access.");
+  }
   ensureJohnDoe().catch((err) =>
     console.error("Failed to bootstrap johndoe user:", err)
   );
