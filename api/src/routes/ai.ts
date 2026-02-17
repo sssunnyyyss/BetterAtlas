@@ -14,6 +14,7 @@ import {
   areCourseEmbeddingsAvailable,
   semanticSearchCoursesByEmbedding,
 } from "../services/courseService.js";
+import { getAllAiTrainerScores } from "../services/aiTrainerService.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
 const router = Router();
@@ -303,6 +304,10 @@ let topRatedInFlight: Promise<CourseWithRatings[]> | null = null;
 const majorRatedCacheByDept = new Map<string, CacheEntry<CourseWithRatings[]>>();
 const majorRatedInFlightByDept = new Map<string, Promise<CourseWithRatings[]>>();
 
+const TRAINER_SCORES_CACHE_TTL_MS = 5 * 60 * 1000; // 5m
+let trainerScoresCache: CacheEntry<Map<number, number>> | null = null;
+let trainerScoresInFlight: Promise<Map<number, number>> | null = null;
+
 async function getDepartmentsCached(): Promise<DepartmentMini[]> {
   if (depsCache && Date.now() - depsCache.updatedAt < DEPS_CACHE_TTL_MS) return depsCache.value;
   if (depsInFlight) return depsInFlight;
@@ -358,6 +363,46 @@ async function getMajorRatedCached(deptCode: string): Promise<CourseWithRatings[
 
   majorRatedInFlightByDept.set(deptCode, p);
   return p;
+}
+
+async function getTrainerScoresCached(): Promise<Map<number, number>> {
+  if (trainerScoresCache && Date.now() - trainerScoresCache.updatedAt < TRAINER_SCORES_CACHE_TTL_MS) {
+    return trainerScoresCache.value;
+  }
+  if (trainerScoresInFlight) return trainerScoresInFlight;
+
+  trainerScoresInFlight = getAllAiTrainerScores()
+    .then((value) => {
+      trainerScoresCache = { value, updatedAt: Date.now() };
+      return value;
+    })
+    .finally(() => {
+      trainerScoresInFlight = null;
+    });
+
+  return trainerScoresInFlight;
+}
+
+const GLOBAL_SCORE_WEIGHT = 2.0;
+
+function rankCandidatesWithGlobalBias(
+  courses: CourseWithRatings[],
+  profile: PreferenceProfile,
+  trainerScores: Map<number, number>,
+  globalWeight = GLOBAL_SCORE_WEIGHT
+) {
+  const hasPrefs = hasAnyPreferenceSignals(profile);
+  const hasTrainer = trainerScores.size > 0;
+  if (!hasPrefs && !hasTrainer) return courses;
+
+  return courses
+    .map((course, idx) => {
+      const prefScore = hasPrefs ? scoreCourseWithPreferenceSignals(course, profile) : 0;
+      const globalScore = (trainerScores.get(course.id) ?? 0) * globalWeight;
+      return { course, idx, score: prefScore + globalScore };
+    })
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)
+    .map((x) => x.course);
 }
 
 function getUserMemory(userId: string): AiMessage[] {
@@ -737,7 +782,10 @@ router.post(
       for (const c of dislikedCourses) excludeSet.add(c.id);
 
       const tDepsStart = Date.now();
-      const deps = await getDepartmentsCached();
+      const [deps, trainerScores] = await Promise.all([
+        getDepartmentsCached(),
+        getTrainerScoresCached(),
+      ]);
       const deptCode = findDepartmentCodeFromMajor(
         user?.major ?? null,
         deps
@@ -907,7 +955,7 @@ router.post(
         maxCandidates: CANDIDATE_MAX,
         minSemantic: MIN_SEMANTIC_CANDIDATES,
       });
-      candidates = rankCandidatesByPreferenceSignals(candidates, preferenceProfile);
+      candidates = rankCandidatesWithGlobalBias(candidates, preferenceProfile, trainerScores);
       const semanticCandidateCount = candidates.filter((c) => semanticIds.has(c.id)).length;
 
       if (candidates.length === 0) {
@@ -938,6 +986,9 @@ router.post(
                   appliedFilters: activeFilters,
                   likedSignals: likedCourses.length,
                   dislikedSignals: dislikedCourses.length,
+                  trainerScoresLoaded: trainerScores.size,
+                  trainerBoostedCount: 0,
+                  trainerDemotedCount: 0,
                 },
               }
             : {}),
@@ -1016,6 +1067,18 @@ router.post(
             : "(none)"
         }`,
         `Excluded course IDs: ${excludeSet.size > 0 ? Array.from(excludeSet).slice(0, 200).join(", ") : "(none)"}`,
+        (() => {
+          const boosted = modelCandidates
+            .filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3)
+            .map((c) => c.code);
+          const demoted = modelCandidates
+            .filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3)
+            .map((c) => c.code);
+          const parts: string[] = [];
+          if (boosted.length > 0) parts.push(`Globally well-rated courses (prefer these): ${boosted.join(", ")}`);
+          if (demoted.length > 0) parts.push(`Globally poorly-rated courses (deprioritize these): ${demoted.join(", ")}`);
+          return parts.length > 0 ? parts.join("\n") : "";
+        })(),
         "",
         "Candidates JSON (ONLY recommend from these ids):",
         JSON.stringify(modelCandidates),
@@ -1193,6 +1256,9 @@ router.post(
                 appliedFilters: activeFilters,
                 likedSignals: likedCourses.length,
                 dislikedSignals: dislikedCourses.length,
+                trainerScoresLoaded: trainerScores.size,
+                trainerBoostedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
+                trainerDemotedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
               },
             }
           : {}),

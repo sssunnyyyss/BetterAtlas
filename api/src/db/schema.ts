@@ -434,3 +434,41 @@ export const programElectiveRules = pgTable("program_elective_rules", {
     .references(() => programs.id, { onDelete: "cascade" }),
   levelFloor: smallint("level_floor"), // 300 means 300+
 });
+
+// AI Trainer Ratings (individual admin votes on courses)
+export const aiTrainerRatings = pgTable(
+  "ai_trainer_ratings",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
+    courseId: integer("course_id")
+      .references(() => courses.id)
+      .notNull(),
+    rating: smallint("rating").notNull(), // +1 liked, -1 disliked
+    context: jsonb("context"), // course snapshot at rating time for audit
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    userCourseUnique: uniqueIndex("ai_trainer_ratings_user_course_unique").on(
+      table.userId,
+      table.courseId
+    ),
+    courseIdx: index("idx_ai_trainer_ratings_course").on(table.courseId),
+    userIdx: index("idx_ai_trainer_ratings_user").on(table.userId),
+  })
+);
+
+// AI Trainer Scores (aggregate cache per course)
+export const aiTrainerScores = pgTable("ai_trainer_scores", {
+  courseId: integer("course_id")
+    .primaryKey()
+    .references(() => courses.id),
+  upCount: integer("up_count").default(0),
+  downCount: integer("down_count").default(0),
+  totalCount: integer("total_count").default(0),
+  score: numeric("score", { precision: 5, scale: 4 }), // smoothed: (up - down) / (total + 5)
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});

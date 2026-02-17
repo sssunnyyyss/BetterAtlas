@@ -609,4 +609,35 @@ BEGIN
   END IF;
 END $$;
 
+-- ============================================================
+-- 17. CREATE ai_trainer_ratings + ai_trainer_scores tables
+-- ============================================================
+CREATE TABLE IF NOT EXISTS ai_trainer_ratings (
+  id SERIAL PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES users(id),
+  course_id INTEGER NOT NULL REFERENCES courses(id),
+  rating SMALLINT NOT NULL,  -- +1 liked, -1 disliked
+  context JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ai_trainer_ratings_user_course_unique
+  ON ai_trainer_ratings (user_id, course_id);
+
+CREATE INDEX IF NOT EXISTS idx_ai_trainer_ratings_course
+  ON ai_trainer_ratings (course_id);
+
+CREATE INDEX IF NOT EXISTS idx_ai_trainer_ratings_user
+  ON ai_trainer_ratings (user_id);
+
+CREATE TABLE IF NOT EXISTS ai_trainer_scores (
+  course_id INTEGER PRIMARY KEY REFERENCES courses(id),
+  up_count INTEGER DEFAULT 0,
+  down_count INTEGER DEFAULT 0,
+  total_count INTEGER DEFAULT 0,
+  score NUMERIC(5,4),  -- smoothed: (up - down) / (total + 5)
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 COMMIT;

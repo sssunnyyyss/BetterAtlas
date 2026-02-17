@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
@@ -69,5 +69,46 @@ export function useAiCourseRecommendations() {
   return useMutation({
     mutationFn: (body: AiCourseRecommendationsRequest) =>
       api.post<AiCourseRecommendationsResponse>("/ai/course-recommendations", body),
+  });
+}
+
+// --- AI Trainer Ratings (admin-only, persisted to DB) ---
+
+export type AiTrainerRating = {
+  id: number;
+  courseId: number;
+  courseCode: string;
+  courseTitle: string;
+  rating: number; // +1 or -1
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function useAiTrainerRatings() {
+  return useQuery({
+    queryKey: ["ai-trainer-ratings"],
+    queryFn: () => api.get<AiTrainerRating[]>("/admin/ai-trainer/ratings"),
+  });
+}
+
+export function useUpsertAiTrainerRating() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ courseId, rating, context }: { courseId: number; rating: number; context?: unknown }) =>
+      api.put(`/admin/ai-trainer/ratings/${courseId}`, { rating, context }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-trainer-ratings"] });
+    },
+  });
+}
+
+export function useDeleteAiTrainerRating() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (courseId: number) =>
+      api.delete(`/admin/ai-trainer/ratings/${courseId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-trainer-ratings"] });
+    },
   });
 }

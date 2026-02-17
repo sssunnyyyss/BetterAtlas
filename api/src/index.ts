@@ -13,6 +13,7 @@ import aiRoutes from "./routes/ai.js";
 import feedbackRoutes from "./routes/feedback.js";
 import programsRoutes from "./routes/programs.js";
 import adminProgramsRoutes, { recordAdminAppError } from "./routes/adminPrograms.js";
+import aiTrainerRoutes from "./routes/aiTrainer.js";
 import inviteCodeRoutes from "./routes/inviteCodes.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 
@@ -37,6 +38,7 @@ app.use("/api/courses", courseRoutes);
 app.use("/api/departments", departmentsRouter);
 app.use("/api/programs", programsRoutes);
 app.use("/api/admin", adminProgramsRoutes);
+app.use("/api/admin/ai-trainer", aiTrainerRoutes);
 app.use("/api/admin/invite-codes", inviteCodeRoutes);
 app.use("/api/instructors", instructorRoutes);
 app.use("/api", reviewRoutes);

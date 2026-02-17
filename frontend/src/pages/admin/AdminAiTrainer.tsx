@@ -8,6 +8,8 @@ import {
 } from "@betteratlas/shared";
 import {
   useAiCourseRecommendations,
+  useAiTrainerRatings,
+  useUpsertAiTrainerRating,
   type AiCourseRecommendation,
   type AiMessage,
   type AiPreferenceCourse,
@@ -239,6 +241,8 @@ function generateAutoQueryBatch(count: number): AutoTrainerQuery[] {
 
 export default function AdminAiTrainer() {
   const ai = useAiCourseRecommendations();
+  const trainerRatingsQuery = useAiTrainerRatings();
+  const upsertRating = useUpsertAiTrainerRating();
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<AiMessage[]>([]);
   const [allRecs, setAllRecs] = useState<AiCourseRecommendation[]>([]);
@@ -266,10 +270,35 @@ export default function AdminAiTrainer() {
   const appliedFilters = useMemo(() => toFilters(filters), [filters]);
   const recs = allRecs.length > 0 ? allRecs : ai.data?.recommendations ?? [];
 
+  // Hydrate from DB ratings when they load; fall back to localStorage on first mount.
+  const [dbHydrated, setDbHydrated] = useState(false);
+
   useEffect(() => {
+    if (dbHydrated) return;
+    if (trainerRatingsQuery.isLoading) return;
+
+    if (trainerRatingsQuery.data && trainerRatingsQuery.data.length > 0) {
+      const dbLiked: AiPreferenceCourse[] = [];
+      const dbDisliked: AiPreferenceCourse[] = [];
+      for (const r of trainerRatingsQuery.data) {
+        const pref: AiPreferenceCourse = {
+          id: r.courseId,
+          code: r.courseCode,
+          title: r.courseTitle,
+        };
+        if (r.rating === 1) dbLiked.push(pref);
+        else if (r.rating === -1) dbDisliked.push(pref);
+      }
+      setLiked(dbLiked.slice(0, 80));
+      setDisliked(dbDisliked.slice(0, 80));
+      setDbHydrated(true);
+      return;
+    }
+
+    // Fall back to localStorage if DB has no ratings.
     try {
       const raw = localStorage.getItem(TRAINER_PREFS_STORAGE_KEY);
-      if (!raw) return;
+      if (!raw) { setDbHydrated(true); return; }
       const parsed = JSON.parse(raw) as {
         liked?: AiPreferenceCourse[];
         disliked?: AiPreferenceCourse[];
@@ -279,7 +308,8 @@ export default function AdminAiTrainer() {
     } catch {
       // Ignore invalid storage.
     }
-  }, []);
+    setDbHydrated(true);
+  }, [dbHydrated, trainerRatingsQuery.isLoading, trainerRatingsQuery.data]);
 
   useEffect(() => {
     try {
@@ -309,6 +339,12 @@ export default function AdminAiTrainer() {
       });
       setLiked((cur) => cur.filter((x) => x.id !== s.id));
     }
+    // Persist to DB (fire-and-forget alongside optimistic local state).
+    upsertRating.mutate({
+      courseId: s.id,
+      rating: verdict === "liked" ? 1 : -1,
+      context: s,
+    });
   }
 
   function applyAssistantResponse(response: {
