@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api/client.js";
 import { useAuth } from "../../lib/auth.js";
@@ -15,6 +16,28 @@ interface OnboardingContextValue {
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 const TOUR_STEPS: TourStep[] = [
+  {
+    id: "catalog-search-filters",
+    route: "/catalog",
+    targetId: "catalog-search-filters",
+    title: "Start in Catalog",
+    body: "Use filters and search together to narrow from broad ideas to specific classes quickly.",
+  },
+  {
+    id: "catalog-ai-entry",
+    route: "/catalog",
+    targetId: "catalog-ai-entry",
+    title: "Ask AI for Suggestions",
+    body: "Switch to Ask AI when you want recommendation-style guidance instead of keyword filtering.",
+  },
+  {
+    id: "course-detail-reviews",
+    route: "/catalog",
+    routeKind: "course-detail",
+    targetId: "course-detail-reviews",
+    title: "Read and Write Reviews",
+    body: "Check review quality before you commit, then add your own feedback after taking a class.",
+  },
   {
     id: "schedule-grid",
     route: "/schedule",
@@ -62,24 +85,11 @@ const TOUR_STEPS: TourStep[] = [
       },
     },
   },
-  {
-    id: "catalog-search-filters",
-    route: "/catalog",
-    targetId: "catalog-search-filters",
-    title: "Search the Catalog",
-    body: "Use filters and search together to narrow from broad ideas to specific classes quickly.",
-  },
-  {
-    id: "catalog-ai-entry",
-    route: "/catalog",
-    targetId: "catalog-ai-entry",
-    title: "Ask AI for Suggestions",
-    body: "Switch to Ask AI when you want recommendation-style guidance instead of keyword filtering. You're all set — start exploring!",
-  },
 ];
 
 export function OnboardingProvider({ children }: { children: React.ReactNode }) {
   const { user, refresh } = useAuth();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [hasDismissedWelcome, setHasDismissedWelcome] = useState(false);
   const [isWelcomeOpen, setIsWelcomeOpen] = useState(false);
@@ -157,8 +167,9 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   const handleTourSkip = useCallback(async () => {
     setIsTourOpen(false);
     setCurrentStepIndex(0);
+    navigate("/catalog");
     await persistOnboardingCompletion();
-  }, [persistOnboardingCompletion]);
+  }, [navigate, persistOnboardingCompletion]);
 
   const handleTourNext = useCallback(async () => {
     // Block advance on interactive steps until the interaction is done.
@@ -174,12 +185,13 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     if (currentStepIndex >= TOUR_STEPS.length - 1) {
       setIsTourOpen(false);
       setCurrentStepIndex(0);
+      navigate("/catalog");
       await persistOnboardingCompletion();
       return;
     }
 
     setCurrentStepIndex((current) => Math.min(current + 1, TOUR_STEPS.length - 1));
-  }, [currentStepIndex, interactionComplete, persistOnboardingCompletion, queryClient]);
+  }, [currentStepIndex, interactionComplete, navigate, persistOnboardingCompletion, queryClient]);
 
   const handleInteractionComplete = useCallback(() => {
     setInteractionComplete(true);
