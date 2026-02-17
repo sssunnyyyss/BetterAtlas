@@ -188,6 +188,8 @@ export default function AdminAiTrainer() {
   const initialLoadFired = useRef(false);
   // Ref to track if a fetch is in-flight (more reliable than ai.isPending across closures).
   const fetchingRef = useRef(false);
+  // Custom prompt input.
+  const [customPrompt, setCustomPrompt] = useState("");
 
   // --- Hydrate from DB / localStorage ---
   const [dbHydrated, setDbHydrated] = useState(false);
@@ -243,40 +245,43 @@ export default function AdminAiTrainer() {
   }, [liked, disliked]);
 
   // --- Fetch a batch of courses ---
-  const fetchBatch = useCallback(() => {
-    if (fetchingRef.current) return;
-    fetchingRef.current = true;
+  const fetchBatch = useCallback(
+    (override?: { prompt: string; filters: AiRecommendationFilters; label: string }) => {
+      if (fetchingRef.current) return;
+      fetchingRef.current = true;
 
-    const { prompt, filters, label } = buildAutoQuery();
-    const excludeCourseIds = Array.from(seenIdsRef.current).slice(-200);
+      const { prompt, filters, label } = override ?? buildAutoQuery();
+      const excludeCourseIds = Array.from(seenIdsRef.current).slice(-200);
 
-    ai.mutate(
-      {
-        prompt,
-        reset: true,
-        filters,
-        excludeCourseIds,
-        preferences: { liked, disliked },
-      },
-      {
-        onSuccess: (r) => {
-          const newItems: QueueItem[] = [];
-          for (const rec of r.recommendations) {
-            if (seenIdsRef.current.has(rec.course.id)) continue;
-            seenIdsRef.current.add(rec.course.id);
-            newItems.push({ ...rec, key: `${rec.course.id}-${Date.now()}`, queryLabel: label });
-          }
-          if (newItems.length > 0) {
-            setQueue((cur) => [...cur, ...newItems]);
-          }
-          fetchingRef.current = false;
+      ai.mutate(
+        {
+          prompt,
+          reset: true,
+          filters,
+          excludeCourseIds,
+          preferences: { liked, disliked },
         },
-        onError: () => {
-          fetchingRef.current = false;
-        },
-      }
-    );
-  }, [ai, liked, disliked]);
+        {
+          onSuccess: (r) => {
+            const newItems: QueueItem[] = [];
+            for (const rec of r.recommendations) {
+              if (seenIdsRef.current.has(rec.course.id)) continue;
+              seenIdsRef.current.add(rec.course.id);
+              newItems.push({ ...rec, key: `${rec.course.id}-${Date.now()}`, queryLabel: label });
+            }
+            if (newItems.length > 0) {
+              setQueue((cur) => [...cur, ...newItems]);
+            }
+            fetchingRef.current = false;
+          },
+          onError: () => {
+            fetchingRef.current = false;
+          },
+        }
+      );
+    },
+    [ai, liked, disliked]
+  );
 
   // Initial load: fire first batch once hydrated.
   useEffect(() => {
@@ -358,6 +363,19 @@ export default function AdminAiTrainer() {
     seenIdsRef.current.clear();
   }
 
+  function submitCustomPrompt() {
+    const text = customPrompt.trim();
+    if (!text) return;
+    fetchBatch({ prompt: text, filters: {}, label: text });
+    setCustomPrompt("");
+  }
+
+  function shufflePrompt() {
+    const q = buildAutoQuery();
+    setCustomPrompt(q.prompt);
+    fetchBatch(q);
+  }
+
   // All items stay in the list during fade-out so the animation plays;
   // they get removed from `queue` after the timeout.
   const visibleQueue = queue;
@@ -398,6 +416,44 @@ export default function AdminAiTrainer() {
             {(ai.error as any)?.message || "Failed to load courses"} — retrying...
           </p>
         )}
+      </div>
+
+      {/* Prompt input */}
+      <div className="bg-white rounded-lg border border-gray-200 p-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitCustomPrompt();
+          }}
+          className="flex items-center gap-2"
+        >
+          <input
+            type="text"
+            value={customPrompt}
+            onChange={(e) => setCustomPrompt(e.target.value)}
+            placeholder="Enter a custom prompt or shuffle for a random one..."
+            className="flex-1 min-w-0 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-none"
+          />
+          <button
+            type="submit"
+            disabled={!customPrompt.trim() || fetchingRef.current}
+            className="shrink-0 rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Go
+          </button>
+          <button
+            type="button"
+            onClick={shufflePrompt}
+            disabled={fetchingRef.current}
+            className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            title="Generate a random student prompt"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4" aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5" />
+            </svg>
+            Shuffle
+          </button>
+        </form>
       </div>
 
       {/* Loading state */}
