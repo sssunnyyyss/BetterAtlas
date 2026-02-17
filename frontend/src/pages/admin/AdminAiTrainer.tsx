@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  CAMPUS_OPTIONS,
-  COMPONENT_TYPE_OPTIONS,
-  GER_TAGS,
-  INSTRUCTION_METHOD_OPTIONS,
-} from "@betteratlas/shared";
-import {
   useAiCourseRecommendations,
   useAiTrainerRatings,
   useUpsertAiTrainerRating,
@@ -19,43 +13,32 @@ const TRAINER_PREFS_STORAGE_KEY = "betteratlas.admin.aiTrainer.labels.v1";
 // How few unrated items before we fetch more.
 const REFILL_THRESHOLD = 4;
 
-const AUTO_TOPICS = [
-  "discussion-heavy humanities classes",
-  "intro courses for non-majors",
-  "creative classes with projects",
-  "quantitative classes with practical applications",
-  "writing intensive classes",
-  "policy and society classes",
-  "science classes with lab exposure",
-  "classes that mix theory and real-world examples",
-  "classes focused on data analysis and statistics",
-  "performing arts and studio classes",
-  "research-oriented seminar courses",
-  "global and cross-cultural perspectives",
-  "health and wellness related courses",
-  "environmental science and sustainability",
-  "business and entrepreneurship fundamentals",
-  "computer science and programming",
-];
+// Realistic student queries paired with matching filters.
+// Each entry: [prompt the student would type, filters to apply, short display label]
+type QueryTemplate = {
+  prompt: string;
+  filters: AiRecommendationFilters;
+};
 
-const AUTO_PACES = ["lighter", "balanced", "challenging but manageable"];
+const DEPT_NAMES: Record<string, string> = {
+  ENGL: "English", HIST: "History", PSYC: "Psychology", SOC: "Sociology",
+  PHIL: "Philosophy", ECON: "Economics", ARTH: "Art History", BIOL: "Biology",
+  QTM: "QTM", THEA: "Theater", CS: "Computer Science", MATH: "Math",
+  CHEM: "Chemistry", POLS: "Political Science", ANT: "Anthropology",
+  MUS: "Music", SPAN: "Spanish", FREN: "French", PHYS: "Physics",
+  NBB: "Neuroscience", IDS: "Interdisciplinary Studies", ENVS: "Environmental Sciences",
+  HLTH: "Health", DANC: "Dance", RELS: "Religion", FILM: "Film & Media",
+};
 
-const AUTO_GOALS = [
-  "interesting course discussions",
-  "clear grading expectations",
-  "skills they can use outside class",
-  "strong instructor support",
-  "classes that keep motivation high",
-];
+const ALL_DEPTS = Object.keys(DEPT_NAMES);
 
-const AUTO_DEPARTMENTS = [
-  "ENGL", "HIST", "PSYC", "SOC", "PHIL", "ECON", "ARTH",
-  "BIOL", "QTM", "THEA", "CS", "MATH", "CHEM", "POLS",
-  "ANT", "MUS", "SPAN", "FREN", "PHYS", "NBB",
-];
+const GER_LABELS: Record<string, string> = {
+  HA: "Humanities & Arts", NS: "Natural Science", QR: "Quantitative Reasoning",
+  SS: "Social Science", IC: "Intercultural Communication", ETHN: "Race & Ethnicity",
+  FS: "First-Year Seminar", FW: "First-Year Writing", CW: "Continuing Writing",
+};
 
-const AUTO_MIN_RATINGS = [3, 3.5, 4];
-const AUTO_CREDITS = [3, 4];
+const ALL_GERS = Object.keys(GER_LABELS);
 
 function pick<T>(arr: readonly T[], n: number) {
   return arr[Math.abs(n) % arr.length] as T;
@@ -63,50 +46,78 @@ function pick<T>(arr: readonly T[], n: number) {
 
 let querySeq = 0;
 
-function summarizeFilters(filters: AiRecommendationFilters) {
-  const parts: string[] = [];
-  if (filters.department) parts.push(`dept=${filters.department}`);
-  if (typeof filters.minRating === "number") parts.push(`minRating=${filters.minRating}`);
-  if (typeof filters.credits === "number") parts.push(`credits=${filters.credits}`);
-  if (filters.attributes) parts.push(`ger=${filters.attributes}`);
-  if (filters.campus) parts.push(`campus=${filters.campus}`);
-  if (filters.componentType) parts.push(`type=${filters.componentType}`);
-  if (filters.instructionMethod) parts.push(`method=${filters.instructionMethod}`);
-  return parts.join(", ") || "none";
-}
-
 function buildAutoQuery(): { prompt: string; filters: AiRecommendationFilters; label: string } {
-  const n = Date.now() + querySeq++ * 17;
-  const topic = pick(AUTO_TOPICS, n + 1);
-  const pace = pick(AUTO_PACES, n + 3);
-  const goal = pick(AUTO_GOALS, n + 5);
-  const campus = pick(CAMPUS_OPTIONS, n + 11);
-  const gerCode = pick(Object.keys(GER_TAGS), n + 13);
-  const dept = pick(AUTO_DEPARTMENTS, n + 17);
-  const credits = pick(AUTO_CREDITS, n + 19);
-  const minRating = pick(AUTO_MIN_RATINGS, n + 23);
-  const componentType = pick(Object.keys(COMPONENT_TYPE_OPTIONS), n + 29);
-  const instructionMethod = pick(Object.keys(INSTRUCTION_METHOD_OPTIONS), n + 31);
+  const idx = querySeq++;
+  const n = Date.now() + idx * 37;
 
-  let filters: AiRecommendationFilters;
-  switch (querySeq % 8) {
-    case 0: filters = { minRating }; break;
-    case 1: filters = { campus }; break;
-    case 2: filters = { attributes: gerCode }; break;
-    case 3: filters = { credits, componentType }; break;
-    case 4: filters = { minRating, instructionMethod }; break;
-    case 5: filters = { department: dept }; break;
-    case 6: filters = { department: dept, minRating }; break;
-    default: filters = {}; break;
-  }
+  const dept = pick(ALL_DEPTS, n + 1);
+  const deptName = DEPT_NAMES[dept] ?? dept;
+  const ger = pick(ALL_GERS, n + 3);
+  const gerName = GER_LABELS[ger] ?? ger;
 
-  const prompt =
-    `Recommend courses for a student who wants ${topic}. ` +
-    `They prefer a ${pace} workload and care about ${goal}.`;
+  // Pool of realistic queries students actually type
+  const templates: QueryTemplate[] = [
+    // Easy / chill classes
+    { prompt: `What are some easy classes in the ${deptName} department?`, filters: { department: dept } },
+    { prompt: `Easy 3-credit classes with good ratings`, filters: { credits: 3, minRating: 4 } },
+    { prompt: `Chill classes I can take to boost my GPA`, filters: { minRating: 4 } },
+    { prompt: `Low workload electives that are actually interesting`, filters: { minRating: 3.5 } },
 
-  const label = `${topic} | filters: ${summarizeFilters(filters)}`;
+    // GER fulfillment
+    { prompt: `Atlanta campus classes that fulfill the ${ger} (${gerName}) GER`, filters: { campus: "Atlanta", attributes: ger } },
+    { prompt: `Oxford campus ${gerName} requirement classes`, filters: { campus: "Oxford", attributes: ger } },
+    { prompt: `What classes fulfill ${ger} and are well-rated?`, filters: { attributes: ger, minRating: 3.5 } },
+    { prompt: `I need to knock out my ${gerName} GER, what's good?`, filters: { attributes: ger } },
 
-  return { prompt, filters, label };
+    // Campus-specific
+    { prompt: `Best Atlanta campus classes right now`, filters: { campus: "Atlanta", minRating: 4 } },
+    { prompt: `Fun Oxford campus classes`, filters: { campus: "Oxford" } },
+    { prompt: `Atlanta campus seminars`, filters: { campus: "Atlanta", componentType: "SEM" } },
+    { prompt: `Online classes that are actually worth it`, filters: { instructionMethod: "DL", minRating: 3.5 } },
+
+    // Department-specific
+    { prompt: `Best ${deptName} classes for someone not majoring in it`, filters: { department: dept } },
+    { prompt: `Upper-level ${deptName} electives with good professors`, filters: { department: dept, minRating: 4 } },
+    { prompt: `Intro ${deptName} classes for freshmen`, filters: { department: dept } },
+    { prompt: `${deptName} classes with a lab component`, filters: { department: dept, componentType: "LAB" } },
+
+    // Interest-based (no filters, or light filters)
+    { prompt: `Classes about race, identity, and social justice`, filters: { attributes: "ETHN" } },
+    { prompt: `Interesting classes about the environment and climate`, filters: {} },
+    { prompt: `Creative writing or poetry workshops`, filters: {} },
+    { prompt: `Classes where you do hands-on research`, filters: { componentType: "RES" } },
+    { prompt: `Good pre-med electives outside of science`, filters: {} },
+    { prompt: `Fun classes to take with friends`, filters: { minRating: 4 } },
+    { prompt: `What are the hidden gem classes at Emory?`, filters: { minRating: 4 } },
+    { prompt: `Classes that teach practical skills like coding or data analysis`, filters: {} },
+    { prompt: `Discussion-based classes about philosophy or ethics`, filters: { department: "PHIL" } },
+    { prompt: `Music or theater classes for non-majors`, filters: {} },
+
+    // Credits and format
+    { prompt: `4-credit classes with good ratings`, filters: { credits: 4, minRating: 3.5 } },
+    { prompt: `3-credit lecture classes on Atlanta campus`, filters: { credits: 3, campus: "Atlanta", componentType: "LEC" } },
+    { prompt: `Independent study opportunities`, filters: { componentType: "IND" } },
+    { prompt: `Studio art classes`, filters: { componentType: "STU" } },
+
+    // Specific combos
+    { prompt: `Atlanta campus ${gerName} classes with 3 credits`, filters: { campus: "Atlanta", attributes: ger, credits: 3 } },
+    { prompt: `Well-rated ${deptName} seminars`, filters: { department: dept, componentType: "SEM", minRating: 3.5 } },
+    { prompt: `In-person ${deptName} classes`, filters: { department: dept, instructionMethod: "P" } },
+    { prompt: `Hybrid or online classes in ${deptName}`, filters: { department: dept, instructionMethod: "BL" } },
+
+    // Broader student questions
+    { prompt: `I'm a sophomore with no idea what to take, give me something cool`, filters: {} },
+    { prompt: `What should a QSS minor take next?`, filters: { department: "QTM" } },
+    { prompt: `I liked Intro Psych, what else would I enjoy?`, filters: {} },
+    { prompt: `Good classes for an Econ major to branch out`, filters: {} },
+    { prompt: `Underrated social science electives`, filters: { attributes: "SS" } },
+    { prompt: `Science classes that aren't super hard`, filters: { attributes: "NS", minRating: 3.5 } },
+    { prompt: `Best writing-intensive courses`, filters: { attributes: "CW" } },
+  ];
+
+  const t = templates[idx % templates.length];
+
+  return { prompt: t.prompt, filters: t.filters, label: t.prompt };
 }
 
 function ThumbUpIcon({ className = "h-5 w-5" }: { className?: string }) {
@@ -406,12 +417,10 @@ export default function AdminAiTrainer() {
             <div key={item.key}>
               {/* Query section header */}
               {showHeader && (
-                <div className="flex items-center gap-2 pt-2 pb-1">
-                  <div className="h-px flex-1 bg-gray-200" />
-                  <span className="text-xs text-gray-400 shrink-0 max-w-[80%] truncate">
+                <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 mt-2 mb-1">
+                  <p className="text-sm font-medium text-gray-700 leading-snug">
                     {item.queryLabel}
-                  </span>
-                  <div className="h-px flex-1 bg-gray-200" />
+                  </p>
                 </div>
               )}
 
