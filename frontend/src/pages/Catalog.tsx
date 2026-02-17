@@ -125,12 +125,12 @@ export default function Catalog() {
     []
   );
 
-  // Debounce search
+  // Sync debouncedSearch from URL on external navigation (e.g. deep-link).
   useEffect(() => {
     if (mode !== "search") return;
-    const timer = setTimeout(() => setDebouncedSearch(searchInput), 300);
-    return () => clearTimeout(timer);
-  }, [searchInput, mode]);
+    setDebouncedSearch(searchInput);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
 
   // Keep mode in sync if the URL is changed externally (e.g. Home -> Catalog deep-link).
   useEffect(() => {
@@ -508,9 +508,10 @@ export default function Catalog() {
               e.preventDefault();
               if (mode === "ai") runAi(aiInput);
               else {
-                // In search mode, the list is reactive, but submitting still resets paging.
+                const q = searchInput.trim();
+                setDebouncedSearch(q);
                 setSearchParams((prev) => {
-                  if (searchInput) prev.set("q", searchInput);
+                  if (q) prev.set("q", q);
                   else prev.delete("q");
                   prev.set("page", "1");
                   return prev;
@@ -527,19 +528,6 @@ export default function Catalog() {
                   setAiInput(v);
                 } else {
                   setSearchInput(v);
-                  if (v) {
-                    setSearchParams((prev) => {
-                      prev.set("q", v);
-                      prev.set("page", "1");
-                      return prev;
-                    });
-                  } else {
-                    setSearchParams((prev) => {
-                      prev.delete("q");
-                      prev.set("page", "1");
-                      return prev;
-                    });
-                  }
                 }
               }}
               placeholder={
