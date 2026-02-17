@@ -10,7 +10,13 @@ interface WelcomeModalProps {
   onSkipForNow: () => void;
 }
 
-const TOTAL_STEPS = 6;
+const TOTAL_STEPS = 7;
+
+interface FeatureItem {
+  icon: string;
+  text: string;
+  soon?: boolean;
+}
 
 const EXAMPLE_QUERIES = [
   "easy science electives for non-majors",
@@ -19,19 +25,45 @@ const EXAMPLE_QUERIES = [
   "MWF morning classes that fit my schedule",
 ];
 
-const FRIEND_FEATURES = [
-  { icon: "\uD83D\uDC40", text: "Browse friends\u2019 public course lists and wishlists" },
+const FRIEND_FEATURES: FeatureItem[] = [
+  { icon: "\uD83D\uDC40", text: "Browse friends\u2019 public course lists" },
   { icon: "\uD83D\uDD17", text: "Send requests and build your campus network" },
   { icon: "\uD83D\uDCC6", text: "Compare schedules and plan semesters together" },
-  { icon: "\u26A1", text: "Jump to any friend\u2019s profile in one tap" },
+  { icon: "\u26A1", text: "Jump to any friend\u2019s profile in one tap", soon: true },
 ];
 
-const DISCOVERY_FEATURES = [
+const DISCOVERY_FEATURES: FeatureItem[] = [
   { icon: "\uD83C\uDFAF", text: "Search and filter courses by major requirements" },
   { icon: "\u2B50", text: "Read honest ratings and reviews from Emory students" },
   { icon: "\uD83D\uDCC5", text: "Visual weekly schedule builder with conflict detection" },
-  { icon: "\uD83D\uDCCA", text: "Track your degree progress at a glance" },
+  { icon: "\uD83D\uDCCA", text: "Track your degree progress at a glance", soon: true },
 ];
+
+const BETA_TASKS: FeatureItem[] = [
+  { icon: "\uD83D\uDC1B", text: "Report bugs you find while exploring the app" },
+  { icon: "\uD83D\uDCA1", text: "Request features that would make your life easier" },
+  { icon: "\uD83D\uDCAC", text: "Use the Feedback tab to send reports directly to us" },
+  { icon: "\u2764\uFE0F", text: "Every report makes BetterAtlas better for everyone" },
+];
+
+function FeatureRow({ item, delay }: { item: FeatureItem; delay: number }) {
+  return (
+    <div
+      className="ob-feature-card flex items-center gap-3 rounded-lg px-3 py-2 text-left"
+      style={{ animationDelay: `${delay}ms` }}
+    >
+      <span className="shrink-0 text-lg leading-none">{item.icon}</span>
+      <span className={`text-sm ${item.soon ? "text-gray-400" : "text-gray-600"}`}>
+        {item.text}
+      </span>
+      {item.soon && (
+        <span className="ml-auto shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+          Soon
+        </span>
+      )}
+    </div>
+  );
+}
 
 export default function WelcomeModal({
   isOpen,
@@ -126,7 +158,8 @@ export default function WelcomeModal({
             {step === 2 && <StepAISearch />}
             {step === 3 && <StepFriends />}
             {step === 4 && <StepDiscovery />}
-            {step === 5 && <StepReady />}
+            {step === 5 && <StepBetaTester />}
+            {step === 6 && <StepReady />}
           </div>
         </div>
 
@@ -172,7 +205,7 @@ export default function WelcomeModal({
               <button
                 type="button"
                 onClick={onTakeTour}
-                className="ob-cta-glow rounded-xl bg-gradient-to-r from-primary-600 to-emerald-500 px-8 py-2.5 text-sm font-medium text-white shadow-lg transition-all hover:shadow-xl"
+                className="rounded-xl bg-primary-600 px-8 py-2.5 text-sm font-medium text-white shadow-lg shadow-primary-600/25 transition-all hover:bg-primary-700 hover:shadow-primary-700/30"
               >
                 Take the tour &rarr;
               </button>
@@ -275,14 +308,7 @@ function StepFriends() {
       </div>
       <div className="mx-auto max-w-sm space-y-2">
         {FRIEND_FEATURES.map((f, i) => (
-          <div
-            key={f.text}
-            className="ob-feature-card flex items-start gap-3 rounded-lg px-3 py-2 text-left"
-            style={{ animationDelay: `${i * 80}ms` }}
-          >
-            <span className="mt-0.5 text-lg leading-none">{f.icon}</span>
-            <span className="text-sm text-gray-600">{f.text}</span>
-          </div>
+          <FeatureRow key={f.text} item={f} delay={i * 80} />
         ))}
       </div>
     </div>
@@ -306,14 +332,31 @@ function StepDiscovery() {
       </div>
       <div className="mx-auto max-w-sm space-y-2">
         {DISCOVERY_FEATURES.map((f, i) => (
-          <div
-            key={f.text}
-            className="ob-feature-card flex items-start gap-3 rounded-lg px-3 py-2 text-left"
-            style={{ animationDelay: `${i * 80}ms` }}
-          >
-            <span className="mt-0.5 text-lg leading-none">{f.icon}</span>
-            <span className="text-sm text-gray-600">{f.text}</span>
-          </div>
+          <FeatureRow key={f.text} item={f} delay={i * 80} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StepBetaTester() {
+  return (
+    <div className="space-y-6">
+      <div className="ob-float mx-auto flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-rose-50 to-amber-50 text-4xl shadow-sm">
+        🧪
+      </div>
+      <div className="space-y-3">
+        <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-5xl">
+          You&rsquo;re a beta tester
+        </h2>
+        <p className="mx-auto max-w-md text-base text-gray-500 sm:text-lg">
+          Help us build something great. Your reports and ideas go straight to
+          the team&mdash;we read every single one.
+        </p>
+      </div>
+      <div className="mx-auto max-w-sm space-y-2">
+        {BETA_TASKS.map((f, i) => (
+          <FeatureRow key={f.text} item={f} delay={i * 80} />
         ))}
       </div>
     </div>

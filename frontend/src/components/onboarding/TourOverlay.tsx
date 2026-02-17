@@ -30,7 +30,7 @@ export default function TourOverlay({ rect, isInteractive = false }: TourOverlay
   if (isInteractive) {
     // Four overlay rectangles around the cutout — clicks pass through the gap.
     return (
-      <div className="fixed inset-0 z-[70]" aria-hidden="true">
+      <div className="pointer-events-none fixed inset-0 z-[70]" aria-hidden="true">
         {/* Top */}
         <div
           className="absolute bg-slate-950/72"
