@@ -272,7 +272,7 @@ export default function Schedule() {
     const n = raw ? Number(raw) : NaN;
     return Number.isFinite(n) ? n : 7;
   });
-  const [selectedTerm, setSelectedTerm] = useState<string>("");
+  const [selectedTerm, setSelectedTerm] = useState<string>("Spring 2026");
   const [friendView, setFriendView] = useState(false);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Record<string, boolean>>({});
   const [activeBlock, setActiveBlock] = useState<CalendarBlock | null>(null);

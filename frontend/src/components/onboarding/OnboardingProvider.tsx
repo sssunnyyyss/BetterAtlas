@@ -16,28 +16,6 @@ const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
 const TOUR_STEPS: TourStep[] = [
   {
-    id: "catalog-search-filters",
-    route: "/catalog",
-    targetId: "catalog-search-filters",
-    title: "Start in Catalog",
-    body: "Use filters and search together to narrow from broad ideas to specific classes quickly.",
-  },
-  {
-    id: "catalog-ai-entry",
-    route: "/catalog",
-    targetId: "catalog-ai-entry",
-    title: "Ask AI for Suggestions",
-    body: "Switch to Ask AI when you want recommendation-style guidance instead of keyword filtering.",
-  },
-  {
-    id: "course-detail-reviews",
-    route: "/catalog",
-    routeKind: "course-detail",
-    targetId: "course-detail-reviews",
-    title: "Read and Write Reviews",
-    body: "Check review quality before you commit, then add your own feedback after taking a class.",
-  },
-  {
     id: "schedule-grid",
     route: "/schedule",
     targetId: "schedule-grid",
@@ -83,6 +61,20 @@ const TOUR_STEPS: TourStep[] = [
         return checkbox instanceof HTMLInputElement && checkbox.checked;
       },
     },
+  },
+  {
+    id: "catalog-search-filters",
+    route: "/catalog",
+    targetId: "catalog-search-filters",
+    title: "Search the Catalog",
+    body: "Use filters and search together to narrow from broad ideas to specific classes quickly.",
+  },
+  {
+    id: "catalog-ai-entry",
+    route: "/catalog",
+    targetId: "catalog-ai-entry",
+    title: "Ask AI for Suggestions",
+    body: "Switch to Ask AI when you want recommendation-style guidance instead of keyword filtering. You're all set — start exploring!",
   },
 ];
 
