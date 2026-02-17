@@ -7,6 +7,7 @@ import WelcomeModal from "./WelcomeModal.js";
 interface OnboardingContextValue {
   startTour: () => void;
   restartTour: () => void;
+  restartIntro: () => void;
   isTourActive: boolean;
 }
 
@@ -99,6 +100,14 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     setIsWelcomeOpen(false);
   }, []);
 
+  const restartIntro = useCallback(() => {
+    if (!user) return;
+    setIsTourOpen(false);
+    setCurrentStepIndex(0);
+    setHasDismissedWelcome(false);
+    setIsWelcomeOpen(true);
+  }, [user]);
+
   const persistOnboardingCompletion = useCallback(async () => {
     if (!user || isSavingTourState) return;
 
@@ -138,9 +147,10 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
     () => ({
       startTour: openTour,
       restartTour: openTour,
+      restartIntro,
       isTourActive: isTourOpen,
     }),
-    [isTourOpen, openTour]
+    [isTourOpen, openTour, restartIntro]
   );
 
   return (

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.js";
+import { useOnboarding } from "../../components/onboarding/OnboardingProvider.js";
 
 type SystemMetrics = {
   ts: string;
@@ -57,6 +58,7 @@ function toDuration(seconds: number) {
 }
 
 export default function AdminSystem() {
+  const { restartIntro, restartTour } = useOnboarding();
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -160,6 +162,29 @@ export default function AdminSystem() {
           <p className="text-xs text-gray-500 mt-1">
             {metrics.db.latencyMs}ms ping
           </p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <h3 className="font-medium text-gray-900 mb-2">Onboarding Beta Test</h3>
+        <p className="text-sm text-gray-500 mb-3">
+          Preview the onboarding intro sequence or guided tour as a new user would see it.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={restartIntro}
+            className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+          >
+            Launch Intro Sequence
+          </button>
+          <button
+            type="button"
+            onClick={restartTour}
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+          >
+            Launch Guided Tour
+          </button>
         </div>
       </div>
 
