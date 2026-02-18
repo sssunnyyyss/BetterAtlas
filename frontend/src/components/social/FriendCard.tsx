@@ -3,12 +3,14 @@ import UserBadge from "../ui/UserBadge.js";
 
 interface FriendCardProps {
   friend: FriendWithProfile;
+  onViewProfile?: () => void;
   onViewCourses?: (friendId: string) => void;
   onRemove?: (friendshipId: number) => void;
 }
 
 export default function FriendCard({
   friend,
+  onViewProfile,
   onViewCourses,
   onRemove,
 }: FriendCardProps) {
@@ -16,7 +18,12 @@ export default function FriendCard({
     <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
       <div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <h4 className="font-medium text-gray-900">@{friend.user.username}</h4>
+          <button
+            onClick={onViewProfile}
+            className="font-medium text-gray-900 hover:text-primary-600 text-left"
+          >
+            @{friend.user.username}
+          </button>
           {(friend.user.badges ?? []).map((badge) => (
             <UserBadge key={badge.slug} badge={badge} />
           ))}
@@ -30,12 +37,20 @@ export default function FriendCard({
         </div>
       </div>
       <div className="flex gap-2">
+        {onViewProfile && (
+          <button
+            onClick={onViewProfile}
+            className="text-sm text-primary-600 hover:text-primary-800"
+          >
+            Profile
+          </button>
+        )}
         {onViewCourses && (
           <button
             onClick={() => onViewCourses(friend.user.id)}
             className="text-sm text-primary-600 hover:text-primary-800"
           >
-            View Courses
+            Courses
           </button>
         )}
         {onRemove && (

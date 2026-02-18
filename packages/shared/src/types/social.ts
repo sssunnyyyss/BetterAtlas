@@ -18,6 +18,9 @@ export interface FriendWithProfile {
     fullName: string;
     graduationYear: number | null;
     major: string | null;
+    bio: string | null;
+    interests: string[];
+    avatarUrl: string | null;
     badges: Badge[];
   };
   status: FriendshipStatus;

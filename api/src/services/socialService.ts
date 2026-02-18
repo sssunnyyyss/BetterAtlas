@@ -27,6 +27,9 @@ export async function getFriends(userId: string) {
       fullName: users.displayName,
       graduationYear: users.graduationYear,
       major: users.major,
+      bio: users.bio,
+      interests: users.interests,
+      avatarUrl: users.avatarUrl,
     })
     .from(friendships)
     .innerJoin(
@@ -52,6 +55,9 @@ export async function getFriends(userId: string) {
       fullName: r.fullName,
       graduationYear: r.graduationYear,
       major: r.major,
+      bio: r.bio ?? null,
+      interests: r.interests ?? [],
+      avatarUrl: r.avatarUrl ?? null,
       badges: badgesByUser.get(r.friendId) ?? [],
     },
     status: r.status as "accepted",
@@ -67,6 +73,9 @@ export async function getPendingRequests(userId: string) {
       fullName: users.displayName,
       graduationYear: users.graduationYear,
       major: users.major,
+      bio: users.bio,
+      interests: users.interests,
+      avatarUrl: users.avatarUrl,
       createdAt: friendships.createdAt,
     })
     .from(friendships)
@@ -87,6 +96,9 @@ export async function getPendingRequests(userId: string) {
       fullName: r.fullName,
       graduationYear: r.graduationYear,
       major: r.major,
+      bio: r.bio ?? null,
+      interests: r.interests ?? [],
+      avatarUrl: r.avatarUrl ?? null,
       badges: badgesByUser.get(r.requesterId) ?? [],
     },
     status: "pending" as const,

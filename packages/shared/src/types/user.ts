@@ -14,6 +14,9 @@ export interface User {
   fullName: string;
   graduationYear: number | null;
   major: string | null;
+  bio: string | null;
+  interests: string[];
+  avatarUrl: string | null;
   hasCompletedOnboarding?: boolean;
   badges?: Badge[];
   createdAt: string;

@@ -37,18 +37,11 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      target: development
+      target: production
     ports:
-      - "5173:5173"
+      - "80:80"
     depends_on:
       - api
     environment:
       VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
       VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
-    volumes:
-      - ./frontend/src:/app/frontend/src:cached
-      - ./frontend/vite.config.ts:/app/frontend/vite.config.ts:cached
-      - ./packages/shared/src:/app/packages/shared/src:cached
-      - ./packages/shared/dist:/app/packages/shared/dist:cached
-      - /app/frontend/node_modules
-      - /app/packages/shared/node_modules

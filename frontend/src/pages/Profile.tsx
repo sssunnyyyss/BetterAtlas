@@ -1,6 +1,7 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useAuth } from "../lib/auth.js";
 import { api } from "../api/client.js";
+import { supabase } from "../lib/supabase.js";
 import type { User, UserReview } from "@betteratlas/shared";
 import { Link } from "react-router-dom";
 import { useMyReviews, useUpdateReview, useDeleteReview } from "../hooks/useReviews.js";
@@ -9,6 +10,15 @@ import ReviewCard from "../components/review/ReviewCard.js";
 import EditReviewModal from "../components/review/EditReviewModal.js";
 import UserBadge from "../components/ui/UserBadge.js";
 import { useOnboarding } from "../components/onboarding/OnboardingProvider.js";
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((p) => p[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+}
 
 export default function Profile() {
   const { user, logout, refresh } = useAuth();
@@ -20,14 +30,77 @@ export default function Profile() {
     user?.graduationYear?.toString() || ""
   );
   const [major, setMajor] = useState(user?.major || "");
+  const [bio, setBio] = useState(user?.bio || "");
+  const [interests, setInterests] = useState<string[]>(user?.interests ?? []);
+  const [interestInput, setInterestInput] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl || "");
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
   const { data: myReviews, isLoading: myReviewsLoading } = useMyReviews();
   const deleteReview = useDeleteReview();
   const [editingReview, setEditingReview] = useState<UserReview | null>(null);
   const closeEditModal = useCallback(() => setEditingReview(null), []);
   const updateReview = useUpdateReview(editingReview?.courseId ?? 0);
   const { data: editingCourse } = useCourseDetail(editingReview?.courseId ?? 0);
+
+  async function handleAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    const ext = file.name.split(".").pop() ?? "jpg";
+    const path = `${user.id}/${Date.now()}.${ext}`;
+
+    setAvatarUploading(true);
+    try {
+      const { error } = await supabase.storage
+        .from("avatars")
+        .upload(path, file, { upsert: true });
+
+      if (error) throw error;
+
+      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      setAvatarUrl(data.publicUrl);
+    } catch (err: any) {
+      setMessage("Avatar upload failed: " + (err.message || "Unknown error"));
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
+  function addInterest(value: string) {
+    const trimmed = value.trim();
+    if (trimmed && !interests.includes(trimmed)) {
+      setInterests((prev) => [...prev, trimmed]);
+    }
+    setInterestInput("");
+  }
+
+  function handleInterestKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      addInterest(interestInput);
+    } else if (e.key === "Backspace" && interestInput === "" && interests.length > 0) {
+      setInterests((prev) => prev.slice(0, -1));
+    }
+  }
+
+  function removeInterest(tag: string) {
+    setInterests((prev) => prev.filter((t) => t !== tag));
+  }
+
+  function handleCancelEdit() {
+    setUsername(user?.username || "");
+    setFullName(user?.fullName || "");
+    setGraduationYear(user?.graduationYear?.toString() || "");
+    setMajor(user?.major || "");
+    setBio(user?.bio || "");
+    setInterests(user?.interests ?? []);
+    setAvatarUrl(user?.avatarUrl || "");
+    setEditing(false);
+  }
 
   async function handleSave() {
     setSaving(true);
@@ -38,6 +111,9 @@ export default function Profile() {
         fullName,
         graduationYear: graduationYear ? parseInt(graduationYear) : undefined,
         major: major || undefined,
+        bio: bio || undefined,
+        interests,
+        avatarUrl: avatarUrl || undefined,
       });
       await refresh();
       setMessage("Profile updated");
@@ -51,6 +127,8 @@ export default function Profile() {
 
   if (!user) return null;
 
+  const displayAvatar = avatarUrl || user.avatarUrl;
+
   return (
     <div className="max-w-4xl mx-auto p-6">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Profile</h1>
@@ -62,6 +140,40 @@ export default function Profile() {
       )}
 
       <div className="bg-white rounded-lg border border-gray-200 p-6 space-y-4">
+        {/* Avatar */}
+        <div className="flex items-center gap-4">
+          {displayAvatar ? (
+            <img
+              src={displayAvatar}
+              alt={user.fullName}
+              className="w-24 h-24 rounded-full object-cover border-2 border-gray-200"
+            />
+          ) : (
+            <div className="w-24 h-24 rounded-full bg-primary-100 flex items-center justify-center text-primary-700 text-2xl font-bold border-2 border-primary-200">
+              {getInitials(user.fullName)}
+            </div>
+          )}
+          {editing && (
+            <div>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleAvatarChange}
+              />
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarUploading}
+                className="text-sm text-primary-600 hover:text-primary-800 disabled:opacity-50"
+              >
+                {avatarUploading ? "Uploading..." : "Change photo"}
+              </button>
+            </div>
+          )}
+        </div>
+
         <div>
           <label className="block text-sm font-medium text-gray-500">Email</label>
           <p className="text-gray-900">{user.email}</p>
@@ -149,6 +261,78 @@ export default function Profile() {
           </div>
         </div>
 
+        {/* Bio */}
+        <div>
+          <label className="block text-sm font-medium text-gray-500">Bio</label>
+          {editing ? (
+            <textarea
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              rows={3}
+              placeholder="Tell others about yourself..."
+              className="mt-1 w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+            />
+          ) : (
+            <p className="text-gray-900 text-sm whitespace-pre-wrap">
+              {user.bio || <span className="text-gray-400">Not set</span>}
+            </p>
+          )}
+        </div>
+
+        {/* Interests */}
+        <div>
+          <label className="block text-sm font-medium text-gray-500">Interests</label>
+          {editing ? (
+            <div className="mt-1">
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {interests.map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 rounded-full bg-primary-50 border border-primary-200 px-2.5 py-0.5 text-xs font-medium text-primary-700"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeInterest(tag)}
+                      className="text-primary-400 hover:text-primary-700 leading-none"
+                      aria-label={`Remove ${tag}`}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <input
+                type="text"
+                value={interestInput}
+                onChange={(e) => setInterestInput(e.target.value)}
+                onKeyDown={handleInterestKeyDown}
+                onBlur={() => addInterest(interestInput)}
+                placeholder="Type an interest, press Enter or comma to add"
+                className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+              />
+              <p className="mt-1 text-xs text-gray-400">Press Enter or comma to add a tag</p>
+            </div>
+          ) : (
+            <div className="mt-1">
+              {(user.interests?.length ?? 0) > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {(user.interests ?? []).map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center rounded-full bg-primary-50 border border-primary-200 px-2.5 py-0.5 text-xs font-medium text-primary-700"
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-400 text-sm">Not set</p>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="flex gap-3 pt-2">
           {editing ? (
             <>
@@ -160,7 +344,7 @@ export default function Profile() {
                 {saving ? "Saving..." : "Save Changes"}
               </button>
               <button
-                onClick={() => setEditing(false)}
+                onClick={handleCancelEdit}
                 className="px-4 py-2 rounded-md text-sm font-medium border border-gray-300 hover:bg-gray-50"
               >
                 Cancel

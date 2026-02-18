@@ -113,6 +113,9 @@ export const users = pgTable("users", {
   displayName: text("display_name").notNull(),
   graduationYear: smallint("graduation_year"),
   major: text("major"),
+  bio: text("bio"),
+  interests: text("interests").array().default(sql`'{}'`),
+  avatarUrl: text("avatar_url"),
   inviteCode: varchar("invite_code", { length: 64 }),
   hasCompletedOnboarding: boolean("has_completed_onboarding")
     .notNull()
