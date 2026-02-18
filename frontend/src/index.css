@@ -13,7 +13,7 @@ html {
 
 body {
   font-family: var(--ba-font-sans);
-  @apply bg-accent-50 text-gray-900 antialiased;
+  @apply bg-white text-gray-900 antialiased;
 }
 
 /* Crimson Pro for all headings — gives the Emory academic feel */

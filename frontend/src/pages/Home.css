@@ -1,7 +1,7 @@
 :root {
   --home-ink: #002878;              /* Emory Navy */
   --home-ink-2: rgba(0, 40, 120, 0.72);
-  --home-paper: #fbf9ed;            /* Emory cream */
+  --home-paper: #ffffff;
   --home-chip: rgba(252, 252, 252, 0.75);
   --home-chip-border: rgba(0, 40, 120, 0.14);
   --home-shadow: 0 18px 60px rgba(0, 40, 120, 0.12);
@@ -42,7 +42,7 @@
     radial-gradient(900px 520px at 20% 18%, rgba(232, 213, 133, 0.45), transparent 60%),
     radial-gradient(820px 520px at 78% 26%, rgba(99, 132, 198, 0.38), transparent 62%),
     radial-gradient(900px 620px at 58% 86%, rgba(235, 232, 215, 0.60), transparent 62%),
-    linear-gradient(180deg, #fbf9ed 0%, #ffffff 55%, #fcfcfc 100%);
+    linear-gradient(180deg, #ffffff 0%, #ffffff 55%, #fcfcfc 100%);
 }
 
 .home-kicker {
