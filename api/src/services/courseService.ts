@@ -630,6 +630,39 @@ export async function getCourseById(id: number) {
 
   if (!course) return null;
 
+  // Detect cross-listed courses in parallel with sections + professors.
+  // Two signals:
+  //   1. Same title (case-insensitive) — Emory always gives cross-lists the same title.
+  //   2. Shared active section — same instructor + same meeting display + same term,
+  //      meaning two codes literally run as the same physical class.
+  const crossListPromise = db.execute(sql`
+    SELECT DISTINCT c.id, c.code, c.department_id,
+           d.code  AS dept_code,
+           d.name  AS dept_name
+    FROM   courses c
+    LEFT JOIN departments d ON d.id = c.department_id
+    WHERE  c.id != ${id}
+      AND (
+        lower(c.title) = lower((SELECT title FROM courses WHERE id = ${id}))
+        OR EXISTS (
+          SELECT 1
+          FROM   sections s1
+          JOIN   sections s2
+                 ON  s1.instructor_id  = s2.instructor_id
+                 AND s1.meets_display  = s2.meets_display
+                 AND s1.term_code      = s2.term_code
+          WHERE  s1.course_id = ${id}
+            AND  s2.course_id = c.id
+            AND  s1.is_active = true
+            AND  s2.is_active = true
+            AND  s1.instructor_id IS NOT NULL
+            AND  s1.meets_display IS NOT NULL
+            AND  s1.meets_display != ''
+        )
+      )
+    ORDER BY c.code
+  `);
+
 	  const courseSections = await db
 	    .select({
 	      id: sections.id,
@@ -671,28 +704,31 @@ export async function getCourseById(id: number) {
     .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
     .where(and(eq(sections.courseId, id), eq(sections.isActive, true)));
 
-  const professors = await db
-    .selectDistinct({
-      id: instructors.id,
-      name: instructors.name,
-      email: instructors.email,
-      departmentId: instructors.departmentId,
-      avgQuality: courseInstructorRatings.avgQuality,
-      avgDifficulty: courseInstructorRatings.avgDifficulty,
-      avgWorkload: courseInstructorRatings.avgWorkload,
-      reviewCount: courseInstructorRatings.reviewCount,
-    })
-    .from(sections)
-    .innerJoin(instructors, eq(sections.instructorId, instructors.id))
-    .leftJoin(
-      courseInstructorRatings,
-      and(
-        eq(courseInstructorRatings.courseId, sections.courseId),
-        eq(courseInstructorRatings.instructorId, sections.instructorId)
+  const [professors, crossListRows] = await Promise.all([
+    db
+      .selectDistinct({
+        id: instructors.id,
+        name: instructors.name,
+        email: instructors.email,
+        departmentId: instructors.departmentId,
+        avgQuality: courseInstructorRatings.avgQuality,
+        avgDifficulty: courseInstructorRatings.avgDifficulty,
+        avgWorkload: courseInstructorRatings.avgWorkload,
+        reviewCount: courseInstructorRatings.reviewCount,
+      })
+      .from(sections)
+      .innerJoin(instructors, eq(sections.instructorId, instructors.id))
+      .leftJoin(
+        courseInstructorRatings,
+        and(
+          eq(courseInstructorRatings.courseId, sections.courseId),
+          eq(courseInstructorRatings.instructorId, sections.instructorId)
+        )
       )
-    )
-    .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
-    .orderBy(asc(instructors.name));
+      .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
+      .orderBy(asc(instructors.name)),
+    crossListPromise,
+  ]);
 
   return {
     id: course.id,
@@ -740,6 +776,13 @@ export async function getCourseById(id: number) {
       avgDifficulty: p.avgDifficulty ? parseFloat(p.avgDifficulty) : null,
       avgWorkload: p.avgWorkload ? parseFloat(p.avgWorkload) : null,
       reviewCount: p.reviewCount ?? 0,
+    })),
+    crossListedWith: (crossListRows as any[]).map((r) => ({
+      id: Number(r.id),
+      code: String(r.code),
+      department: r.dept_code
+        ? { id: Number(r.department_id), code: String(r.dept_code), name: String(r.dept_name) }
+        : null,
     })),
 	    sections: courseSections.map((s) => ({
 	      id: s.id,

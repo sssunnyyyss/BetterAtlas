@@ -79,6 +79,12 @@ export interface Section {
   createdAt: string;
 }
 
+export interface CrossListedCourse {
+  id: number;
+  code: string;
+  department: Department | null;
+}
+
 export interface CourseDetail extends CourseWithRatings {
   sections: Section[];
   professors?: Array<{
@@ -91,4 +97,6 @@ export interface CourseDetail extends CourseWithRatings {
     avgWorkload: number | null;
     reviewCount: number;
   }>;
+  /** Other course codes that represent the same class (cross-listed). */
+  crossListedWith?: CrossListedCourse[];
 }

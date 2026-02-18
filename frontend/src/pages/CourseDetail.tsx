@@ -583,6 +583,25 @@ export default function CourseDetail() {
         {course.department && (
           <p className="text-sm text-gray-500 mt-1">{course.department.name}</p>
         )}
+        {course.crossListedWith && course.crossListedWith.length > 0 && (
+          <p className="mt-1.5 text-sm text-gray-500">
+            Also offered as:{" "}
+            {course.crossListedWith.map((c, i) => (
+              <span key={c.id}>
+                <Link
+                  to={`/catalog/${c.id}`}
+                  className="text-primary-600 hover:underline font-medium"
+                >
+                  {c.code}
+                </Link>
+                {c.department && (
+                  <span className="text-gray-400"> ({c.department.code})</span>
+                )}
+                {i < course.crossListedWith!.length - 1 && ", "}
+              </span>
+            ))}
+          </p>
+        )}
         <GerPills gers={course.gers} />
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-600">
           <span>
