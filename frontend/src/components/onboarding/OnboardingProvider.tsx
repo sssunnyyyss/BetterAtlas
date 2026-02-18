@@ -64,9 +64,9 @@ const TOUR_STEPS: TourStep[] = [
     route: "/friends",
     targetId: "friends-add-form",
     title: "Add Your First Friend",
-    body: "Try adding @johndoe — they already have a schedule loaded.",
+    body: "Search for johndoe, click their profile, and hit Add Friend — they already have a schedule loaded.",
     interactive: {
-      actionLabel: "Type @johndoe and click Send Request",
+      actionLabel: "Search johndoe, open their profile, and click Add Friend",
       completionQueryKey: ["friends"],
     },
   },

@@ -23,7 +23,6 @@ function getInitials(name: string) {
 
 export default function Friends() {
   const queryClient = useQueryClient();
-  const [usernameInput, setUsernameInput] = useState("");
   const [viewingFriendId, setViewingFriendId] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<User | null>(null);
 
@@ -73,15 +72,6 @@ export default function Friends() {
     enabled: viewingFriendId !== null,
   });
 
-  const sendRequest = useMutation({
-    mutationFn: (username: string) => api.post("/friends/request", { username }),
-    onSuccess: () =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["friends"] }),
-        queryClient.invalidateQueries({ queryKey: ["friends", "pending"] }),
-      ]),
-  });
-
   const acceptRequest = useMutation({
     mutationFn: (friendshipId: number) => api.post(`/friends/${friendshipId}/accept`),
     onSuccess: () =>
@@ -105,14 +95,6 @@ export default function Friends() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["friends"] }),
   });
 
-  function handleSendRequest(e: React.FormEvent) {
-    e.preventDefault();
-    const u = usernameInput.trim().replace(/^@/, "").toLowerCase();
-    if (!u) return;
-    sendRequest.mutate(u);
-    setUsernameInput("");
-  }
-
   function openProfile(result: SearchResult) {
     setViewingProfile(result as unknown as User);
     setSearchOpen(false);
@@ -133,34 +115,8 @@ export default function Friends() {
     <div className="max-w-4xl mx-auto p-6" data-tour-id="friends-add-list">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Friends</h1>
 
-      {/* Send friend request */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6" data-tour-id="friends-add-form">
-        <h3 className="font-medium text-gray-900 mb-2">Add a Friend</h3>
-        <form onSubmit={handleSendRequest} className="flex gap-2">
-          <input
-            type="text"
-            value={usernameInput}
-            onChange={(e) => setUsernameInput(e.target.value)}
-            placeholder="Enter @username"
-            className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-          />
-          <button
-            type="submit"
-            disabled={sendRequest.isPending}
-            className="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
-          >
-            Send Request
-          </button>
-        </form>
-        {sendRequest.isError && (
-          <p className="text-sm text-red-600 mt-2">
-            {(sendRequest.error as any)?.message || "Failed to send request"}
-          </p>
-        )}
-      </div>
-
       {/* Find Users — suggestive search */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6">
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6" data-tour-id="friends-add-form">
         <h3 className="font-medium text-gray-900 mb-2">Find Users</h3>
         <div ref={searchRef} className="relative">
           <div className="relative">
@@ -183,7 +139,7 @@ export default function Friends() {
           </div>
 
           {showDropdown && (
-            <div className="absolute z-20 mt-1 w-full bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
+            <div className="absolute z-[75] mt-1 w-full bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
               {!searchResults || searchResults.length === 0 ? (
                 <div className="px-4 py-3 text-sm text-gray-500">
                   {searching ? "Searching..." : "No users found"}

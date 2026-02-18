@@ -34,22 +34,22 @@ export default function TourOverlay({ rect, isInteractive = false }: TourOverlay
         {/* Top */}
         <div
           className="absolute bg-slate-950/72"
-          style={{ top: 0, left: 0, right: 0, height: top, pointerEvents: "auto" }}
+          style={{ top: 0, left: 0, right: 0, height: top }}
         />
         {/* Bottom */}
         <div
           className="absolute bg-slate-950/72"
-          style={{ top: top + height, left: 0, right: 0, bottom: 0, pointerEvents: "auto" }}
+          style={{ top: top + height, left: 0, right: 0, bottom: 0 }}
         />
         {/* Left */}
         <div
           className="absolute bg-slate-950/72"
-          style={{ top, left: 0, width: left, height, pointerEvents: "auto" }}
+          style={{ top, left: 0, width: left, height }}
         />
         {/* Right */}
         <div
           className="absolute bg-slate-950/72"
-          style={{ top, left: left + width, right: 0, height, pointerEvents: "auto" }}
+          style={{ top, left: left + width, right: 0, height }}
         />
         {/* Highlight border (visual only) */}
         <div

@@ -53,7 +53,7 @@ export default function UserProfileModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+      className="fixed inset-0 z-[75] flex items-center justify-center bg-black/40"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
