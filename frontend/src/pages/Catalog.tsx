@@ -447,7 +447,7 @@ export default function Catalog() {
         />
       </Sidebar>
 
-      <main className="flex-1 p-4 sm:p-6">
+      <main className="flex-1 p-6">
         {/* Search bar */}
         <div className="mb-6">
           <div className="flex flex-wrap items-center gap-3 mb-3">
@@ -537,7 +537,7 @@ export default function Catalog() {
               }
               className={`w-full max-w-3xl rounded-lg border text-sm px-4 py-2.5 shadow-sm transition-shadow focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-500 ${
                 mode === "ai"
-                  ? "border-primary-300 ring-2 ring-primary-500/20 shadow-[0_22px_72px_rgba(0,40,120,0.18)]"
+                  ? "border-primary-300 ring-2 ring-primary-500/20 shadow-[0_22px_72px_rgba(37,99,235,0.20)]"
                   : "border-gray-300"
               }`}
             />

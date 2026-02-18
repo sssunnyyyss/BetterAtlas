@@ -4,19 +4,20 @@
 
 :root {
   --ba-font-display: "Crimson Pro", ui-serif, Georgia, serif;
-  --ba-font-sans: "Open Sans", ui-sans-serif, system-ui, sans-serif;
+  /* Keep a single type voice across the app. */
+  --ba-font-sans: var(--ba-font-display);
 }
 
 html {
-  font-size: 16px;
+  font-size: 17px;
 }
 
 body {
   font-family: var(--ba-font-sans);
-  @apply bg-white text-gray-900 antialiased;
+  @apply bg-gray-50 text-gray-900 antialiased;
 }
 
-/* Crimson Pro for all headings — gives the Emory academic feel */
+/* Match the home page "display" font for headings app-wide. */
 h1,
 h2,
 h3,
@@ -94,22 +95,22 @@ h6 {
 @keyframes ob-cta-glow {
   0%,
   100% {
-    box-shadow: 0 4px 20px rgba(0, 40, 120, 0.30);
+    box-shadow: 0 4px 20px rgba(37, 99, 235, 0.3);
   }
   50% {
-    box-shadow: 0 4px 30px rgba(0, 40, 120, 0.50),
-      0 0 60px rgba(210, 176, 0, 0.20);
+    box-shadow: 0 4px 30px rgba(37, 99, 235, 0.5),
+      0 0 60px rgba(16, 185, 129, 0.2);
   }
 }
 
 @keyframes ob-badge-glow {
   0%,
   100% {
-    box-shadow: 0 0 20px rgba(232, 213, 133, 0.30);
+    box-shadow: 0 0 20px rgba(251, 191, 36, 0.2);
   }
   50% {
-    box-shadow: 0 0 30px rgba(232, 213, 133, 0.50),
-      0 0 60px rgba(232, 213, 133, 0.20);
+    box-shadow: 0 0 30px rgba(251, 191, 36, 0.4),
+      0 0 60px rgba(251, 191, 36, 0.15);
   }
 }
 
