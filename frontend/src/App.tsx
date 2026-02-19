@@ -10,6 +10,9 @@ import Profile from "./pages/Profile.js";
 import Friends from "./pages/Friends.js";
 import Schedule from "./pages/Schedule.js";
 import Feedback from "./pages/Feedback.js";
+import PrivacyPolicy from "./pages/PrivacyPolicy.js";
+import FAQ from "./pages/FAQ.js";
+import AboutUs from "./pages/AboutUs.js";
 import AdminLayout from "./pages/admin/AdminLayout.js";
 import AdminSync from "./pages/admin/AdminSync.js";
 import AdminAiTrainer from "./pages/admin/AdminAiTrainer.js";
@@ -18,6 +21,7 @@ import AdminStats from "./pages/admin/AdminStats.js";
 import AdminUsers from "./pages/admin/AdminUsers.js";
 import AdminLogs from "./pages/admin/AdminLogs.js";
 import AdminInviteCodes from "./pages/admin/AdminInviteCodes.js";
+import Footer from "./components/layout/Footer.js";
 import OnboardingProvider from "./components/onboarding/OnboardingProvider.js";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -129,6 +133,9 @@ function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
             </ProtectedRoute>
           }
         />
+        <Route path="/privacy" element={<PrivacyPolicy />} />
+        <Route path="/faq" element={<FAQ />} />
+        <Route path="/about" element={<AboutUs />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
@@ -149,8 +156,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <OnboardingProvider>
-        <Navbar />
-        <AppRoutes user={user} />
+        <div className="flex flex-col min-h-screen">
+          <Navbar />
+          <AppRoutes user={user} />
+          <Footer />
+        </div>
       </OnboardingProvider>
     </BrowserRouter>
   );

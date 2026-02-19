@@ -15,6 +15,9 @@ import programsRoutes from "./routes/programs.js";
 import adminProgramsRoutes, { recordAdminAppError } from "./routes/adminPrograms.js";
 import aiTrainerRoutes from "./routes/aiTrainer.js";
 import inviteCodeRoutes from "./routes/inviteCodes.js";
+import oauthRoutes from "./routes/oauth.js";
+import adminOAuthRoutes from "./routes/adminOAuth.js";
+import cannySsoRoutes from "./routes/cannySso.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 import { ensureJohnDoe } from "./bootstrap.js";
 
@@ -47,6 +50,8 @@ app.use(
   })
 );
 app.use(express.json());
+// OAuth token endpoint uses application/x-www-form-urlencoded
+app.use("/api/oauth", express.urlencoded({ extended: false }));
 app.use(generalLimiter);
 
 // Routes
@@ -57,6 +62,9 @@ app.use("/api/programs", programsRoutes);
 app.use("/api/admin", adminProgramsRoutes);
 app.use("/api/admin/ai-trainer", aiTrainerRoutes);
 app.use("/api/admin/invite-codes", inviteCodeRoutes);
+app.use("/api/admin/oauth-clients", adminOAuthRoutes);
+app.use("/api/oauth", oauthRoutes);
+app.use("/api/oauth/canny", cannySsoRoutes);
 app.use("/api/instructors", instructorRoutes);
 app.use("/api", reviewRoutes);
 app.use("/api", socialRoutes);

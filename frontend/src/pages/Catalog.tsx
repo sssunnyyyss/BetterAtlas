@@ -561,6 +561,23 @@ export default function Catalog() {
             </button>
           </form>
 
+          {mode === "ai" && (
+            <div className="mt-3 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+              <p className="text-sm text-amber-900">
+                AI results can be inaccurate. Verify important details with{" "}
+                <a
+                  href="https://atlas.emory.edu/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium underline underline-offset-2 hover:text-amber-950"
+                >
+                  Emory&apos;s Course Atlas
+                </a>
+                . Known bugs include occasional issues with cross-listed classes.
+              </p>
+            </div>
+          )}
+
           {isProgramMode && (
             <div className="mt-4 max-w-3xl">
               <div className="bg-white rounded-lg border border-gray-200 p-4">

@@ -38,3 +38,11 @@ export const aiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+export const oauthTokenLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: isDev ? 1_000 : 10,
+  message: { error: "Too many token requests, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});

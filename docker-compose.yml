@@ -25,6 +25,8 @@ services:
       PROGRAMS_SYNC_SECRET: ${PROGRAMS_SYNC_SECRET:-}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
       METRICS_DISK_PATH: ${METRICS_DISK_PATH:-/}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
+      CANNY_SSO_KEY: ${CANNY_SSO_KEY:-}
     volumes:
       - ./api/src:/app/api/src:cached
       - ./packages/shared/src:/app/packages/shared/src:cached

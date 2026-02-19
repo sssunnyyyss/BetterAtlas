@@ -21,7 +21,8 @@ interface AuthContextType {
     graduationYear?: number;
     major?: string;
     inviteCode?: string;
-  }) => Promise<void>;
+  }) => Promise<{ requiresEmailVerification: boolean }>;
+  resendVerificationEmail: (email: string) => Promise<void>;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -113,7 +114,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       inviteCode?: string;
     }) => {
       // Let the API handle both Auth signup and profile creation
-      const result = await api.post<{ user: User; session: any }>("/auth/register", data);
+      const result = await api.post<{
+        user: User;
+        session: { access_token: string; refresh_token: string } | null;
+        requiresEmailVerification?: boolean;
+      }>("/auth/register", data);
+
+      if (result.requiresEmailVerification || !result.session) {
+        setUser(null);
+        return { requiresEmailVerification: true };
+      }
 
       // Sign in with Supabase to establish the local session
       const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -126,9 +136,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setUser(result.user);
+      return { requiresEmailVerification: false };
     },
     []
   );
+
+  const resendVerificationEmail = useCallback(async (email: string) => {
+    await api.post<{ message: string }>("/auth/resend-verification", { email });
+  }, []);
 
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
@@ -136,7 +151,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, refresh, logout }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, login, register, resendVerificationEmail, refresh, logout }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -475,3 +475,50 @@ export const aiTrainerScores = pgTable("ai_trainer_scores", {
   score: numeric("score", { precision: 5, scale: 4 }), // smoothed: (up - down) / (total + 5)
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+// OAuth Clients — registered third-party apps (admin-managed)
+export const oauthClients = pgTable("oauth_clients", {
+  id: varchar("id", { length: 36 }).primaryKey(), // UUID, used as public client_id
+  secret: varchar("secret", { length: 64 }), // SHA-256 hash; NULL for public PKCE clients
+  name: text("name").notNull(),
+  description: text("description"),
+  redirectUris: text("redirect_uris").array().notNull(),
+  allowedScopes: text("allowed_scopes").array().notNull(),
+  isPublic: boolean("is_public").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  createdBy: uuid("created_by").references(() => users.id),
+});
+
+// OAuth Authorization Codes — short-lived (10 min), single-use
+export const oauthAuthorizationCodes = pgTable("oauth_authorization_codes", {
+  code: varchar("code", { length: 64 }).primaryKey(), // 32 random bytes hex
+  clientId: varchar("client_id", { length: 36 })
+    .references(() => oauthClients.id)
+    .notNull(),
+  userId: uuid("user_id")
+    .references(() => users.id)
+    .notNull(),
+  redirectUri: text("redirect_uri").notNull(),
+  scopes: text("scopes").array().notNull(),
+  codeChallenge: varchar("code_challenge", { length: 128 }),
+  codeChallengeMethod: varchar("code_challenge_method", { length: 10 }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }), // replay protection
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// OAuth Access Tokens — opaque tokens (1 hour), soft-revocable
+export const oauthAccessTokens = pgTable("oauth_access_tokens", {
+  token: varchar("token", { length: 64 }).primaryKey(), // 32 random bytes hex
+  clientId: varchar("client_id", { length: 36 })
+    .references(() => oauthClients.id)
+    .notNull(),
+  userId: uuid("user_id")
+    .references(() => users.id)
+    .notNull(),
+  scopes: text("scopes").array().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }), // soft revocation
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});

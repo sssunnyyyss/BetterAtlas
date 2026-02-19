@@ -640,4 +640,56 @@ CREATE TABLE IF NOT EXISTS ai_trainer_scores (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ============================================================
+-- 18. CREATE OAuth tables (clients, authorization codes, access tokens)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  id VARCHAR(36) PRIMARY KEY,
+  secret VARCHAR(64),
+  name TEXT NOT NULL,
+  description TEXT,
+  redirect_uris TEXT[] NOT NULL,
+  allowed_scopes TEXT[] NOT NULL,
+  is_public BOOLEAN NOT NULL DEFAULT false,
+  is_active BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  created_by UUID REFERENCES users(id)
+);
+
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+  code VARCHAR(64) PRIMARY KEY,
+  client_id VARCHAR(36) NOT NULL REFERENCES oauth_clients(id),
+  user_id UUID NOT NULL REFERENCES users(id),
+  redirect_uri TEXT NOT NULL,
+  scopes TEXT[] NOT NULL,
+  code_challenge VARCHAR(128),
+  code_challenge_method VARCHAR(10),
+  expires_at TIMESTAMPTZ NOT NULL,
+  used_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_auth_codes_client
+  ON oauth_authorization_codes (client_id);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_auth_codes_expires
+  ON oauth_authorization_codes (expires_at);
+
+CREATE TABLE IF NOT EXISTS oauth_access_tokens (
+  token VARCHAR(64) PRIMARY KEY,
+  client_id VARCHAR(36) NOT NULL REFERENCES oauth_clients(id),
+  user_id UUID NOT NULL REFERENCES users(id),
+  scopes TEXT[] NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_user
+  ON oauth_access_tokens (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_expires
+  ON oauth_access_tokens (expires_at);
+
 COMMIT;
