@@ -1,13 +1,10 @@
-import { useState } from "react";
-import { api } from "../api/client.js";
+import { useEffect, useState } from "react";
 import { useAuth } from "../lib/auth.js";
+import { supabase } from "../lib/supabase.js";
 
 export default function Landing() {
-  const { login, register } = useAuth();
-  const betaRequiresInviteCode =
-    import.meta.env.VITE_BETA_REQUIRE_INVITE_CODE === "true";
+  const { login, register, resendVerificationEmail } = useAuth();
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [inviteCode, setInviteCode] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
@@ -15,26 +12,62 @@ export default function Landing() {
   const [graduationYear, setGraduationYear] = useState("");
   const [major, setMajor] = useState("");
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(false);
-  const [verifyingInviteCode, setVerifyingInviteCode] = useState(false);
+  const [resendingVerification, setResendingVerification] = useState(false);
+
+  const canResendVerification =
+    mode === "login" && error.toLowerCase().includes("verify your email");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("emailVerified") === "1") {
+      setMode("login");
+      setError("");
+      setNotice("Email verified. You can sign in now.");
+      params.delete("emailVerified");
+      const nextQuery = params.toString();
+      const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}${window.location.hash}`;
+      window.history.replaceState({}, "", nextUrl);
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
+    setNotice("");
     setLoading(true);
     try {
       if (mode === "login") {
         await login(email, password);
+        // OAuth flow: if ?next= is present, redirect back with the token
+        const params = new URLSearchParams(window.location.search);
+        const next = params.get("next");
+        if (next) {
+          const session = await supabase.auth.getSession();
+          const accessToken = session.data.session?.access_token;
+          if (accessToken) {
+            const sep = next.includes("?") ? "&" : "?";
+            window.location.href = `${next}${sep}token=${accessToken}`;
+            return;
+          }
+        }
       } else {
-        await register({
+        const result = await register({
           email,
           password,
           fullName,
           username,
           graduationYear: graduationYear ? parseInt(graduationYear) : undefined,
           major: major || undefined,
-          inviteCode: inviteCode || undefined,
         });
+        if (result.requiresEmailVerification) {
+          setMode("login");
+          setPassword("");
+          setNotice(
+            "Check your email for a verification link. You need to verify your email before signing in."
+          );
+        }
       }
     } catch (err: any) {
       setError(err.message || "Something went wrong");
@@ -43,27 +76,22 @@ export default function Landing() {
     }
   }
 
-  async function handleInviteCodeStart() {
-    const normalizedInviteCode = inviteCode.trim().toUpperCase();
-    if (!normalizedInviteCode) {
-      setError("Enter your invite code to continue to account creation.");
+  async function handleResendVerification() {
+    if (!email.trim()) {
+      setError("Enter your email to resend the verification email.");
       return;
     }
 
-    setError("");
-    setVerifyingInviteCode(true);
+    setResendingVerification(true);
+    setNotice("");
     try {
-      const result = await api.post<{ valid: true; inviteCode: string }>(
-        "/auth/invite-code/verify",
-        { inviteCode: normalizedInviteCode }
-      );
-
-      setInviteCode(result.inviteCode);
-      setMode("register");
+      await resendVerificationEmail(email.trim());
+      setError("");
+      setNotice("Verification email sent. Check your inbox (and spam folder).");
     } catch (err: any) {
-      setError(err.message || "Invalid or expired invite code");
+      setError(err.message || "Failed to resend verification email");
     } finally {
-      setVerifyingInviteCode(false);
+      setResendingVerification(false);
     }
   }
 
@@ -105,38 +133,42 @@ export default function Landing() {
             BetterAtlas
           </h2>
           <h3 className="text-lg font-medium text-gray-700 mb-6">
-            {mode === "login" ? "Development Access" : "Create your account"}
+            {mode === "login" ? "Sign in to your account" : "Create your account"}
           </h3>
 
-          {mode === "login" && (
-            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
-              <p className="text-sm text-amber-900">
-                We&apos;re still in development. If you already have an account, sign in
-                below. If you have an invite code, enter it here to create an account.
-              </p>
-              <div className="mt-3 flex gap-2">
-                <input
-                  type="text"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  placeholder="Enter invite code"
-                  className="flex-1 rounded-md border-amber-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleInviteCodeStart}
-                  disabled={verifyingInviteCode}
-                  className="rounded-md bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
-                >
-                  {verifyingInviteCode ? "Checking..." : "Use Code"}
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+            <p className="text-sm text-amber-900">
+              Public beta note: AI results can be inaccurate. Please verify details with{" "}
+              <a
+                href="https://atlas.emory.edu/"
+                target="_blank"
+                rel="noreferrer"
+                className="font-medium underline underline-offset-2 hover:text-amber-950"
+              >
+                Emory&apos;s Course Atlas
+              </a>
+              . Known bugs include occasional issues with cross-listed classes.
+            </p>
+          </div>
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-md mb-4 text-sm">
-              {error}
+              <p>{error}</p>
+              {canResendVerification && (
+                <button
+                  type="button"
+                  onClick={handleResendVerification}
+                  disabled={resendingVerification || loading}
+                  className="mt-2 font-medium underline underline-offset-2 hover:text-red-900 disabled:opacity-50"
+                >
+                  {resendingVerification ? "Sending..." : "Resend verification email"}
+                </button>
+              )}
+            </div>
+          )}
+          {notice && (
+            <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-md mb-4 text-sm">
+              {notice}
             </div>
           )}
 
@@ -171,24 +203,6 @@ export default function Landing() {
 
             {mode === "register" && (
               <>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Invite Code {betaRequiresInviteCode ? "" : "(Optional)"}
-                  </label>
-                  <input
-                    type="text"
-                    required={betaRequiresInviteCode}
-                    value={inviteCode}
-                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                    placeholder="BETA-2026"
-                    className="w-full rounded-md border-gray-300 px-3 py-2 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    {betaRequiresInviteCode
-                      ? "Required during beta access."
-                      : "Required only during invite-only beta."}
-                  </p>
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Full Name
@@ -264,7 +278,19 @@ export default function Landing() {
 
           <p className="mt-4 text-center text-sm text-gray-600">
             {mode === "login" ? (
-              <>Use an invite code above to create your account.</>
+              <>
+                Don&apos;t have an account?{" "}
+                <button
+                  onClick={() => {
+                    setMode("register");
+                    setError("");
+                    setNotice("");
+                  }}
+                  className="text-primary-600 hover:text-primary-800 font-medium"
+                >
+                  Create one
+                </button>
+              </>
             ) : (
               <>
                 Already have an account?{" "}
@@ -272,6 +298,7 @@ export default function Landing() {
                   onClick={() => {
                     setMode("login");
                     setError("");
+                    setNotice("");
                   }}
                   className="text-primary-600 hover:text-primary-800 font-medium"
                 >

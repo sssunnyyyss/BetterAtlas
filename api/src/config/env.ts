@@ -40,4 +40,10 @@ export const env = {
     .filter(Boolean),
   metricsDiskPath: process.env.METRICS_DISK_PATH || "/",
   betaRequireInviteCode: parseBoolean(process.env.BETA_REQUIRE_INVITE_CODE),
+  frontendUrl:
+    process.env.FRONTEND_URL ||
+    (process.env.NODE_ENV === "production"
+      ? "https://betteratlas.net"
+      : "http://localhost:5173"),
+  cannySsoKey: process.env.CANNY_SSO_KEY || "",
 } as const;

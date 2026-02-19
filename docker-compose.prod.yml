@@ -7,6 +7,9 @@ services:
       target: production
     environment:
       NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL_DOCKER}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://betteratlas.net}
+      FRONTEND_URL: ${FRONTEND_URL:-https://betteratlas.net}
     volumes: []
 
   frontend:

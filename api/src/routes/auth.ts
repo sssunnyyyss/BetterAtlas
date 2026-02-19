@@ -3,16 +3,17 @@ import { validate } from "../middleware/validate.js";
 import { requireAuth } from "../middleware/auth.js";
 import { authLimiter } from "../middleware/rateLimit.js";
 import { registerSchema, loginSchema } from "@betteratlas/shared";
+import { z } from "zod";
 import { supabase, db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { isAdminEmail } from "../utils/admin.js";
-import { env } from "../config/env.js";
 import {
   evaluateInviteCode,
   getInviteCodeByCode,
   incrementInviteCodeUsedCount,
 } from "../services/inviteCodeService.js";
+import { env } from "../config/env.js";
 import {
   getBadgeBySlug,
   grantBadgeToUser,
@@ -20,6 +21,10 @@ import {
 } from "../services/badgeService.js";
 
 const router = Router();
+const resendVerificationSchema = z.object({
+  email: z.string().email(),
+});
+const loginRedirectUrl = `${env.frontendUrl.replace(/\/+$/, "")}/login?emailVerified=1`;
 
 const authUserSelect = {
   id: users.id,
@@ -105,12 +110,6 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
       inviteCode,
     } = req.body;
 
-    if (env.betaRequireInviteCode && !inviteCode) {
-      return res
-        .status(400)
-        .json({ error: "Invite code is required while beta access is enabled" });
-    }
-
     // Pre-check username uniqueness for a clean 409 response.
     const [usernameTaken] = await db
       .select({ id: users.id })
@@ -155,6 +154,9 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        emailRedirectTo: loginRedirectUrl,
+      },
     });
 
     if (authError) {
@@ -195,6 +197,7 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
     res.status(201).json({
       user: authUser,
       session: authData.session,
+      requiresEmailVerification: !authData.session,
     });
   } catch (err: any) {
     console.error("Registration error:", err);
@@ -214,7 +217,15 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
       password,
     });
 
-    if (authError || !authData.user) {
+    if (authError) {
+      if (String(authError.message || "").toLowerCase().includes("email not confirmed")) {
+        return res.status(403).json({
+          error: "Please verify your email before signing in. Check your inbox for the confirmation link.",
+        });
+      }
+      return res.status(401).json({ error: "Invalid email or password" });
+    }
+    if (!authData.user) {
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
@@ -307,6 +318,45 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
     res.status(500).json({ error: err.message || "Login failed" });
   }
 });
+
+router.post(
+  "/resend-verification",
+  authLimiter,
+  validate(resendVerificationSchema),
+  async (req, res) => {
+    const { email } = req.body;
+
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email,
+        options: {
+          emailRedirectTo: loginRedirectUrl,
+        },
+      });
+
+      if (error) {
+        const message = String(error.message || "").toLowerCase();
+        // Avoid leaking whether an account exists for this email.
+        if (message.includes("not found") || message.includes("for security purposes")) {
+          return res.json({
+            message:
+              "If an unverified account exists for this email, a verification email has been sent.",
+          });
+        }
+        throw error;
+      }
+
+      return res.json({
+        message:
+          "If an unverified account exists for this email, a verification email has been sent.",
+      });
+    } catch (err: any) {
+      console.error("Resend verification error:", err);
+      return res.status(500).json({ error: "Failed to resend verification email" });
+    }
+  }
+);
 
 router.post("/logout", async (req, res) => {
   try {
