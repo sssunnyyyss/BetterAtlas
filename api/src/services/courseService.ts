@@ -676,7 +676,12 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       })
       .from(sections)
       .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
-      .where(inArray(sections.courseId, courseIds))
+      .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+      .where(
+        semester
+          ? and(inArray(sections.courseId, courseIds), eq(terms.name, semester))
+          : inArray(sections.courseId, courseIds)
+      )
       .groupBy(sections.courseId);
 
     for (const r of scoreRows as any[]) {
@@ -1385,7 +1390,16 @@ export async function semanticSearchCoursesByEmbedding(input: {
       })
       .from(sections)
       .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
-      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)))
+      .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+      .where(
+        filters?.semester
+          ? and(
+              inArray(sections.courseId, courseIds),
+              eq(sections.isActive, true),
+              eq(terms.name, filters.semester)
+            )
+          : and(inArray(sections.courseId, courseIds), eq(sections.isActive, true))
+      )
       .groupBy(sections.courseId);
 
     for (const r of scoreRows as any[]) {

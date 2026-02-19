@@ -77,6 +77,16 @@ function sectionSummary(
   return course.description ?? null;
 }
 
+function sectionEnrollmentPercent(
+  section: CourseTopicDetail["sections"][number]
+): number | null {
+  if (typeof section.enrollmentCap !== "number" || section.enrollmentCap <= 0) return null;
+  const enrolled =
+    typeof section.enrollmentCur === "number" ? Math.max(0, section.enrollmentCur) : 0;
+  const pct = (enrolled / section.enrollmentCap) * 100;
+  return Number.isFinite(pct) ? Math.round(pct) : null;
+}
+
 export function isSpecialTopicsCourse(
   course: Pick<CourseWithRatings, "code" | "title">
 ): boolean {
@@ -167,11 +177,30 @@ export function splitSpecialTopicCourses(
       continue;
     }
 
+    // Keep enrollment scoped to each section semester (avoids cross-term averaging).
+    const semesterEnrollment = new Map<string, number>();
+    const semesterBuckets = new Map<string, number[]>();
+    for (const section of sectionsForSplit) {
+      const pct = sectionEnrollmentPercent(section);
+      if (pct === null) continue;
+      const key = normalizeTopic(section.semester) ?? "";
+      const bucket = semesterBuckets.get(key) ?? [];
+      bucket.push(pct);
+      semesterBuckets.set(key, bucket);
+    }
+    for (const [key, values] of semesterBuckets.entries()) {
+      const avg = Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+      semesterEnrollment.set(key, avg);
+    }
+
     for (const section of sectionsForSplit) {
       const topic = displayTopicForSection(course, section);
       const sectionGers = Array.isArray(section.gerCodes)
         ? section.gerCodes.filter((v): v is string => typeof v === "string" && v.trim().length > 0)
         : [];
+      const semesterKey = normalizeTopic(section.semester) ?? "";
+      const scopedEnrollment =
+        semesterEnrollment.get(semesterKey) ?? sectionEnrollmentPercent(section) ?? course.avgEnrollmentPercent;
 
       out.push({
         ...course,
@@ -190,7 +219,7 @@ export function splitSpecialTopicCourses(
           section.registrationRestrictions.trim()
             ? section.registrationRestrictions.trim()
             : course.requirements,
-        avgEnrollmentPercent: course.avgEnrollmentPercent,
+        avgEnrollmentPercent: scopedEnrollment,
         topic,
         sectionId: section.id,
         sectionNumber: section.sectionNumber ?? null,
