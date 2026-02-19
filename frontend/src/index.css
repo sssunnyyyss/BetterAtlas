@@ -159,18 +159,19 @@ h6 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 4.9rem;
-  padding: 0.3rem 0.8rem;
+  min-width: 4.25rem;
+  padding: 0.25rem 0.62rem;
   border-radius: 999px;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   font-weight: 600;
   color: #6b7280;
   transition: color 180ms ease;
+  white-space: nowrap;
 }
 
 .ba-segmented-btn-compact {
-  min-width: 4.1rem;
-  padding: 0.28rem 0.68rem;
+  min-width: 3.55rem;
+  padding: 0.22rem 0.52rem;
 }
 
 .ba-segmented-btn-active {
