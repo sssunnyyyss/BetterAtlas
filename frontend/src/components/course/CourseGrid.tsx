@@ -1,6 +1,7 @@
 import type { CourseWithRatings } from "@betteratlas/shared";
 import { Link, useLocation } from "react-router-dom";
 import CourseCard from "./CourseCard.js";
+import { formatRating, getRatingColor } from "../../lib/utils.js";
 
 interface CourseGridProps {
   courses: CourseWithRatings[];
@@ -14,9 +15,17 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
   const semester = new URLSearchParams(location.search).get("semester");
   const detailSearch = semester ? `?semester=${encodeURIComponent(semester)}` : "";
 
-  function formatScore(value: number | null | undefined) {
-    if (typeof value !== "number" || Number.isNaN(value)) return "—";
-    return value.toFixed(1);
+  function ratingBlock(value: number | null | undefined) {
+    const normalized = typeof value === "number" && Number.isFinite(value) ? value : null;
+    const color = getRatingColor(normalized);
+    return (
+      <span
+        className="inline-flex min-w-11 items-center justify-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums"
+        style={{ color, backgroundColor: `${color}1A`, border: `1px solid ${color}55` }}
+      >
+        {formatRating(normalized)}
+      </span>
+    );
   }
 
   function formatInstructors(list: string[] | undefined) {
@@ -95,8 +104,8 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
                 {formatEnrollment(course.avgEnrollmentPercent)}
               </span>
               <span className="truncate text-gray-600">{formatInstructors(course.instructors)}</span>
-              <span className="tabular-nums text-gray-700">{formatScore(course.classScore ?? null)}</span>
-              <span className="tabular-nums text-gray-700">{formatScore(course.avgDifficulty)}</span>
+              <span>{ratingBlock(course.classScore ?? null)}</span>
+              <span>{ratingBlock(course.avgDifficulty)}</span>
               <span className="tabular-nums text-gray-600">{course.reviewCount}</span>
             </Link>
           ))}

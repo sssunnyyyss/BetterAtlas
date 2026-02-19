@@ -111,7 +111,7 @@ export default function CourseFilters({
         </div>
 
         {programOpen && (
-          <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-lg max-h-64 overflow-auto">
+          <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-lg max-h-64 overflow-auto ba-dropdown-pop">
             {programsLoading && (
               <div className="px-3 py-2 text-sm text-gray-500">Loading...</div>
             )}

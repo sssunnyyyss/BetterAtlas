@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, startTransition } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ProgramTab } from "@betteratlas/shared";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
@@ -167,17 +167,17 @@ export default function Catalog() {
       searchParams.get("mode") === "ai" || searchParams.get("ai") === "1"
         ? "ai"
         : "search";
-    setMode(urlMode);
+    setMode((prev) => (prev === urlMode ? prev : urlMode));
     if (urlMode === "ai") {
       const prompt = searchParams.get("prompt") || "";
-      setAiInput(prompt);
+      setAiInput((prev) => (prev === prompt ? prev : prompt));
     } else {
       // Only hydrate from URL when q is explicitly present.
       // This avoids wiping in-progress search text when other filters change.
       if (searchParams.has("q")) {
         const qFromUrl = searchParams.get("q") || "";
-        setSearchInput(qFromUrl);
-        setDebouncedSearch(qFromUrl.trim());
+        setSearchInput((prev) => (prev === qFromUrl ? prev : qFromUrl));
+        setDebouncedSearch((prev) => (prev === qFromUrl.trim() ? prev : qFromUrl.trim()));
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -344,22 +344,29 @@ export default function Catalog() {
     | undefined;
 
   function setModeAndUrl(next: "search" | "ai") {
+    if (next === mode) return;
     setMode(next);
-    setSearchParams((prev) => {
-      if (next === "ai") {
-        prev.set("mode", "ai");
-        prev.delete("q");
-        prev.delete("page");
-      } else {
-        prev.delete("mode");
-        prev.delete("ai");
-        prev.delete("prompt");
-      }
-      return prev;
-    });
     aiRec.reset();
     setAiMessages([]);
     setAiAllRecs([]);
+    // Let the segmented toggle animate first, then sync URL as a transition.
+    window.requestAnimationFrame(() => {
+      startTransition(() => {
+        setSearchParams((prev) => {
+          const nextParams = new URLSearchParams(prev);
+          if (next === "ai") {
+            nextParams.set("mode", "ai");
+            nextParams.delete("q");
+            nextParams.delete("page");
+          } else {
+            nextParams.delete("mode");
+            nextParams.delete("ai");
+            nextParams.delete("prompt");
+          }
+          return nextParams;
+        });
+      });
+    });
   }
 
   function resetAiChat() {
@@ -513,15 +520,15 @@ export default function Catalog() {
         {/* Search bar */}
         <div className="mb-6">
           <div className="flex flex-wrap items-center gap-3 mb-3">
-            <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+            <div
+              className="ba-segmented"
+              style={{ ["--ba-segment-index" as any]: mode === "ai" ? 1 : 0, ["--ba-segments" as any]: 2 }}
+            >
+              <span className="ba-segmented-glider" aria-hidden="true" />
               <button
                 type="button"
                 onClick={() => setModeAndUrl("search")}
-                className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-                  mode === "search"
-                    ? "bg-primary-600 text-white"
-                    : "text-gray-600 hover:bg-gray-50"
-                }`}
+                className={`ba-segmented-btn ${mode === "search" ? "ba-segmented-btn-active" : ""}`}
               >
                 Search
               </button>
@@ -529,11 +536,7 @@ export default function Catalog() {
                 type="button"
                 onClick={() => setModeAndUrl("ai")}
                 data-tour-id="catalog-ai-entry"
-                className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-                  mode === "ai"
-                    ? "bg-primary-600 text-white"
-                    : "text-gray-600 hover:bg-gray-50"
-                }`}
+                className={`ba-segmented-btn ${mode === "ai" ? "ba-segmented-btn-active" : ""}`}
               >
                 Ask AI
               </button>
@@ -913,7 +916,14 @@ export default function Catalog() {
             {isProgramMode && (
               <div className="flex items-center gap-2 mb-4">
                 {variants && variants.majors.length > 0 && variants.minors.length > 0 && (
-                  <div className="inline-flex rounded-md border border-gray-300 overflow-hidden mr-2">
+                  <div
+                    className="ba-segmented mr-2"
+                    style={{
+                      ["--ba-segment-index" as any]: program?.kind === "minor" ? 1 : 0,
+                      ["--ba-segments" as any]: 2,
+                    }}
+                  >
+                    <span className="ba-segmented-glider" aria-hidden="true" />
                     <button
                       type="button"
                       onClick={() => {
@@ -927,10 +937,8 @@ export default function Catalog() {
                         })[0];
                         if (pick) handleFilterChange("programId", String(pick.id));
                       }}
-                      className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                        program?.kind === "major"
-                          ? "bg-primary-600 text-white"
-                          : "bg-white text-gray-700 hover:bg-gray-50"
+                      className={`ba-segmented-btn ba-segmented-btn-compact ${
+                        program?.kind === "major" ? "ba-segmented-btn-active" : ""
                       }`}
                     >
                       Major
@@ -942,38 +950,41 @@ export default function Catalog() {
                         const pick = [...variants.minors].sort((a, b) => a.id - b.id)[0];
                         if (pick) handleFilterChange("programId", String(pick.id));
                       }}
-                      className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-                        program?.kind === "minor"
-                          ? "bg-primary-600 text-white"
-                          : "bg-white text-gray-700 hover:bg-gray-50"
+                      className={`ba-segmented-btn ba-segmented-btn-compact ${
+                        program?.kind === "minor" ? "ba-segmented-btn-active" : ""
                       }`}
                     >
                       Minor
                     </button>
                   </div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => handleFilterChange("programTab", "required")}
-                  className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                    programTab === "required"
-                      ? "bg-primary-600 text-white border-primary-600"
-                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                  }`}
+                <div
+                  className="ba-segmented"
+                  style={{
+                    ["--ba-segment-index" as any]: programTab === "electives" ? 1 : 0,
+                    ["--ba-segments" as any]: 2,
+                  }}
                 >
-                  Required
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleFilterChange("programTab", "electives")}
-                  className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                    programTab === "electives"
-                      ? "bg-primary-600 text-white border-primary-600"
-                      : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-                  }`}
-                >
-                  Electives
-                </button>
+                  <span className="ba-segmented-glider" aria-hidden="true" />
+                  <button
+                    type="button"
+                    onClick={() => handleFilterChange("programTab", "required")}
+                    className={`ba-segmented-btn ba-segmented-btn-compact ${
+                      programTab === "required" ? "ba-segmented-btn-active" : ""
+                    }`}
+                  >
+                    Required
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleFilterChange("programTab", "electives")}
+                    className={`ba-segmented-btn ba-segmented-btn-compact ${
+                      programTab === "electives" ? "ba-segmented-btn-active" : ""
+                    }`}
+                  >
+                    Electives
+                  </button>
+                </div>
                 {debouncedSearch.trim() && (
                   <span className="text-xs text-gray-500 ml-2">
                     Filtering within {programTab} for "{debouncedSearch.trim()}"
@@ -990,14 +1001,19 @@ export default function Catalog() {
                 </p>
               )}
 
-              <div className="ml-auto inline-flex rounded-lg border border-gray-200 bg-white p-1">
+              <div
+                className="ml-auto ba-segmented"
+                style={{
+                  ["--ba-segment-index" as any]: catalogView === "list" ? 1 : 0,
+                  ["--ba-segments" as any]: 2,
+                }}
+              >
+                <span className="ba-segmented-glider" aria-hidden="true" />
                 <button
                   type="button"
                   onClick={() => setCatalogView("grid")}
-                  className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-                    catalogView === "grid"
-                      ? "bg-primary-600 text-white"
-                      : "text-gray-600 hover:bg-gray-50"
+                  className={`ba-segmented-btn ba-segmented-btn-compact ${
+                    catalogView === "grid" ? "ba-segmented-btn-active" : ""
                   }`}
                 >
                   Cards
@@ -1005,10 +1021,8 @@ export default function Catalog() {
                 <button
                   type="button"
                   onClick={() => setCatalogView("list")}
-                  className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
-                    catalogView === "list"
-                      ? "bg-primary-600 text-white"
-                      : "text-gray-600 hover:bg-gray-50"
+                  className={`ba-segmented-btn ba-segmented-btn-compact ${
+                    catalogView === "list" ? "ba-segmented-btn-active" : ""
                   }`}
                 >
                   List

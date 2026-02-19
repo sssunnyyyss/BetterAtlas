@@ -91,22 +91,107 @@ h6 {
 }
 
 .ba-page-fade {
-  animation: ba-page-fade-in 180ms ease-out both;
+  animation: ba-page-fade-in 260ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: opacity, transform;
 }
 
 @keyframes ba-page-fade-in {
   from {
     opacity: 0;
+    transform: translateY(8px) scale(0.995);
   }
 
   to {
     opacity: 1;
+    transform: translateY(0) scale(1);
   }
+}
+
+.ba-dropdown-pop {
+  transform-origin: top center;
+  animation: ba-dropdown-pop-in 180ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes ba-dropdown-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ba-segmented {
+  position: relative;
+  display: inline-grid;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 0;
+  padding: 2px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+.ba-segmented-glider {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc((100% - 4px) / var(--ba-segments, 2));
+  border-radius: 999px;
+  background: #012169;
+  box-shadow: 0 6px 18px rgba(0, 40, 120, 0.2);
+  transform: translateX(calc(var(--ba-segment-index, 0) * 100%));
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ba-segmented-btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 4.9rem;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #6b7280;
+  transition: color 180ms ease;
+}
+
+.ba-segmented-btn-compact {
+  min-width: 4.1rem;
+  padding: 0.28rem 0.68rem;
+}
+
+.ba-segmented-btn-active {
+  color: #fff;
+}
+
+.ba-segmented-btn:not(.ba-segmented-btn-active):hover {
+  color: #374151;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .ba-page-fade {
     animation: none;
+  }
+
+  .ba-dropdown-pop {
+    animation: none;
+  }
+
+  .ba-segmented-glider {
+    transition: none;
   }
 }
 

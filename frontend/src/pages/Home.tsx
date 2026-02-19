@@ -52,19 +52,21 @@ export default function Home() {
 
       <main className="relative home-main">
         <section className="home-hero mx-auto max-w-5xl px-5 sm:px-8 text-center">
-          <div className="home-kicker">Emory course search, but usable.</div>
+          <div className="home-kicker">Beta 1.0.0 release!</div>
 
           <h1 className="home-title">
             Welcome to <span className="home-titleAccent">BetterAtlas</span>!
           </h1>
 
-          <p className="home-tagline">
-            we know <span className="home-taglineSite">atlas.emory.edu</span>{" "}
-            <span className="home-taglineSucks">SUCKS</span>
-          </p>
+          <p className="home-tagline">Emory's first student run course catalogue</p>
 
           <form onSubmit={onSubmit} className="home-searchWrap">
-            <div className="home-modeToggle" aria-label="Search mode">
+            <div
+              className="home-modeToggle"
+              aria-label="Search mode"
+              style={{ ["--home-mode-index" as any]: mode === "ai" ? 1 : 0 }}
+            >
+              <span className="home-modeGlider" aria-hidden="true" />
               <button
                 type="button"
                 onClick={() => setMode("search")}

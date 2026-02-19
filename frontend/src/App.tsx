@@ -60,7 +60,7 @@ function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
   const location = useLocation();
 
   return (
-    <div key={`${location.pathname}${location.search}`} className="ba-page-fade">
+    <div key={location.pathname} className="ba-page-fade">
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <Landing />} />

@@ -70,7 +70,6 @@ export default function Navbar() {
                     <span>{avatarInitial}</span>
                   )}
                 </Link>
-                <span className="text-sm text-gray-500 hidden sm:inline">@{user.username}</span>
                 <button
                   onClick={logout}
                   className="text-sm text-gray-500 hover:text-gray-900 hidden sm:inline transition-colors"

@@ -139,7 +139,7 @@ export default function Friends() {
           </div>
 
           {showDropdown && (
-            <div className="absolute z-[75] mt-1 w-full bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden">
+            <div className="absolute z-[75] mt-1 w-full bg-white rounded-lg border border-gray-200 shadow-lg overflow-hidden ba-dropdown-pop">
               {!searchResults || searchResults.length === 0 ? (
                 <div className="px-4 py-3 text-sm text-gray-500">
                   {searching ? "Searching..." : "No users found"}

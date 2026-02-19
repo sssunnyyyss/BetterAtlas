@@ -617,7 +617,7 @@ export default function CourseDetail() {
             {isActionsMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 mt-2 min-w-[220px] rounded-xl border border-gray-200 bg-white shadow-lg z-20"
+                className="absolute right-0 mt-2 min-w-[220px] rounded-xl border border-gray-200 bg-white shadow-lg z-20 ba-dropdown-pop"
               >
                 <button
                   type="button"
