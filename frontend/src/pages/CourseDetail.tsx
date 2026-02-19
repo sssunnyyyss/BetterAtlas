@@ -14,6 +14,7 @@ import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
 import { useAddToSchedule } from "../hooks/useSchedule.js";
 import { layoutOverlaps } from "../lib/calendarLayout.js";
 import { useSubmitFeedback } from "../hooks/useFeedback.js";
+import { normalizeTopic } from "../lib/courseTopics.js";
 
 const ENROLLMENT_STATUS_LABELS: Record<string, string> = {
   O: "Open",
@@ -75,15 +76,31 @@ function schedulesForSection(section: Section): Schedule[] {
 }
 
 function sectionTopic(section: Section): string | null {
-  const raw =
-    typeof section.sectionDescription === "string"
-      ? section.sectionDescription.trim()
-      : "";
-  return raw || null;
+  return normalizeTopic(section.sectionDescription) ?? normalizeTopic(section.classNotes);
+}
+
+function sectionInstructorNames(section: Section): string[] {
+  if (Array.isArray(section.instructors) && section.instructors.length > 0) {
+    return Array.from(
+      new Set(
+        section.instructors
+          .map((ins) => String(ins.name ?? "").trim())
+          .filter(Boolean)
+      )
+    );
+  }
+  if (section.instructor?.name) return [section.instructor.name];
+  return [];
 }
 
 function SectionDetails({ section }: { section: Section }) {
   const scheds = schedulesForSection(section);
+  const roster =
+    Array.isArray(section.instructors) && section.instructors.length > 0
+      ? section.instructors
+      : section.instructor
+        ? [{ ...section.instructor, role: null }]
+        : [];
   return (
     <div className="space-y-2 text-sm text-gray-700">
       <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -102,20 +119,26 @@ function SectionDetails({ section }: { section: Section }) {
         )}
       </div>
 
-      {section.instructor && (
+      {roster.length > 0 && (
         <div>
-          <span className="font-medium text-gray-800">Professor:</span>{" "}
-          <Link to={`/professors/${section.instructor.id}`} className="text-gray-900 hover:underline">
-            {section.instructor.name}
-          </Link>
-          {section.instructor.email && (
-            <a
-              href={`mailto:${section.instructor.email}`}
-              className="text-primary-600 hover:text-primary-800 ml-2"
-            >
-              {section.instructor.email}
-            </a>
-          )}
+          <span className="font-medium text-gray-800">
+            {roster.length > 1 ? "Instructors:" : "Instructor:"}
+          </span>
+          <div className="mt-1 space-y-1">
+            {roster.map((ins, idx) => (
+              <div key={`${ins.id}:${idx}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <Link to={`/professors/${ins.id}`} className="text-gray-900 hover:underline">
+                  {ins.name}
+                </Link>
+                {ins.email && (
+                  <a href={`mailto:${ins.email}`} className="text-primary-600 hover:text-primary-800">
+                    {ins.email}
+                  </a>
+                )}
+                {ins.role && <span className="text-xs text-gray-500">{ins.role}</span>}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -203,6 +226,26 @@ function sectionNumberSortKey(sectionNumber: string | null) {
   const m = /^0*([0-9]+)\s*([A-Za-z].*)?$/.exec(s);
   if (!m) return { num: Number.POSITIVE_INFINITY, suffix: s.toUpperCase() };
   return { num: Number(m[1]), suffix: String(m[2] ?? "").toUpperCase() };
+}
+
+function semesterSortKey(semester: string | null | undefined) {
+  const raw = String(semester ?? "").trim();
+  const m = /^(Spring|Summer|Fall|Winter)\s+(\d{4})$/i.exec(raw);
+  if (!m) return { year: -1, term: -1, raw: raw.toUpperCase() };
+
+  const season = m[1].toLowerCase();
+  const year = Number(m[2]);
+  const termOrder: Record<string, number> = {
+    winter: 0,
+    spring: 1,
+    summer: 2,
+    fall: 3,
+  };
+  return {
+    year: Number.isFinite(year) ? year : -1,
+    term: termOrder[season] ?? -1,
+    raw: raw.toUpperCase(),
+  };
 }
 
 type MiniBlock = {
@@ -308,6 +351,12 @@ export default function CourseDetail() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const selectedSemester = (searchParams.get("semester") || "").trim();
+  const selectedTopic = normalizeTopic(searchParams.get("topic"));
+  const selectedSectionIdRaw = (searchParams.get("section") || "").trim();
+  const selectedSectionId =
+    /^\d+$/.test(selectedSectionIdRaw) && Number(selectedSectionIdRaw) > 0
+      ? Number(selectedSectionIdRaw)
+      : null;
 
   const {
     data: course,
@@ -359,15 +408,42 @@ export default function CourseDetail() {
 
   const visibleSections = useMemo(() => {
     if (!course) return [] as Section[];
-    if (!selectedSemester) return course.sections;
-    return course.sections.filter((s) => s.semester === selectedSemester);
-  }, [course, selectedSemester]);
+
+    if (selectedSectionId !== null) {
+      return course.sections.filter((section) => {
+        if (section.id !== selectedSectionId) return false;
+        if (selectedSemester && section.semester !== selectedSemester) return false;
+        return true;
+      });
+    }
+
+    const selectedTopicKey = selectedTopic ? selectedTopic.toLocaleLowerCase() : null;
+
+    return course.sections.filter((section) => {
+      if (selectedSemester && section.semester !== selectedSemester) return false;
+      if (!selectedTopicKey) return true;
+      const topic = sectionTopic(section);
+      return topic ? topic.toLocaleLowerCase() === selectedTopicKey : false;
+    });
+  }, [course, selectedSectionId, selectedSemester, selectedTopic]);
 
   const professors = useMemo(() => {
     const c = course;
     if (!c) return [];
+    if (visibleSections.length === 0) return [];
 
-    if (c.professors && c.professors.length > 0) return c.professors;
+    const visibleInstructorIds = new Set<number>();
+    for (const s of visibleSections) {
+      const id = s.instructor?.id;
+      if (typeof id === "number") visibleInstructorIds.add(id);
+    }
+    if (visibleInstructorIds.size === 0) return [];
+
+    if (c.professors && c.professors.length > 0) {
+      return c.professors
+        .filter((p) => visibleInstructorIds.has(p.id))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
 
     const seen = new Map<
       number,
@@ -383,7 +459,7 @@ export default function CourseDetail() {
       }
     >();
 
-    for (const s of c.sections) {
+    for (const s of visibleSections) {
       const i = s.instructor;
       if (!i) continue;
       if (!seen.has(i.id)) {
@@ -400,8 +476,8 @@ export default function CourseDetail() {
       }
     }
 
-    return Array.from(seen.values());
-  }, [course]);
+    return Array.from(seen.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [course, visibleSections]);
 
   const activeSection = useMemo(() => {
     if (!activeSectionId) return null;
@@ -409,39 +485,28 @@ export default function CourseDetail() {
   }, [visibleSections, activeSectionId]);
 
   const courseEnrollment = useMemo(() => {
-    const totals = visibleSections.reduce(
+    const sectionPercents = visibleSections.reduce(
       (acc, section) => {
         const cap = section.enrollmentCap;
         if (typeof cap === "number" && cap > 0) {
           const enrolled = Math.max(0, section.enrollmentCur ?? 0);
           const sectionPct = enrollmentPercent(enrolled, cap);
-          acc.cap += cap;
-          acc.enrolled += enrolled;
           if (sectionPct !== null) {
-            acc.sectionPercents.push(sectionPct);
+            acc.push(sectionPct);
           }
         }
         return acc;
       },
-      { cap: 0, enrolled: 0, sectionPercents: [] as number[] }
+      [] as number[]
     );
 
-    if (totals.cap <= 0 && totals.sectionPercents.length === 0) return null;
-
-    const averagePercent =
-      totals.sectionPercents.length > 0
-        ? Math.round(
-            totals.sectionPercents.reduce((sum, pct) => sum + pct, 0) /
-              totals.sectionPercents.length
-          )
-        : null;
+    if (sectionPercents.length === 0) return null;
 
     return {
-      enrolled: totals.enrolled,
-      cap: totals.cap,
-      percent: enrollmentPercent(totals.enrolled, totals.cap) ?? 0,
-      averagePercent,
-      sectionCount: totals.sectionPercents.length,
+      averagePercent: Math.round(
+        sectionPercents.reduce((sum, pct) => sum + pct, 0) / sectionPercents.length
+      ),
+      sectionCount: sectionPercents.length,
     };
   }, [visibleSections]);
 
@@ -456,13 +521,20 @@ export default function CourseDetail() {
     return topics.size > 1;
   }, [visibleSections]);
 
+  const groupedBySemester = useMemo(() => {
+    return new Set(visibleSections.map((s) => String(s.semester ?? "").trim())).size > 1;
+  }, [visibleSections]);
+
   const groupedSections = useMemo(() => {
     if (visibleSections.length === 0) return [];
+    const semesterCount = new Set(visibleSections.map((s) => String(s.semester ?? "").trim())).size;
+    const groupBySemester = semesterCount > 1;
 
     const map = new Map<
       string,
       {
         key: string;
+        semester: string | null;
         instructorId: number | null;
         instructorName: string;
         topic: string | null;
@@ -471,6 +543,24 @@ export default function CourseDetail() {
     >();
 
     for (const s of visibleSections) {
+      const semester = normalizeTopic(s.semester);
+      if (groupBySemester) {
+        const semesterKey = semester ?? "Semester TBD";
+        const key = `sem:${semesterKey.toLowerCase()}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            semester: semesterKey,
+            instructorId: null,
+            instructorName: "",
+            topic: null,
+            sections: [],
+          });
+        }
+        map.get(key)!.sections.push(s);
+        continue;
+      }
+
       const instructorId = s.instructor?.id ?? null;
       const instructorName = s.instructor?.name ?? "TBA";
       const topic = hasMultipleSectionTopics ? sectionTopic(s) : null;
@@ -482,7 +572,14 @@ export default function CourseDetail() {
             ? `t:tbd::${instructorKey}`
             : instructorKey;
       if (!map.has(key)) {
-        map.set(key, { key, instructorId, instructorName, topic, sections: [] });
+        map.set(key, {
+          key,
+          semester: null,
+          instructorId,
+          instructorName,
+          topic,
+          sections: [],
+        });
       }
       map.get(key)!.sections.push(s);
     }
@@ -490,6 +587,11 @@ export default function CourseDetail() {
     const groups = Array.from(map.values());
     for (const g of groups) {
       g.sections.sort((a, b) => {
+        if (groupBySemester) {
+          const aName = a.instructor?.name ?? "";
+          const bName = b.instructor?.name ?? "";
+          if (aName !== bName) return aName.localeCompare(bName);
+        }
         const ak = sectionNumberSortKey(a.sectionNumber ?? null);
         const bk = sectionNumberSortKey(b.sectionNumber ?? null);
         if (ak.num !== bk.num) return ak.num - bk.num;
@@ -499,6 +601,14 @@ export default function CourseDetail() {
     }
 
     groups.sort((a, b) => {
+      if (groupBySemester) {
+        const ak = semesterSortKey(a.semester);
+        const bk = semesterSortKey(b.semester);
+        if (ak.year !== bk.year) return bk.year - ak.year;
+        if (ak.term !== bk.term) return bk.term - ak.term;
+        return ak.raw.localeCompare(bk.raw);
+      }
+
       if (hasMultipleSectionTopics) {
         const aTopic = a.topic ?? "~";
         const bTopic = b.topic ?? "~";
@@ -752,18 +862,6 @@ export default function CourseDetail() {
           {courseEnrollment && (
             <div
               className={`flex flex-col items-center rounded-lg border px-3 py-1.5 ${enrollmentTone(
-                courseEnrollment.percent
-              )}`}
-            >
-              <span className="text-sm font-semibold">{courseEnrollment.percent}% enrolled</span>
-              <span className="text-[10px]">
-                {courseEnrollment.enrolled}/{courseEnrollment.cap}
-              </span>
-            </div>
-          )}
-          {courseEnrollment && courseEnrollment.averagePercent !== null && (
-            <div
-              className={`flex flex-col items-center rounded-lg border px-3 py-1.5 ${enrollmentTone(
                 courseEnrollment.averagePercent
               )}`}
             >
@@ -802,17 +900,21 @@ export default function CourseDetail() {
                 <summary className="cursor-pointer select-none list-none flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-gray-900 truncate">
-                      {hasMultipleSectionTopics ? (group.topic ?? "Topic TBD") : group.instructorName}
+                      {groupedBySemester
+                        ? group.semester ?? "Semester TBD"
+                        : hasMultipleSectionTopics
+                          ? (group.topic ?? "Topic TBD")
+                          : group.instructorName}
                       <span className="text-xs font-normal text-gray-500 ml-2">
                         {group.sections.length} section{group.sections.length !== 1 ? "s" : ""}
                       </span>
                     </div>
-                    {hasMultipleSectionTopics && (
+                    {hasMultipleSectionTopics && !groupedBySemester && (
                       <div className="text-xs text-gray-500 mt-0.5">
                         Professor: {group.instructorName}
                       </div>
                     )}
-                    {group.instructorId !== null && (
+                    {!groupedBySemester && group.instructorId !== null && (
                       <div className="text-xs text-gray-500">
                         <Link
                           to={`/professors/${group.instructorId}`}
@@ -856,9 +958,11 @@ export default function CourseDetail() {
                                 </span>
                               )}
                             </div>
-                            {section.instructor && (
+                            {sectionInstructorNames(section).length > 0 && (
                               <div className="mt-1.5">
-                                <div className="text-sm text-gray-700 truncate">{section.instructor.name}</div>
+                                <div className="text-sm text-gray-700 truncate">
+                                  {sectionInstructorNames(section).join(", ")}
+                                </div>
                               </div>
                             )}
                             {section.registrationRestrictions && (
@@ -869,7 +973,7 @@ export default function CourseDetail() {
                             )}
                             {sectionTopic(section) && (
                               <div className="mt-1 text-xs text-gray-600 line-clamp-2">
-                                <span className="font-medium text-gray-700">Topic:</span>{" "}
+                                <span className="font-medium text-gray-700">Description:</span>{" "}
                                 {sectionTopic(section)}
                               </div>
                             )}

@@ -83,6 +83,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_instructors_atlas_id
 ALTER TABLE courses
   ADD COLUMN IF NOT EXISTS prerequisites TEXT,
   ADD COLUMN IF NOT EXISTS attributes TEXT,
+  ADD COLUMN IF NOT EXISTS class_notes TEXT,
   ADD COLUMN IF NOT EXISTS grade_mode VARCHAR(50);
 
 -- ============================================================
@@ -112,6 +113,7 @@ ALTER TABLE sections
   ADD COLUMN IF NOT EXISTS ger_designation TEXT,
   -- Comma-delimited codes with leading/trailing commas, e.g. ",HA,CW,ETHN,"
   ADD COLUMN IF NOT EXISTS ger_codes TEXT,
+  ADD COLUMN IF NOT EXISTS class_notes TEXT,
   ADD COLUMN IF NOT EXISTS atlas_key VARCHAR(20),
   ADD COLUMN IF NOT EXISTS last_synced TIMESTAMPTZ;
 
@@ -150,6 +152,29 @@ CREATE INDEX IF NOT EXISTS idx_sections_status ON sections (enrollment_status);
 -- which requires a predicate-free unique index/constraint to match.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sections_crn_term
   ON sections (crn, term_code);
+
+-- 5e.1 Section instructors roster (multiple instructors per section, with role labels)
+CREATE TABLE IF NOT EXISTS section_instructors (
+  id SERIAL PRIMARY KEY,
+  section_id INTEGER NOT NULL REFERENCES sections(id) ON DELETE CASCADE,
+  instructor_id INTEGER NOT NULL REFERENCES instructors(id) ON DELETE CASCADE,
+  role VARCHAR(80),
+  sort_order SMALLINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_section_instructors_section_instructor_unique
+  ON section_instructors (section_id, instructor_id);
+
+CREATE INDEX IF NOT EXISTS idx_section_instructors_section
+  ON section_instructors (section_id);
+
+CREATE INDEX IF NOT EXISTS idx_section_instructors_instructor
+  ON section_instructors (instructor_id);
+
+CREATE INDEX IF NOT EXISTS idx_section_instructors_section_sort
+  ON section_instructors (section_id, sort_order);
 
 -- 5f. Drop old semester column
 ALTER TABLE sections DROP COLUMN IF EXISTS semester;

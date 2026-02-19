@@ -67,6 +67,7 @@ type CourseSyncRun = {
   requestedBy: string;
   requestedEmail: string;
   termCode: string | null;
+  termCodes: string[];
   scheduleTriggered: boolean;
   error: string | null;
   logs: SyncRunLog[];
@@ -236,6 +237,7 @@ function summarizeCourseSyncRun(run: CourseSyncRun) {
     requestedBy: run.requestedBy,
     requestedEmail: run.requestedEmail,
     termCode: run.termCode,
+    termCodes: run.termCodes,
     scheduleTriggered: run.scheduleTriggered,
     error: run.error,
     logCount: run.logs.length,
@@ -284,9 +286,16 @@ function findEmbeddingSyncRunById(rawId: string) {
 function createCourseSyncRun(input: {
   requestedBy: string;
   requestedEmail: string;
-  termCode: string | null;
+  termCodes: string[];
   scheduleTriggered: boolean;
 }) {
+  const cleanedTermCodes = Array.from(
+    new Set(
+      input.termCodes
+        .map((v) => String(v || "").trim())
+        .filter(Boolean)
+    )
+  );
   const run: CourseSyncRun = {
     id: nextRunId++,
     type: "courses_sync",
@@ -296,7 +305,8 @@ function createCourseSyncRun(input: {
     finishedAt: null,
     requestedBy: input.requestedBy,
     requestedEmail: input.requestedEmail,
-    termCode: input.termCode,
+    termCode: cleanedTermCodes.length === 1 ? cleanedTermCodes[0]! : null,
+    termCodes: cleanedTermCodes,
     scheduleTriggered: input.scheduleTriggered,
     error: null,
     logs: [],
@@ -451,89 +461,108 @@ function lineSplitPump(
   run: { logs: SyncRunLog[] },
   level: SyncRunLog["level"],
   chunk: string,
-  buffer: { value: string }
+  buffer: { value: string },
+  prefix?: string
 ) {
   buffer.value += chunk;
   const lines = buffer.value.split(/\r?\n/);
   buffer.value = lines.pop() ?? "";
   for (const line of lines) {
     const message = line.trim();
-    if (message) pushRunLog(run, level, message);
+    if (message) pushRunLog(run, level, `${prefix ?? ""}${message}`);
   }
 }
 
 async function executeCourseSyncRun(run: CourseSyncRun) {
+  const executeSingleCourseSyncProcess = async (
+    termCode: string | null,
+    label: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const envVars: NodeJS.ProcessEnv = { ...process.env };
+    if (termCode) envVars.ATLAS_TERM_CODE = termCode;
+    else delete envVars.ATLAS_TERM_CODE;
+
+    const useDistScript = existsSync(atlasSyncDistPath);
+    const command = useDistScript ? process.execPath : "pnpm";
+    const args = useDistScript ? [atlasSyncDistPath] : ["atlas:sync"];
+
+    pushRunLog(
+      run,
+      "info",
+      `[${label}] Launching ${useDistScript ? `node ${atlasSyncDistPath}` : "pnpm atlas:sync"}`
+    );
+
+    const child = spawn(command, args, {
+      cwd: apiRootDir,
+      env: envVars,
+      shell: !useDistScript && process.platform === "win32",
+    });
+
+    const stdoutBuffer = { value: "" };
+    const stderrBuffer = { value: "" };
+
+    child.stdout?.setEncoding("utf8");
+    child.stderr?.setEncoding("utf8");
+
+    child.stdout?.on("data", (chunk: string) => {
+      lineSplitPump(run, "info", chunk, stdoutBuffer, `[${label}] `);
+    });
+    child.stderr?.on("data", (chunk: string) => {
+      lineSplitPump(run, "warn", chunk, stderrBuffer, `[${label}] `);
+    });
+
+    return await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+      child.on("error", (err) => {
+        const message = err.message || "Failed to launch course sync process";
+        pushRunLog(run, "error", `[${label}] ${message}`);
+        resolve({ ok: false, error: message });
+      });
+
+      child.on("close", (code, signal) => {
+        if (stdoutBuffer.value.trim()) {
+          pushRunLog(run, "info", `[${label}] ${stdoutBuffer.value.trim()}`);
+        }
+        if (stderrBuffer.value.trim()) {
+          pushRunLog(run, "warn", `[${label}] ${stderrBuffer.value.trim()}`);
+        }
+
+        if (code === 0) {
+          resolve({ ok: true });
+        } else {
+          const message = `Course sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
+          pushRunLog(run, "error", `[${label}] ${message}`);
+          resolve({ ok: false, error: message });
+        }
+      });
+    });
+  };
+
   run.status = "running";
   run.startedAt = nowIso();
-  const termLabel = run.termCode || "active-term-default";
-  pushRunLog(run, "info", `Course sync started (term=${termLabel})`);
+  const termsToRun = run.termCodes.length > 0 ? run.termCodes : [null];
+  const runLabel =
+    termsToRun.length === 1
+      ? termsToRun[0] || "active-term-default"
+      : `${termsToRun.length} terms`;
+  pushRunLog(run, "info", `Course sync started (${runLabel})`);
 
-  const envVars: NodeJS.ProcessEnv = { ...process.env };
-  if (run.termCode) {
-    envVars.ATLAS_TERM_CODE = run.termCode;
-  } else {
-    delete envVars.ATLAS_TERM_CODE;
-  }
-
-  const useDistScript = existsSync(atlasSyncDistPath);
-  const command = useDistScript ? process.execPath : "pnpm";
-  const args = useDistScript ? [atlasSyncDistPath] : ["atlas:sync"];
-
-  pushRunLog(
-    run,
-    "info",
-    `Launching ${useDistScript ? `node ${atlasSyncDistPath}` : "pnpm atlas:sync"}`
-  );
-
-  const child = spawn(command, args, {
-    cwd: apiRootDir,
-    env: envVars,
-    shell: !useDistScript && process.platform === "win32",
-  });
-
-  const stdoutBuffer = { value: "" };
-  const stderrBuffer = { value: "" };
-
-  child.stdout?.setEncoding("utf8");
-  child.stderr?.setEncoding("utf8");
-
-  child.stdout?.on("data", (chunk: string) => {
-    lineSplitPump(run, "info", chunk, stdoutBuffer);
-  });
-  child.stderr?.on("data", (chunk: string) => {
-    lineSplitPump(run, "warn", chunk, stderrBuffer);
-  });
-
-  await new Promise<void>((resolve) => {
-    child.on("error", (err) => {
+  for (let idx = 0; idx < termsToRun.length; idx++) {
+    const termCode = termsToRun[idx];
+    const label = termCode || "active-term-default";
+    pushRunLog(run, "info", `Starting term ${idx + 1}/${termsToRun.length}: ${label}`);
+    const result = await executeSingleCourseSyncProcess(termCode, label);
+    if (!result.ok) {
       run.status = "failed";
       run.finishedAt = nowIso();
-      run.error = err.message || "Failed to launch course sync process";
-      pushRunLog(run, "error", run.error);
-      resolve();
-    });
+      run.error = result.error || `Term ${label} failed`;
+      return;
+    }
+    pushRunLog(run, "info", `Finished term ${idx + 1}/${termsToRun.length}: ${label}`);
+  }
 
-    child.on("close", (code, signal) => {
-      if (stdoutBuffer.value.trim()) {
-        pushRunLog(run, "info", stdoutBuffer.value.trim());
-      }
-      if (stderrBuffer.value.trim()) {
-        pushRunLog(run, "warn", stderrBuffer.value.trim());
-      }
-
-      if (code === 0) {
-        run.status = "succeeded";
-        run.finishedAt = nowIso();
-        pushRunLog(run, "info", "Course sync completed successfully");
-      } else {
-        run.status = "failed";
-        run.finishedAt = nowIso();
-        run.error = `Course sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
-        pushRunLog(run, "error", run.error);
-      }
-      resolve();
-    });
-  });
+  run.status = "succeeded";
+  run.finishedAt = nowIso();
+  pushRunLog(run, "info", "Course sync completed successfully");
 }
 
 async function executeEmbeddingSyncRun(run: EmbeddingSyncRun) {
@@ -541,20 +570,20 @@ async function executeEmbeddingSyncRun(run: EmbeddingSyncRun) {
   run.startedAt = nowIso();
   pushRunLog(run, "info", "Embeddings sync started");
 
-  const useDistScript = existsSync(embeddingsBackfillDistPath);
-  const command = useDistScript ? process.execPath : "pnpm";
-  const args = useDistScript ? [embeddingsBackfillDistPath] : ["embeddings:backfill"];
+  const useEmbDistScript = existsSync(embeddingsBackfillDistPath);
+  const command = useEmbDistScript ? process.execPath : "pnpm";
+  const args = useEmbDistScript ? [embeddingsBackfillDistPath] : ["embeddings:backfill"];
 
   pushRunLog(
     run,
     "info",
-    `Launching ${useDistScript ? `node ${embeddingsBackfillDistPath}` : "pnpm embeddings:backfill"}`
+    `Launching ${useEmbDistScript ? `node ${embeddingsBackfillDistPath}` : "pnpm embeddings:backfill"}`
   );
 
   const child = spawn(command, args, {
     cwd: apiRootDir,
     env: process.env,
-    shell: !useDistScript && process.platform === "win32",
+    shell: !useEmbDistScript && process.platform === "win32",
   });
 
   const stdoutBuffer = { value: "" };
@@ -708,7 +737,7 @@ async function maybeTriggerScheduledCourseSyncRun() {
   const run = createCourseSyncRun({
     requestedBy: "scheduler",
     requestedEmail: `scheduler@${courseSyncSchedule.timezone}`,
-    termCode: courseSyncSchedule.termCode,
+    termCodes: courseSyncSchedule.termCode ? [courseSyncSchedule.termCode] : [],
     scheduleTriggered: true,
   });
   queueMicrotask(() => {
@@ -951,10 +980,22 @@ router.post("/course-sync/runs", async (req, res) => {
     });
   }
 
+  const termCodesFromBody: string[] = Array.isArray(req.body?.termCodes)
+    ? req.body.termCodes
+        .map((raw: unknown) => String(raw ?? "").trim())
+        .filter((v: string) => v.length > 0)
+    : [];
   const termCodeRaw = String(req.body?.termCode || "").trim();
-  const termCode = termCodeRaw ? termCodeRaw : null;
 
-  if (termCode) {
+  const requestedTermCodes: string[] =
+    termCodesFromBody.length > 0
+      ? termCodesFromBody
+      : termCodeRaw
+        ? [termCodeRaw]
+        : [];
+  const termCodes: string[] = Array.from(new Set(requestedTermCodes));
+
+  for (const termCode of termCodes) {
     const ensured = await ensureTermExists(termCode);
     if (!ensured) {
       return res.status(400).json({ error: `Invalid termCode: ${termCode}` });
@@ -964,7 +1005,7 @@ router.post("/course-sync/runs", async (req, res) => {
   const run = createCourseSyncRun({
     requestedBy: req.user!.id,
     requestedEmail: req.user!.email,
-    termCode,
+    termCodes,
     scheduleTriggered: false,
   });
   queueMicrotask(() => {

@@ -1,10 +1,11 @@
 import { Link, useLocation } from "react-router-dom";
-import type { CourseWithRatings } from "@betteratlas/shared";
 import RatingBadge from "./RatingBadge.js";
 import GerPills from "./GerPills.js";
+import type { CatalogCourseEntry } from "../../lib/courseTopics.js";
+import { buildCourseDetailSearch } from "../../lib/courseTopics.js";
 
 interface CourseCardProps {
-  course: CourseWithRatings;
+  course: CatalogCourseEntry;
   view?: "grid" | "list";
 }
 
@@ -19,7 +20,22 @@ export default function CourseCard({ course, view = "grid" }: CourseCardProps) {
   const location = useLocation();
   const instructors = course.instructors ?? [];
   const semester = new URLSearchParams(location.search).get("semester");
-  const detailSearch = semester ? `?semester=${encodeURIComponent(semester)}` : "";
+  const detailSearch = buildCourseDetailSearch({
+    semester,
+    topic: course.topic ?? null,
+    sectionId: course.sectionId ?? null,
+  });
+  const displayTitle = (() => {
+    const base = String(course.title ?? "").trim();
+    const topic = String(course.topic ?? "").trim();
+    if (!topic) return base;
+
+    const baseKey = base.toLocaleLowerCase();
+    const topicKey = topic.toLocaleLowerCase();
+    if (baseKey.includes(topicKey)) return base;
+
+    return `${base.replace(/[:\s]+$/g, "")}: ${topic}`;
+  })();
   const avgEnrollmentPercent =
     typeof course.avgEnrollmentPercent === "number" && Number.isFinite(course.avgEnrollmentPercent)
       ? Math.round(course.avgEnrollmentPercent)
@@ -50,7 +66,7 @@ export default function CourseCard({ course, view = "grid" }: CourseCardProps) {
               )}
             </div>
 
-            <h3 className="font-semibold text-gray-900 mt-1">{course.title}</h3>
+            <h3 className="font-semibold text-gray-900 mt-1">{displayTitle}</h3>
 
             {instructors.length > 0 && (
               <div className="text-xs text-gray-500 mt-1 truncate">
@@ -114,7 +130,7 @@ export default function CourseCard({ course, view = "grid" }: CourseCardProps) {
             )}
           </div>
           <h3 className="font-medium text-gray-900 mt-0.5 truncate">
-            {course.title}
+            {displayTitle}
           </h3>
           {instructors.length > 0 && (
             <div className="text-xs text-gray-500 mt-0.5 truncate">

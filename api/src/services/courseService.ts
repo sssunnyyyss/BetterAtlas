@@ -4,6 +4,7 @@ import {
   sections,
   departments,
   instructors,
+  sectionInstructors,
   terms,
   courseRatings,
   courseInstructorRatings,
@@ -17,6 +18,25 @@ import {
   buildCrossListSignatureMap,
   haveExactCrossListSignatures,
 } from "../lib/crossListSignatures.js";
+
+let sectionInstructorsTableAvailableCache: boolean | null = null;
+
+async function hasSectionInstructorsTable() {
+  if (sectionInstructorsTableAvailableCache !== null) {
+    return sectionInstructorsTableAvailableCache;
+  }
+
+  try {
+    const rows = (await db.execute(sql`
+      select to_regclass('public.section_instructors') as rel
+    `)) as any[];
+    sectionInstructorsTableAvailableCache = Boolean(rows?.[0]?.rel);
+  } catch {
+    sectionInstructorsTableAvailableCache = false;
+  }
+
+  return sectionInstructorsTableAvailableCache;
+}
 
 type CourseFilterQuery = Partial<
   Pick<
@@ -63,6 +83,73 @@ function normalizeInstructionMethodFilter(value: string | undefined) {
   return value;
 }
 
+function stripAtlasDescriptionLabels(value: string): string {
+  let out = value.replace(/\s+/g, " ").trim();
+  if (!out) return "";
+
+  const descriptionMatch = /\b(?:course\s+)?description\s*:/i.exec(out);
+  if (descriptionMatch && typeof descriptionMatch.index === "number") {
+    const after = out
+      .slice(descriptionMatch.index + descriptionMatch[0].length)
+      .trim();
+    if (after) out = after;
+  }
+
+  out = out.replace(/^(?:course\s+title|title)\s*:\s*/i, "").trim();
+  return out;
+}
+
+function normalizeText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const cleaned = stripAtlasDescriptionLabels(value);
+  return cleaned.length > 0 ? cleaned : null;
+}
+
+function looksLikeTruncatedClassNotes(value: string): boolean {
+  const words = value.split(/\s+/).filter(Boolean);
+  if (words.length > 5) return false;
+  return /^(and|or|if|to|for|with|without)\b/i.test(value);
+}
+
+function normalizeLongClassNotes(value: unknown): string | null {
+  const cleaned = normalizeText(value);
+  if (!cleaned) return null;
+  if (looksLikeTruncatedClassNotes(cleaned)) return null;
+  return cleaned;
+}
+
+function wordCount(value: string): number {
+  return value.split(/\s+/).filter(Boolean).length;
+}
+
+function pickLongestByWordCount(values: string[]): string | null {
+  if (values.length === 0) return null;
+  return [...values].sort((a, b) => {
+    const byWords = wordCount(b) - wordCount(a);
+    if (byWords !== 0) return byWords;
+    return b.length - a.length;
+  })[0]!;
+}
+
+function pickShortestByWordCount(values: string[]): string | null {
+  if (values.length === 0) return null;
+  return [...values].sort((a, b) => {
+    const byWords = wordCount(a) - wordCount(b);
+    if (byWords !== 0) return byWords;
+    return a.length - b.length;
+  })[0]!;
+}
+
+function sectionInstructorRolePriority(role: string | null | undefined): number {
+  const normalized = String(role ?? "").toLowerCase();
+  if (normalized.includes("primary instructor")) return 0;
+  if (normalized.includes("instructor")) return 1;
+  if (normalized.includes("professor")) return 2;
+  if (normalized.includes("teaching assistant") || normalized === "ta") return 4;
+  if (normalized.includes("assistant")) return 5;
+  return 3;
+}
+
 export async function listCourses(query: CourseQuery) {
   const {
     department, semester, minRating, credits, page, limit, sort,
@@ -71,8 +158,9 @@ export async function listCourses(query: CourseQuery) {
   const offset = (page - 1) * limit;
 
   // Course listing is section-backed: filters and instructor display require joins.
-  // This also avoids listing catalog entries that have no active sections.
-  const conditions: any[] = [eq(sections.isActive, true)];
+  // Do not force active-only sections here; callers expect all DB-matching courses
+  // unless explicitly narrowed by other filters (e.g. semester).
+  const conditions: any[] = [];
 
   if (department) conditions.push(eq(departments.code, department));
   if (semester) conditions.push(eq(terms.name, semester));
@@ -85,7 +173,7 @@ export async function listCourses(query: CourseQuery) {
     const gerList = attributes.split(",").map((a) => a.trim()).filter(Boolean);
     if (gerList.length > 0) {
       // AND semantics at the *course* level:
-      // A course matches only if it contains *all* selected GER codes across its active sections.
+      // A course matches only if it contains *all* selected GER codes across its sections.
       //
       // Implementation detail: we keep an OR in the WHERE to reduce scanned rows, then apply
       // HAVING (added later) to enforce each selected code is present at least once.
@@ -163,7 +251,6 @@ export async function listCourses(query: CourseQuery) {
           from sections s,
             regexp_split_to_table(coalesce(trim(both ',' from s.ger_codes), ''), ',') as code
           where s.course_id = ${courses.id}
-            and s.is_active = true
             and s.ger_codes is not null
         ) t
         where code <> ''
@@ -208,7 +295,7 @@ export async function listCourses(query: CourseQuery) {
     if (attributes) {
       const gerList = attributes.split(",").map((a) => a.trim()).filter(Boolean);
       if (gerList.length > 0) {
-        // Each selected code must appear in at least one active section row for the course.
+        // Each selected code must appear in at least one section row for the course.
         for (const code of gerList) {
           havingParts.push(
             sql`sum(case when coalesce(${sections.gerCodes}, '') LIKE ${`%,${code},%`} then 1 else 0 end) > 0`
@@ -284,7 +371,7 @@ export async function listCourses(query: CourseQuery) {
       id: row.id,
       code: row.code,
       title: row.title,
-      description: row.description,
+      description: normalizeText(row.description),
       prerequisites: row.prerequisites ?? null,
       credits: row.credits,
       departmentId: row.departmentId,
@@ -389,7 +476,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
   // This search is intentionally "anything-ish":
   // - course code/title/description via FTS + ILIKE
   // - department code/name via ILIKE
-  // - instructor name via ILIKE (section-backed, active sections only)
+  // - instructor name via ILIKE (section-backed)
   const searchWhere = sql`(
     ${courseVector} @@ ${tsQuery}
     OR ${courses.code} ILIKE ${"%" + term + "%"}
@@ -446,60 +533,64 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     + (case when ${instructors.name} ILIKE ${"%" + term + "%"} then 0.18 else 0 end)
   )`;
 
-  const base = db
-    .select({
-      id: courses.id,
-      code: courses.code,
-      title: courses.title,
-      description: courses.description,
-      prerequisites: courses.prerequisites,
-      credits: courses.credits,
-      departmentId: courses.departmentId,
-      attributes: courses.attributes,
-      departmentCode: departments.code,
-      departmentName: departments.name,
-      avgQuality: courseRatings.avgQuality,
-      avgDifficulty: courseRatings.avgDifficulty,
-      avgWorkload: courseRatings.avgWorkload,
-      reviewCount: courseRatings.reviewCount,
-      rank: rankExpr,
-    })
-    .from(courses)
-    .innerJoin(sections, and(eq(courses.id, sections.courseId), eq(sections.isActive, true)))
-    .leftJoin(departments, eq(courses.departmentId, departments.id))
-    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
-    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
-    .leftJoin(instructors, eq(sections.instructorId, instructors.id))
-    .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
-    .where(and(...whereParts))
-    .groupBy(
-      courses.id,
-      courses.code,
-      courses.title,
-      courses.description,
-      courses.prerequisites,
-      courses.credits,
-      courses.departmentId,
-      courses.attributes,
-      departments.code,
-      departments.name,
-      courseRatings.avgQuality,
-      courseRatings.avgDifficulty,
-      courseRatings.avgWorkload,
-      courseRatings.reviewCount
-    );
+  const buildGroupedBase = () => {
+    const base = db
+      .select({
+        id: courses.id,
+        code: courses.code,
+        title: courses.title,
+        description: courses.description,
+        prerequisites: courses.prerequisites,
+        credits: courses.credits,
+        departmentId: courses.departmentId,
+        attributes: courses.attributes,
+        departmentCode: departments.code,
+        departmentName: departments.name,
+        avgQuality: courseRatings.avgQuality,
+        avgDifficulty: courseRatings.avgDifficulty,
+        avgWorkload: courseRatings.avgWorkload,
+        reviewCount: courseRatings.reviewCount,
+        rank: rankExpr,
+      })
+      .from(courses)
+      .innerJoin(sections, eq(courses.id, sections.courseId))
+      .leftJoin(departments, eq(courses.departmentId, departments.id))
+      .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
+      .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+      .leftJoin(instructors, eq(sections.instructorId, instructors.id))
+      .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
+      .where(and(...whereParts))
+      .groupBy(
+        courses.id,
+        courses.code,
+        courses.title,
+        courses.description,
+        courses.prerequisites,
+        courses.credits,
+        courses.departmentId,
+        courses.attributes,
+        departments.code,
+        departments.name,
+        courseRatings.avgQuality,
+        courseRatings.avgDifficulty,
+        courseRatings.avgWorkload,
+        courseRatings.reviewCount
+      );
 
-  const groupedBase =
-    havingParts.length > 0 ? base.having(sql.join(havingParts, sql` AND `)) : base;
+    return havingParts.length > 0 ? base.having(sql.join(havingParts, sql` AND `)) : base;
+  };
 
-  const data = await groupedBase
+  const dataBase = buildGroupedBase();
+  const countBase = buildGroupedBase();
+
+  const data = await dataBase
     .orderBy(desc(rankExpr), asc(courses.code))
     .limit(limit)
     .offset(offset);
 
   const total = await db
     .select({ count: sql<number>`count(*)` })
-    .from(groupedBase.as("t"))
+    .from(countBase.as("t"))
     .then((r) => r[0]?.count ?? 0);
 
   const courseIds = data.map((r) => r.id);
@@ -521,7 +612,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       })
       .from(sections)
       .leftJoin(instructors, eq(sections.instructorId, instructors.id))
-      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)))
+      .where(inArray(sections.courseId, courseIds))
       .groupBy(sections.courseId);
 
     for (const r of rows) {
@@ -540,7 +631,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
         requirements: sections.registrationRestrictions,
       })
       .from(sections)
-      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)));
+      .where(inArray(sections.courseId, courseIds));
 
     const campusSets = new Map<number, Set<string>>();
     const gerSets = new Map<number, Set<string>>();
@@ -585,7 +676,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       })
       .from(sections)
       .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
-      .where(and(inArray(sections.courseId, courseIds), eq(sections.isActive, true)))
+      .where(inArray(sections.courseId, courseIds))
       .groupBy(sections.courseId);
 
     for (const r of scoreRows as any[]) {
@@ -602,7 +693,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       id: row.id,
       code: row.code,
       title: row.title,
-      description: row.description,
+      description: normalizeText(row.description),
       prerequisites: (row as any).prerequisites ?? null,
       credits: row.credits,
       departmentId: row.departmentId,
@@ -637,6 +728,7 @@ export async function getCourseById(id: number) {
       code: courses.code,
       title: courses.title,
       description: courses.description,
+      classNotes: courses.classNotes,
       prerequisites: courses.prerequisites,
       credits: courses.credits,
       gradeMode: courses.gradeMode,
@@ -715,6 +807,7 @@ export async function getCourseById(id: number) {
 	      gerDesignation: sections.gerDesignation,
 	      gerCodes: sections.gerCodes,
 	      sectionDescription: sections.sectionDescription,
+	      classNotes: sections.classNotes,
 	      registrationRestrictions: sections.registrationRestrictions,
 	      meetings: sections.meetings,
 	      createdAt: sections.createdAt,
@@ -728,33 +821,110 @@ export async function getCourseById(id: number) {
     .from(sections)
     .leftJoin(instructors, eq(sections.instructorId, instructors.id))
     .leftJoin(terms, eq(sections.termCode, terms.srcdb))
-    .leftJoin(sectionRatings, eq(sections.id, sectionRatings.sectionId))
-    .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
-    .where(and(eq(sections.courseId, id), eq(sections.isActive, true)));
+	    .leftJoin(sectionRatings, eq(sections.id, sectionRatings.sectionId))
+	    .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
+	    .where(and(eq(sections.courseId, id), eq(sections.isActive, true)));
 
-  const [professors, crossListRows] = await Promise.all([
-    db
-      .selectDistinct({
+  const sectionIds = (courseSections as Array<{ id: number }>).map((s) => s.id);
+  const sectionInstructorsTableAvailable = await hasSectionInstructorsTable();
+  const sectionInstructorsBySection = new Map<
+    number,
+    Array<{
+      id: number;
+      name: string;
+      email: string | null;
+      departmentId: number | null;
+      role: string | null;
+      sortOrder: number | null;
+    }>
+  >();
+
+  if (sectionInstructorsTableAvailable && sectionIds.length > 0) {
+    const rows = await db
+      .select({
+        sectionId: sectionInstructors.sectionId,
         id: instructors.id,
         name: instructors.name,
         email: instructors.email,
         departmentId: instructors.departmentId,
-        avgQuality: courseInstructorRatings.avgQuality,
-        avgDifficulty: courseInstructorRatings.avgDifficulty,
-        avgWorkload: courseInstructorRatings.avgWorkload,
-        reviewCount: courseInstructorRatings.reviewCount,
+        role: sectionInstructors.role,
+        sortOrder: sectionInstructors.sortOrder,
       })
-      .from(sections)
-      .innerJoin(instructors, eq(sections.instructorId, instructors.id))
-      .leftJoin(
-        courseInstructorRatings,
-        and(
-          eq(courseInstructorRatings.courseId, sections.courseId),
-          eq(courseInstructorRatings.instructorId, sections.instructorId)
+      .from(sectionInstructors)
+      .innerJoin(instructors, eq(sectionInstructors.instructorId, instructors.id))
+      .where(inArray(sectionInstructors.sectionId, sectionIds))
+      .orderBy(
+        asc(sectionInstructors.sectionId),
+        asc(sectionInstructors.sortOrder),
+        asc(instructors.name)
+      );
+
+    for (const row of rows) {
+      const list = sectionInstructorsBySection.get(row.sectionId) ?? [];
+      if (!list.some((item) => item.id === row.id)) {
+        list.push({
+          id: row.id,
+          name: row.name,
+          email: row.email ?? null,
+          departmentId: row.departmentId ?? null,
+          role: row.role ?? null,
+          sortOrder:
+            typeof row.sortOrder === "number" ? row.sortOrder : Number(row.sortOrder ?? 0),
+        });
+      }
+      sectionInstructorsBySection.set(row.sectionId, list);
+    }
+  }
+
+  const professorsQuery = sectionInstructorsTableAvailable
+    ? db
+        .selectDistinct({
+          id: instructors.id,
+          name: instructors.name,
+          email: instructors.email,
+          departmentId: instructors.departmentId,
+          avgQuality: courseInstructorRatings.avgQuality,
+          avgDifficulty: courseInstructorRatings.avgDifficulty,
+          avgWorkload: courseInstructorRatings.avgWorkload,
+          reviewCount: courseInstructorRatings.reviewCount,
+        })
+        .from(sectionInstructors)
+        .innerJoin(sections, eq(sectionInstructors.sectionId, sections.id))
+        .innerJoin(instructors, eq(sectionInstructors.instructorId, instructors.id))
+        .leftJoin(
+          courseInstructorRatings,
+          and(
+            eq(courseInstructorRatings.courseId, sections.courseId),
+            eq(courseInstructorRatings.instructorId, instructors.id)
+          )
         )
-      )
-      .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
-      .orderBy(asc(instructors.name)),
+        .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
+        .orderBy(asc(instructors.name))
+    : db
+        .selectDistinct({
+          id: instructors.id,
+          name: instructors.name,
+          email: instructors.email,
+          departmentId: instructors.departmentId,
+          avgQuality: courseInstructorRatings.avgQuality,
+          avgDifficulty: courseInstructorRatings.avgDifficulty,
+          avgWorkload: courseInstructorRatings.avgWorkload,
+          reviewCount: courseInstructorRatings.reviewCount,
+        })
+        .from(sections)
+        .innerJoin(instructors, eq(sections.instructorId, instructors.id))
+        .leftJoin(
+          courseInstructorRatings,
+          and(
+            eq(courseInstructorRatings.courseId, sections.courseId),
+            eq(courseInstructorRatings.instructorId, sections.instructorId)
+          )
+        )
+        .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
+        .orderBy(asc(instructors.name));
+
+  const [professors, crossListRows] = await Promise.all([
+    professorsQuery,
     crossListPromise,
   ]);
   const candidateCourseIds = Array.from(
@@ -800,16 +970,43 @@ export async function getCourseById(id: number) {
         .filter(Boolean)
     )
   );
-  const hasMultipleSectionDescriptions = distinctSectionDescriptions.length > 1;
-  const resolvedCourseDescription = hasMultipleSectionDescriptions
-    ? null
-    : (course.description ?? distinctSectionDescriptions[0] ?? null);
+  const distinctSectionClassNotes = Array.from(
+    new Set(
+      (courseSections as any[])
+        .map((s) =>
+          typeof s.classNotes === "string" ? s.classNotes.trim() : ""
+        )
+        .filter(Boolean)
+    )
+  );
+  const normalizedCourseClassNotes = normalizeLongClassNotes(course.classNotes);
+  const normalizedSectionClassNotes = distinctSectionClassNotes
+    .map((v) => normalizeLongClassNotes(v))
+    .filter((v): v is string => Boolean(v));
+  const normalizedCourseDescription = normalizeText(course.description);
+  const normalizedSectionDescriptions = distinctSectionDescriptions
+    .map((v) => normalizeText(v))
+    .filter((v): v is string => Boolean(v));
+
+  const descriptionCandidates = Array.from(
+    new Set(
+      [
+        normalizedCourseDescription,
+        ...normalizedSectionDescriptions,
+        normalizedCourseClassNotes,
+        ...normalizedSectionClassNotes,
+      ].filter((v): v is string => Boolean(v))
+    )
+  );
+
+  const resolvedLongDescription = pickLongestByWordCount(descriptionCandidates);
 
   return {
     id: course.id,
     code: course.code,
     title: course.title,
-    description: resolvedCourseDescription,
+    description: resolvedLongDescription,
+    classNotes: normalizedCourseClassNotes,
     prerequisites: course.prerequisites ?? null,
     credits: course.credits,
     gradeMode: course.gradeMode ?? null,
@@ -861,6 +1058,46 @@ export async function getCourseById(id: number) {
     })),
     sections: courseSections.map((s) => {
       const schedules = schedulesFromMeetings(s.meetings);
+      const normalizedSectionDescription =
+        typeof s.sectionDescription === "string" ? normalizeText(s.sectionDescription) : null;
+      const normalizedSectionClassNotes =
+        typeof s.classNotes === "string" ? normalizeText(s.classNotes) : null;
+      const sectionRoster = sectionInstructorsBySection.get(s.id) ?? [];
+      const perSectionCandidates = Array.from(
+        new Set(
+          [normalizedSectionDescription, normalizedSectionClassNotes].filter(
+            (v): v is string => Boolean(v)
+          )
+        )
+      );
+      const sectionShortDescription = pickShortestByWordCount(perSectionCandidates);
+      const sectionLongDescription = pickLongestByWordCount(perSectionCandidates);
+      const fallbackPrimaryInstructor =
+        s.instructorName && typeof s.instructorId === "number"
+          ? {
+              id: s.instructorId,
+              name: s.instructorName,
+              email: s.instructorEmail ?? null,
+              departmentId: s.instructorDepartmentId ?? null,
+              role: null as string | null,
+              sortOrder: null as number | null,
+            }
+          : null;
+      const primaryFromRoster = sectionRoster
+        .slice()
+        .sort((a, b) => {
+          const byRole = sectionInstructorRolePriority(a.role) - sectionInstructorRolePriority(b.role);
+          if (byRole !== 0) return byRole;
+          return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+        })[0];
+      const primaryInstructor = primaryFromRoster ?? fallbackPrimaryInstructor;
+      const normalizedRoster =
+        sectionRoster.length > 0
+          ? sectionRoster
+          : primaryInstructor
+            ? [primaryInstructor]
+            : [];
+
       return {
         id: s.id,
         courseId: s.courseId,
@@ -873,19 +1110,25 @@ export async function getCourseById(id: number) {
         enrollmentStatus: s.enrollmentStatus ?? null,
         waitlistCount: s.waitlistCount ?? 0,
         waitlistCap: s.waitlistCap ?? null,
-        sectionDescription:
-          typeof s.sectionDescription === "string" && s.sectionDescription.trim()
-            ? s.sectionDescription.trim()
-            : null,
+        sectionDescription: sectionShortDescription,
+        classNotes: sectionLongDescription,
         registrationRestrictions: s.registrationRestrictions ?? null,
-        instructor: s.instructorName
+        instructor: primaryInstructor
           ? {
-              id: s.instructorId!,
-              name: s.instructorName,
-              email: s.instructorEmail ?? null,
-              departmentId: s.instructorDepartmentId ?? null,
+              id: primaryInstructor.id,
+              name: primaryInstructor.name,
+              email: primaryInstructor.email,
+              departmentId: primaryInstructor.departmentId,
             }
           : undefined,
+        instructors: normalizedRoster.map((ins) => ({
+          id: ins.id,
+          name: ins.name,
+          email: ins.email,
+          departmentId: ins.departmentId,
+          role: ins.role,
+          sortOrder: ins.sortOrder,
+        })),
         schedule: scheduleFromMeetings(s.meetings),
         schedules,
         enrollmentCap: s.enrollmentCap,
@@ -1160,7 +1403,7 @@ export async function semanticSearchCoursesByEmbedding(input: {
       id: row.id,
       code: row.code,
       title: row.title,
-      description: row.description,
+      description: normalizeText(row.description),
       prerequisites: row.prerequisites ?? null,
       credits: row.credits,
       departmentId: row.departmentId,

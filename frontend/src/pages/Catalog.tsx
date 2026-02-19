@@ -1,6 +1,8 @@
-import { useState, useEffect, useCallback, startTransition } from "react";
+import { useState, useEffect, useCallback, startTransition, useMemo } from "react";
+import { useQueries } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router-dom";
 import type { ProgramTab } from "@betteratlas/shared";
+import { api } from "../api/client.js";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
 import { useProgram, useProgramAiSummary, useProgramCourses, useProgramVariants } from "../hooks/usePrograms.js";
 import {
@@ -13,6 +15,11 @@ import {
 import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
+import {
+  isSpecialTopicsCourse,
+  splitSpecialTopicCourses,
+  type CourseTopicDetail,
+} from "../lib/courseTopics.js";
 
 function Spinner({ className = "" }: { className?: string }) {
   return (
@@ -303,8 +310,52 @@ export default function Catalog() {
   const programResult = useProgramCourses(programId, programTab, programParams);
 
   const result = isProgramMode ? programResult : isSearching ? searchResult : browseResult;
-  const courses = result.data?.data ?? [];
+  const baseCourses = result.data?.data ?? [];
   const meta = result.data?.meta;
+
+  const specialTopicCourseIds = useMemo(() => {
+    const out: number[] = [];
+    const seen = new Set<number>();
+
+    for (const course of baseCourses) {
+      if (!isSpecialTopicsCourse(course)) continue;
+      if (seen.has(course.id)) continue;
+      seen.add(course.id);
+      out.push(course.id);
+    }
+
+    return out;
+  }, [baseCourses]);
+
+  const specialTopicDetailQueries = useQueries({
+    queries: specialTopicCourseIds.map((courseId) => ({
+      queryKey: ["course", courseId, "catalog-special-topics"] as const,
+      queryFn: () => api.get<CourseTopicDetail>(`/courses/${courseId}`),
+      enabled: mode === "search",
+      staleTime: 5 * 60 * 1000,
+    })),
+  });
+
+  const specialTopicDetailsByCourseId = useMemo(() => {
+    const byCourseId = new Map<number, CourseTopicDetail>();
+
+    for (let i = 0; i < specialTopicCourseIds.length; i++) {
+      const courseId = specialTopicCourseIds[i];
+      const detail = specialTopicDetailQueries[i]?.data;
+      if (!detail) continue;
+      byCourseId.set(courseId, detail);
+    }
+
+    return byCourseId;
+  }, [specialTopicCourseIds, specialTopicDetailQueries]);
+
+  const courses = useMemo(
+    () =>
+      splitSpecialTopicCourses(baseCourses, specialTopicDetailsByCourseId, {
+        semester: filters.semester,
+      }),
+    [baseCourses, specialTopicDetailsByCourseId, filters.semester]
+  );
 
   const isAiMode = mode === "ai";
   const aiData = aiRec.data;

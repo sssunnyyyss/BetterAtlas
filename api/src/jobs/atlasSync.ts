@@ -1,7 +1,14 @@
 import { and, eq, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { db, dbClient } from "../db/index.js";
-import { courses, departments, instructors, sections, terms } from "../db/schema.js";
+import {
+  courses,
+  departments,
+  instructors,
+  sectionInstructors,
+  sections,
+  terms,
+} from "../db/schema.js";
 
 type FoseSearchRow = {
   key: string;
@@ -34,6 +41,7 @@ type FoseDetailsResponse = {
   section?: string;
   crn?: string;
   description?: string;
+  clssnotes?: string;
   hours_html?: string;
   seats?: string;
   enrl_stat_html?: string;
@@ -46,9 +54,29 @@ type FoseDetailsResponse = {
   instructordetail_html?: string;
 };
 
+type ParsedInstructorDetail = {
+  name: string;
+  email: string | null;
+  role: string | null;
+};
+
 const FOSE_BASE = "https://atlas.emory.edu/api/?page=fose";
 const FOSE_SEARCH_URL = `${FOSE_BASE}&route=search`;
 const FOSE_DETAILS_URL = `${FOSE_BASE}&route=details`;
+let hasSectionInstructorsTableCache: boolean | null = null;
+
+async function hasSectionInstructorsTable() {
+  if (hasSectionInstructorsTableCache !== null) return hasSectionInstructorsTableCache;
+  try {
+    const rows = (await db.execute(sql`
+      select to_regclass('public.section_instructors') as rel
+    `)) as any[];
+    hasSectionInstructorsTableCache = Boolean(rows?.[0]?.rel);
+  } catch {
+    hasSectionInstructorsTableCache = false;
+  }
+  return hasSectionInstructorsTableCache;
+}
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -59,8 +87,60 @@ function jitter(ms: number) {
   return ms + Math.floor((Math.random() - 0.5) * spread * 2);
 }
 
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+}
+
 function stripHtml(s: string): string {
-  return s.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  const noTags = s.replace(/<[^>]*>/g, " ");
+  return decodeHtmlEntities(noTags).replace(/\s+/g, " ").trim();
+}
+
+function stripAtlasDescriptionLabels(value: string): string {
+  let out = value.replace(/\s+/g, " ").trim();
+  if (!out) return "";
+
+  const descriptionMatch = /\b(?:course\s+)?description\s*:/i.exec(out);
+  if (descriptionMatch && typeof descriptionMatch.index === "number") {
+    const after = out
+      .slice(descriptionMatch.index + descriptionMatch[0].length)
+      .trim();
+    if (after) out = after;
+  }
+
+  out = out.replace(/^(?:course\s+title|title)\s*:\s*/i, "").trim();
+  return out;
+}
+
+function extractDetailDescription(raw: string | null | undefined): string | null {
+  const text = stripAtlasDescriptionLabels(stripHtml(raw ?? ""));
+  return text || null;
+}
+
+function extractClassNotesDescription(raw: string | null | undefined): string | null {
+  const text = stripAtlasDescriptionLabels(stripHtml(raw ?? ""));
+  if (!text) return null;
+
+  const withoutCrossListNote = text
+    .replace(/\(\s*same as[^)]*\)\s*/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!withoutCrossListNote) return null;
+
+  let out = withoutCrossListNote;
+  while (out.startsWith("(") && out.endsWith(")")) {
+    out = out.slice(1, -1).trim();
+  }
+
+  return out || null;
 }
 
 function titleCaseWords(s: string): string {
@@ -98,14 +178,8 @@ function parseInstructionMethodCode(raw: string | null | undefined): string | nu
   return null;
 }
 
-function parseInstructorName(raw: string | null | undefined): string | null {
-  const v = (raw ?? "").trim();
-  if (!v) return null;
-  const text = stripHtml(v);
-  if (!text) return null;
-  // Common separators for "multiple instructors".
-  const first = text.split(/;|\/|\||\s{2,}/)[0]?.trim() ?? "";
-  return first || null;
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function uniqStrings(xs: string[]): string[] {
@@ -198,20 +272,84 @@ function parseDatesHtml(
   return { start: m[1], end: m[2] };
 }
 
-function parseInstructorDetail(
-  html: string | null | undefined
-): { name: string | null; email: string | null } {
+function normalizeInstructorRole(value: string | null | undefined): string | null {
+  const cleaned = stripHtml(value ?? "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+  return cleaned;
+}
+
+function parseInstructorDetails(html: string | null | undefined): ParsedInstructorDetail[] {
   const raw = String(html ?? "");
-  if (!raw.trim()) return { name: null, email: null };
+  if (!raw.trim()) return [];
 
-  const nameM =
-    raw.match(/data-provider="search-by-instructor"[^>]*>([^<]+)<\/a>/i) ??
-    raw.match(/<div class="instructor-name"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/i);
-  const emailM = raw.match(/mailto:([^"'>\s]+)/i);
+  const nameMatches = Array.from(
+    raw.matchAll(
+      /data-provider="search-by-instructor"[^>]*>([^<]+)<\/a>|<div class="instructor-name"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/gi
+    )
+  );
 
-  const name = nameM ? stripHtml(nameM[1]) : null;
-  const email = emailM ? String(emailM[1]).trim() : null;
-  return { name: name || null, email: email || null };
+  const out: ParsedInstructorDetail[] = [];
+
+  for (let idx = 0; idx < nameMatches.length; idx++) {
+    const m = nameMatches[idx]!;
+    const start = m.index ?? -1;
+    if (start < 0) continue;
+    const end = nameMatches[idx + 1]?.index ?? raw.length;
+    const block = raw.slice(start, end);
+
+    const name = stripHtml(String(m[1] ?? m[2] ?? "").trim());
+    if (!name) continue;
+
+    const emailMatch = block.match(/mailto:([^"'>\s]+)/i);
+    const email = emailMatch ? decodeHtmlEntities(String(emailMatch[1]).trim()) : null;
+
+    let role: string | null = null;
+    const blockText = stripHtml(block);
+    if (blockText) {
+      let remainder = blockText;
+      remainder = remainder.replace(new RegExp(escapeRegExp(name), "ig"), " ");
+      if (email) {
+        remainder = remainder.replace(new RegExp(escapeRegExp(email), "ig"), " ");
+      }
+      remainder = remainder.replace(/\s+/g, " ").trim();
+      role = normalizeInstructorRole(remainder);
+    }
+
+    out.push({ name, email, role });
+  }
+
+  if (out.length === 0) {
+    const singleName =
+      raw.match(/data-provider="search-by-instructor"[^>]*>([^<]+)<\/a>/i)?.[1] ??
+      raw.match(/<div class="instructor-name"[^>]*>\s*<a[^>]*>([^<]+)<\/a>/i)?.[1] ??
+      "";
+    const name = stripHtml(singleName);
+    const email = raw.match(/mailto:([^"'>\s]+)/i)?.[1] ?? null;
+    if (name) {
+      out.push({
+        name,
+        email: email ? decodeHtmlEntities(email.trim()) : null,
+        role: null,
+      });
+    }
+  }
+
+  const deduped: ParsedInstructorDetail[] = [];
+  const seen = new Map<string, number>();
+  for (const item of out) {
+    const key = `${item.name.toLowerCase()}|${(item.email ?? "").toLowerCase()}`;
+    const existingIdx = seen.get(key);
+    if (existingIdx === undefined) {
+      seen.set(key, deduped.length);
+      deduped.push(item);
+      continue;
+    }
+    if (!deduped[existingIdx]!.role && item.role) {
+      deduped[existingIdx] = item;
+    }
+  }
+
+  return deduped;
 }
 
 async function fosePostJson<T>(
@@ -436,13 +574,16 @@ async function upsertCourse(input: {
       departmentId: input.departmentId,
     })
     .onConflictDoUpdate({
-      target: courses.code,
+      target: [courses.code, courses.title],
       set: {
-        title: input.title,
         departmentId: input.departmentId,
       },
     })
-    .returning({ id: courses.id, description: courses.description });
+    .returning({
+      id: courses.id,
+      description: courses.description,
+      classNotes: courses.classNotes,
+    });
 
   return row;
 }
@@ -473,6 +614,95 @@ async function upsertInstructorByName(input: {
     .returning({ id: instructors.id });
 
   return row.id;
+}
+
+function instructorRolePriority(role: string | null | undefined): number {
+  const normalized = String(role ?? "").toLowerCase();
+  if (normalized.includes("primary instructor")) return 0;
+  if (normalized.includes("instructor")) return 1;
+  if (normalized.includes("professor")) return 2;
+  if (normalized.includes("teaching assistant") || normalized === "ta") return 4;
+  if (normalized.includes("assistant")) return 5;
+  return 3;
+}
+
+async function upsertSectionInstructorRoster(input: {
+  sectionId: number;
+  roster: ParsedInstructorDetail[];
+}) {
+  const cleaned = input.roster
+    .map((item) => ({
+      name: String(item.name ?? "").trim(),
+      email: item.email ? String(item.email).trim() : null,
+      role: item.role ? String(item.role).trim() : null,
+    }))
+    .filter((item) => item.name.length > 0);
+
+  if (cleaned.length === 0) {
+    return null;
+  }
+
+  const mapped: Array<{ instructorId: number; role: string | null; sortOrder: number }> = [];
+  for (let idx = 0; idx < cleaned.length; idx++) {
+    const item = cleaned[idx]!;
+    const instructorId = await upsertInstructorByName({
+      name: item.name,
+      email: item.email,
+      departmentId: null,
+    });
+    mapped.push({
+      instructorId,
+      role: item.role,
+      sortOrder: idx,
+    });
+  }
+
+  const byInstructor = new Map<number, { role: string | null; sortOrder: number }>();
+  for (const row of mapped) {
+    const existing = byInstructor.get(row.instructorId);
+    if (!existing) {
+      byInstructor.set(row.instructorId, { role: row.role, sortOrder: row.sortOrder });
+      continue;
+    }
+    const nextWins =
+      instructorRolePriority(row.role) < instructorRolePriority(existing.role) ||
+      (instructorRolePriority(row.role) === instructorRolePriority(existing.role) &&
+        row.sortOrder < existing.sortOrder);
+    if (nextWins) {
+      byInstructor.set(row.instructorId, { role: row.role, sortOrder: row.sortOrder });
+    }
+  }
+
+  const rows = Array.from(byInstructor.entries())
+    .map(([instructorId, payload]) => ({
+      sectionId: input.sectionId,
+      instructorId,
+      role: payload.role,
+      sortOrder: payload.sortOrder,
+      updatedAt: new Date(),
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const primary = rows
+    .slice()
+    .sort((a, b) => {
+      const byRole = instructorRolePriority(a.role) - instructorRolePriority(b.role);
+      if (byRole !== 0) return byRole;
+      return a.sortOrder - b.sortOrder;
+    })[0];
+
+  if (!(await hasSectionInstructorsTable())) {
+    return primary?.instructorId ?? null;
+  }
+
+  await db.transaction(async (tx) => {
+    await tx.delete(sectionInstructors).where(eq(sectionInstructors.sectionId, input.sectionId));
+    if (rows.length > 0) {
+      await tx.insert(sectionInstructors).values(rows);
+    }
+  });
+
+  return primary?.instructorId ?? null;
 }
 
 async function upsertSection(input: {
@@ -622,6 +852,7 @@ async function main() {
   const opts = { timeoutMs, maxAttempts, rateDelayMs };
   let allSubjectsOk = true;
   const detailsTasks: {
+    sectionId: number;
     courseId: number;
     courseCode: string;
     crn: string;
@@ -704,6 +935,7 @@ async function main() {
               instructorId: sections.instructorId,
               registrationRestrictions: sections.registrationRestrictions,
               sectionDescription: sections.sectionDescription,
+              classNotes: sections.classNotes,
             })
             .from(sections)
             .where(and(eq(sections.crn, crn), eq(sections.termCode, termCode)))
@@ -735,13 +967,14 @@ async function main() {
             existing?.gerCodes == null ||
             existing?.instructorId == null ||
             existing?.registrationRestrictions == null ||
-            existing?.sectionDescription == null;
+            existing?.sectionDescription == null ||
+            existing?.classNotes == null;
 
           if (detailsMode === "all") {
-            detailsTasks.push({ courseId: courseRow.id, courseCode, crn, atlasKey });
+            detailsTasks.push({ sectionId: upserted.id, courseId: courseRow.id, courseCode, crn, atlasKey });
           } else if (detailsMode === "missing") {
             if (needsSectionEnrichment) {
-              detailsTasks.push({ courseId: courseRow.id, courseCode, crn, atlasKey });
+              detailsTasks.push({ sectionId: upserted.id, courseId: courseRow.id, courseCode, crn, atlasKey });
             }
           } else if (detailsMode === "sampled") {
             const isNew = !existing;
@@ -751,7 +984,7 @@ async function main() {
                 (existing.meetsDisplay ?? null) !== (meetsDisplay ?? null) ||
                 (existing.enrollmentStatus ?? null) !== (enrollmentStatus ?? null));
 
-            const courseNeedsEnrichment = !courseRow.description;
+            const courseNeedsEnrichment = !courseRow.description || !courseRow.classNotes;
 
             const shouldEnrich =
               isNew || changed || courseNeedsEnrichment || needsSectionEnrichment;
@@ -761,10 +994,10 @@ async function main() {
               if (courseNeedsEnrichment) {
                 if (!courseDetailScheduled.has(courseRow.id)) {
                   courseDetailScheduled.add(courseRow.id);
-                  detailsTasks.push({ courseId: courseRow.id, courseCode, crn, atlasKey });
+                  detailsTasks.push({ sectionId: upserted.id, courseId: courseRow.id, courseCode, crn, atlasKey });
                 }
               } else {
-                detailsTasks.push({ courseId: courseRow.id, courseCode, crn, atlasKey });
+                detailsTasks.push({ sectionId: upserted.id, courseId: courseRow.id, courseCode, crn, atlasKey });
               }
             }
           }
@@ -793,7 +1026,8 @@ async function main() {
 
       const details = await fosePostJson<FoseDetailsResponse>(FOSE_DETAILS_URL, body, opts);
 
-      const sectionDescription = (details.description ?? "").trim();
+      const detailDescription = extractDetailDescription(details.description);
+      const classNotesDescription = extractClassNotesDescription(details.clssnotes);
       const registrationRestrictionsRaw = stripHtml(details.registration_restrictions ?? "");
       const registrationRestrictions = registrationRestrictionsRaw ? registrationRestrictionsRaw : null;
       const attributes = (details.attributes ?? "").trim();
@@ -806,14 +1040,11 @@ async function main() {
       const gerDesignationRaw = stripHtml(details.clss_assoc_rqmnt_designt_html ?? "");
       const gerDesignation = gerDesignationRaw ? gerDesignationRaw : null;
       const gerCodes = gerDesignation ? gerCodesToDbString(gerCodesFromDesignationText(gerDesignation)) : null;
-      const instr = parseInstructorDetail(details.instructordetail_html);
+      const instructorRoster = parseInstructorDetails(details.instructordetail_html);
 
       const set: Record<string, any> = {};
-      if (sectionDescription) {
-        // Details can vary by section for special-topics courses.
-        // Only backfill the course-level description when it's currently empty.
-        set.description = sql`coalesce(${courses.description}, ${sectionDescription})`;
-      }
+      if (detailDescription) set.description = detailDescription;
+      if (classNotesDescription) set.classNotes = classNotesDescription;
       if (attributes) set.attributes = attributes;
       if (gradeMode) set.gradeMode = gradeMode;
       if (credits && /^[0-9]+$/.test(credits)) set.credits = Number(credits);
@@ -827,7 +1058,8 @@ async function main() {
       if (statusCode) sectionSet.enrollmentStatus = statusCode;
       if (dates.start) sectionSet.startDate = dates.start;
       if (dates.end) sectionSet.endDate = dates.end;
-      if (sectionDescription) sectionSet.sectionDescription = sectionDescription;
+      if (detailDescription) sectionSet.sectionDescription = detailDescription;
+      if (classNotesDescription) sectionSet.classNotes = classNotesDescription;
       if (registrationRestrictions) sectionSet.registrationRestrictions = registrationRestrictions;
 
       if (seatInfo.enrollmentCap !== null) sectionSet.enrollmentCap = seatInfo.enrollmentCap;
@@ -841,20 +1073,21 @@ async function main() {
       if (gerDesignation) sectionSet.gerDesignation = gerDesignation;
       if (gerCodes) sectionSet.gerCodes = gerCodes;
 
-      if (instr.name) {
-        const instructorId = await upsertInstructorByName({
-          name: instr.name,
-          email: instr.email,
-          departmentId: null,
+      if (instructorRoster.length > 0) {
+        const primaryInstructorId = await upsertSectionInstructorRoster({
+          sectionId: t.sectionId,
+          roster: instructorRoster,
         });
-        sectionSet.instructorId = instructorId;
+        if (primaryInstructorId !== null) {
+          sectionSet.instructorId = primaryInstructorId;
+        }
       }
 
       if (Object.keys(sectionSet).length > 0) {
         await db
           .update(sections)
           .set(sectionSet)
-          .where(and(eq(sections.crn, t.crn), eq(sections.termCode, termCode)));
+          .where(eq(sections.id, t.sectionId));
       }
     } catch (e) {
       console.error(

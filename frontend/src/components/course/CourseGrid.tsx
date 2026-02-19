@@ -1,10 +1,11 @@
-import type { CourseWithRatings } from "@betteratlas/shared";
 import { Link, useLocation } from "react-router-dom";
 import CourseCard from "./CourseCard.js";
 import { formatRating, getRatingColor } from "../../lib/utils.js";
+import type { CatalogCourseEntry } from "../../lib/courseTopics.js";
+import { buildCourseDetailSearch } from "../../lib/courseTopics.js";
 
 interface CourseGridProps {
-  courses: CourseWithRatings[];
+  courses: CatalogCourseEntry[];
   isLoading?: boolean;
   view?: "grid" | "list";
 }
@@ -13,7 +14,19 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
   const isList = view === "list";
   const location = useLocation();
   const semester = new URLSearchParams(location.search).get("semester");
-  const detailSearch = semester ? `?semester=${encodeURIComponent(semester)}` : "";
+
+  function detailPathForCourse(course: CatalogCourseEntry) {
+    const detailSearch = buildCourseDetailSearch({
+      semester,
+      topic: course.topic ?? null,
+      sectionId: course.sectionId ?? null,
+    });
+    return `/catalog/${course.id}${detailSearch}`;
+  }
+
+  function displayTitle(course: CatalogCourseEntry) {
+    return course.title;
+  }
 
   function ratingBlock(value: number | null | undefined) {
     const normalized = typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -93,12 +106,12 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
 
           {courses.map((course) => (
             <Link
-              key={course.id}
-              to={`/catalog/${course.id}${detailSearch}`}
+              key={course.virtualKey ?? String(course.id)}
+              to={detailPathForCourse(course)}
               className="grid grid-cols-[120px_1.6fr_80px_100px_1.4fr_80px_80px_80px] items-center gap-3 border-b border-gray-100 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-primary-50/50 last:border-b-0"
             >
               <span className="font-semibold text-primary-700 truncate">{course.code}</span>
-              <span className="truncate font-medium text-gray-900">{course.title}</span>
+              <span className="truncate font-medium text-gray-900">{displayTitle(course)}</span>
               <span className="text-gray-600">{course.credits ?? "—"}</span>
               <span className={`tabular-nums font-medium ${enrollmentTone(course.avgEnrollmentPercent)}`}>
                 {formatEnrollment(course.avgEnrollmentPercent)}
@@ -117,7 +130,7 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       {courses.map((course) => (
-      <CourseCard key={course.id} course={course} view={view} />
+      <CourseCard key={course.virtualKey ?? String(course.id)} course={course} view={view} />
       ))}
     </div>
   );

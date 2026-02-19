@@ -45,9 +45,10 @@ export const courses = pgTable(
   "courses",
   {
     id: serial("id").primaryKey(),
-    code: varchar("code", { length: 20 }).unique().notNull(),
+    code: varchar("code", { length: 20 }).notNull(),
     title: text("title").notNull(),
     description: text("description"),
+    classNotes: text("class_notes"),
     prerequisites: text("prerequisites"),
     attributes: text("attributes"),
     gradeMode: varchar("grade_mode", { length: 50 }),
@@ -55,6 +56,8 @@ export const courses = pgTable(
     departmentId: integer("department_id").references(() => departments.id),
   },
   (table) => ({
+    codeTitleUnique: uniqueIndex("idx_courses_code_title").on(table.code, table.title),
+    codeIdx: index("idx_courses_code").on(table.code),
     deptIdx: index("idx_courses_dept").on(table.departmentId),
   })
 );
@@ -89,6 +92,7 @@ export const sections = pgTable(
     gerCodes: text("ger_codes"),
     registrationRestrictions: text("registration_restrictions"),
     sectionDescription: text("section_description"),
+    classNotes: text("class_notes"),
     atlasKey: varchar("atlas_key", { length: 20 }),
     lastSynced: timestamp("last_synced", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
@@ -103,6 +107,33 @@ export const sections = pgTable(
     statusIdx: index("idx_sections_status").on(table.enrollmentStatus),
     crnTermUnique: uniqueIndex("idx_sections_crn_term").on(table.crn, table.termCode),
     lastSeenIdx: index("idx_sections_last_seen_at").on(table.lastSeenAt),
+  })
+);
+
+// Many-to-many roster for section instructors (supports multiple instructors per section).
+export const sectionInstructors = pgTable(
+  "section_instructors",
+  {
+    id: serial("id").primaryKey(),
+    sectionId: integer("section_id")
+      .references(() => sections.id, { onDelete: "cascade" })
+      .notNull(),
+    instructorId: integer("instructor_id")
+      .references(() => instructors.id, { onDelete: "cascade" })
+      .notNull(),
+    role: varchar("role", { length: 80 }),
+    sortOrder: smallint("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    sectionInstructorUnique: uniqueIndex("idx_section_instructors_section_instructor_unique").on(
+      table.sectionId,
+      table.instructorId
+    ),
+    sectionIdx: index("idx_section_instructors_section").on(table.sectionId),
+    instructorIdx: index("idx_section_instructors_instructor").on(table.instructorId),
+    sectionSortIdx: index("idx_section_instructors_section_sort").on(table.sectionId, table.sortOrder),
   })
 );
 

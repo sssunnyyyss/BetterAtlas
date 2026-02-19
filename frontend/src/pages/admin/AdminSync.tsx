@@ -33,6 +33,7 @@ type CourseSyncRunSummary = {
   requestedBy: string;
   requestedEmail: string;
   termCode: string | null;
+  termCodes?: string[];
   scheduleTriggered: boolean;
   error: string | null;
   logCount: number;
@@ -112,6 +113,16 @@ function runLogClass(level: SyncRunLog["level"]) {
   return "text-emerald-300";
 }
 
+function normalizeTermCodes(values: string[]) {
+  return Array.from(new Set(values.map((v) => String(v || "").trim()).filter(Boolean)));
+}
+
+function runTermCodes(run: Pick<CourseSyncRunSummary, "termCode" | "termCodes">): string[] {
+  const fromArray = Array.isArray(run.termCodes) ? normalizeTermCodes(run.termCodes) : [];
+  if (fromArray.length > 0) return fromArray;
+  return run.termCode ? [run.termCode] : [];
+}
+
 export default function AdminSync() {
   const [isLoading, setIsLoading] = useState(true);
 
@@ -121,7 +132,7 @@ export default function AdminSync() {
   const [scheduleTimezone, setScheduleTimezone] = useState("America/New_York");
   const [scheduleTermCode, setScheduleTermCode] = useState("");
   const [activeTermCode, setActiveTermCode] = useState("");
-  const [manualRunTermCode, setManualRunTermCode] = useState("");
+  const [manualRunTermCodes, setManualRunTermCodes] = useState<string[]>([]);
 
   const [courseRuns, setCourseRuns] = useState<CourseSyncRunSummary[]>([]);
   const [selectedCourseRunId, setSelectedCourseRunId] = useState<number | null>(null);
@@ -174,7 +185,10 @@ export default function AdminSync() {
     setScheduleTimezone(data.schedule.timezone || "America/New_York");
     setScheduleTermCode(data.schedule.termCode || "");
     setActiveTermCode(data.activeTermCode || "");
-    setManualRunTermCode(data.schedule.termCode || data.activeTermCode || "");
+    const defaultManualTerms = normalizeTermCodes(
+      [data.schedule.termCode || "", data.activeTermCode || ""].filter(Boolean)
+    );
+    setManualRunTermCodes(defaultManualTerms);
   }, []);
 
   const loadCourseRuns = useCallback(async () => {
@@ -286,7 +300,7 @@ export default function AdminSync() {
     setMessage("");
     try {
       const run = await api.post<CourseSyncRunSummary>("/admin/course-sync/runs", {
-        termCode: manualRunTermCode || null,
+        termCodes: manualRunTermCodes,
       });
       setSelectedCourseRunId(run.id);
       setSelectedCourseRun(run);
@@ -298,6 +312,17 @@ export default function AdminSync() {
     } finally {
       setIsStartingCourseRun(false);
     }
+  }
+
+  function toggleManualTermCode(termCode: string) {
+    const cleaned = String(termCode || "").trim();
+    if (!cleaned) return;
+    setManualRunTermCodes((prev) => {
+      const next = new Set(prev);
+      if (next.has(cleaned)) next.delete(cleaned);
+      else next.add(cleaned);
+      return Array.from(next);
+    });
   }
 
   async function handleStartProgramRun() {
@@ -407,107 +432,182 @@ export default function AdminSync() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-gray-900">Course Sync (Atlas FOSE)</h2>
-            <p className="text-sm text-gray-600">
-              Schedule daily syncs and choose which semester (`srcdb`) to scrape.
-            </p>
-          </div>
-          <button
-            onClick={handleStartCourseRun}
-            disabled={isStartingCourseRun}
-            className="bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
-          >
-            {isStartingCourseRun ? "Starting..." : "Run Course Sync Now"}
-          </button>
+      <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
+        <div>
+          <h2 className="font-semibold text-gray-900">Course Sync (Atlas FOSE)</h2>
+          <p className="text-sm text-gray-600">
+            Configure daily scheduling and run one-off syncs for one or multiple semesters.
+          </p>
         </div>
 
-        {message && <p className="text-sm text-gray-600">{message}</p>}
-
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-3">
-          <label className="space-y-1">
-            <span className="text-xs text-gray-500">Active Semester (default)</span>
-            <input
-              list="term-codes"
-              placeholder="e.g. 5269"
-              value={activeTermCode}
-              onChange={(e) => setActiveTermCode(e.target.value)}
-              className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            />
-          </label>
-
-          <label className="space-y-1">
-            <span className="text-xs text-gray-500">Scheduled Time (daily)</span>
-            <input
-              type="time"
-              value={scheduleTime}
-              onChange={(e) => setScheduleTime(e.target.value)}
-              className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            />
-          </label>
-
-          <label className="space-y-1">
-            <span className="text-xs text-gray-500">Timezone</span>
-            <select
-              value={scheduleTimezone}
-              onChange={(e) => setScheduleTimezone(e.target.value)}
-              className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="America/New_York">America/New_York</option>
-              <option value="UTC">UTC</option>
-            </select>
-          </label>
-
-          <label className="space-y-1">
-            <span className="text-xs text-gray-500">Scheduled Term Override</span>
-            <input
-              list="term-codes"
-              placeholder="blank = use active semester"
-              value={scheduleTermCode}
-              onChange={(e) => setScheduleTermCode(e.target.value)}
-              className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            />
-          </label>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              checked={scheduleEnabled}
-              onChange={(e) => setScheduleEnabled(e.target.checked)}
-              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-            />
-            Enable scheduled daily sync
-          </label>
-
-          <label className="inline-flex items-center gap-2 text-sm text-gray-700">
-            Manual Run Term:
-            <input
-              list="term-codes"
-              placeholder="blank = use active semester"
-              value={manualRunTermCode}
-              onChange={(e) => setManualRunTermCode(e.target.value)}
-              className="rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            />
-          </label>
-
-          <button
-            onClick={handleSaveCourseConfig}
-            disabled={isSavingCourseConfig}
-            className="bg-primary-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
-          >
-            {isSavingCourseConfig ? "Saving..." : "Save Schedule"}
-          </button>
-        </div>
-
-        {courseConfig?.schedule.updatedAt && (
-          <p className="text-xs text-gray-500">
-            Last updated: {new Date(courseConfig.schedule.updatedAt).toLocaleString()}
+        {message && (
+          <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded-md px-3 py-2">
+            {message}
           </p>
         )}
+
+        <div className="grid xl:grid-cols-2 gap-4">
+          <section className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Schedule</h3>
+              <p className="text-xs text-gray-600">Controls the automatic daily sync run.</p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-3">
+              <label className="space-y-1">
+                <span className="text-xs text-gray-500">Active Semester (default)</span>
+                <input
+                  list="term-codes"
+                  placeholder="e.g. 5269"
+                  value={activeTermCode}
+                  onChange={(e) => setActiveTermCode(e.target.value)}
+                  className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
+                />
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-xs text-gray-500">Scheduled Time (daily)</span>
+                <input
+                  type="time"
+                  value={scheduleTime}
+                  onChange={(e) => setScheduleTime(e.target.value)}
+                  className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
+                />
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-xs text-gray-500">Timezone</span>
+                <select
+                  value={scheduleTimezone}
+                  onChange={(e) => setScheduleTimezone(e.target.value)}
+                  className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
+                >
+                  <option value="America/New_York">America/New_York</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </label>
+
+              <label className="space-y-1">
+                <span className="text-xs text-gray-500">Scheduled Term Override</span>
+                <input
+                  list="term-codes"
+                  placeholder="blank = use active semester"
+                  value={scheduleTermCode}
+                  onChange={(e) => setScheduleTermCode(e.target.value)}
+                  className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
+                />
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={scheduleEnabled}
+                  onChange={(e) => setScheduleEnabled(e.target.checked)}
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                Enable scheduled daily sync
+              </label>
+
+              <button
+                onClick={handleSaveCourseConfig}
+                disabled={isSavingCourseConfig}
+                className="bg-primary-600 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+              >
+                {isSavingCourseConfig ? "Saving..." : "Save Schedule"}
+              </button>
+            </div>
+
+            {courseConfig?.schedule.updatedAt && (
+              <p className="text-xs text-gray-500">
+                Last updated: {new Date(courseConfig.schedule.updatedAt).toLocaleString()}
+              </p>
+            )}
+          </section>
+
+          <section className="rounded-lg border border-gray-200 bg-gray-50/60 p-4 space-y-3">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Manual Run</h3>
+              <p className="text-xs text-gray-600">
+                Select one or more semesters. Leave none selected to use the active default term.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 min-h-[2rem]">
+              {manualRunTermCodes.length === 0 && (
+                <span className="text-xs text-gray-500">Using active semester default</span>
+              )}
+              {manualRunTermCodes.map((termCode) => {
+                const term = courseConfig?.terms.find((t) => t.srcdb === termCode);
+                return (
+                  <button
+                    key={termCode}
+                    type="button"
+                    onClick={() => toggleManualTermCode(termCode)}
+                    className="inline-flex items-center gap-1 rounded-full border border-primary-200 bg-primary-50 px-2 py-1 text-xs text-primary-800"
+                    title="Remove"
+                  >
+                    <span>{term?.name || termCode}</span>
+                    <span className="text-primary-600">X</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setManualRunTermCodes([])}
+                className="px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-700 hover:bg-white"
+              >
+                Clear
+              </button>
+              {activeTermCode && (
+                <button
+                  type="button"
+                  onClick={() => toggleManualTermCode(activeTermCode)}
+                  className="px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-700 hover:bg-white"
+                >
+                  Toggle Active ({activeTermCode})
+                </button>
+              )}
+            </div>
+
+            <div className="rounded-md border border-gray-200 bg-white max-h-48 overflow-auto">
+              {(courseConfig?.terms ?? []).map((term) => {
+                const checked = manualRunTermCodes.includes(term.srcdb);
+                return (
+                  <label
+                    key={term.srcdb}
+                    className="flex items-center justify-between gap-3 px-3 py-2 text-sm hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                  >
+                    <span className="min-w-0">
+                      <span className="text-gray-900">{term.name}</span>
+                      <span className="text-xs text-gray-500 ml-2">{term.srcdb}</span>
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleManualTermCode(term.srcdb)}
+                      className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                  </label>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={handleStartCourseRun}
+                disabled={isStartingCourseRun}
+                className="bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
+              >
+                {isStartingCourseRun ? "Starting..." : "Run Course Sync Now"}
+              </button>
+            </div>
+          </section>
+        </div>
 
         <datalist id="term-codes">
           {(courseConfig?.terms ?? []).map((term) => (
@@ -543,7 +643,12 @@ export default function AdminSync() {
                 </div>
                 <p className="text-xs text-gray-500">{formatTs(run.createdAt)}</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Term: {run.termCode || "active default"} | Logs: {run.logCount}
+                  Terms:{" "}
+                  {(() => {
+                    const terms = runTermCodes(run);
+                    return terms.length > 0 ? terms.join(", ") : "active default";
+                  })()}{" "}
+                  | Logs: {run.logCount}
                 </p>
               </button>
             ))}
@@ -562,8 +667,11 @@ export default function AdminSync() {
                 </span>
               </div>
               <p className="text-xs text-gray-500">
-                Requested by {selectedCourseRun.requestedEmail} | Term{" "}
-                {selectedCourseRun.termCode || "active default"}
+                Requested by {selectedCourseRun.requestedEmail} | Terms{" "}
+                {(() => {
+                  const terms = runTermCodes(selectedCourseRun);
+                  return terms.length > 0 ? terms.join(", ") : "active default";
+                })()}
               </p>
               <p className="text-xs text-gray-500">
                 Started: {formatTs(selectedCourseRun.startedAt)} | Finished:{" "}

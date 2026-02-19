@@ -16,6 +16,7 @@ export interface Course {
   code: string;
   title: string;
   description: string | null;
+  classNotes?: string | null;
   prerequisites?: string | null;
   credits: number | null;
   gradeMode?: string | null;
@@ -57,6 +58,7 @@ export interface Section {
   sectionNumber: string | null;
   instructorId: number | null;
   instructor?: Instructor;
+  instructors?: Array<Instructor & { role?: string | null; sortOrder?: number | null }>;
   schedule: Schedule | null;
   schedules?: Schedule[] | null;
   campus?: string | null;
@@ -73,6 +75,7 @@ export interface Section {
   gerDesignation?: string | null;
   gerCodes?: string[];
   sectionDescription?: string | null;
+  classNotes?: string | null;
   registrationRestrictions?: string | null;
   avgQuality?: number | null;
   avgDifficulty?: number | null;
