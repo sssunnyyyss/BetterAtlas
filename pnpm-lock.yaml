@@ -31,12 +31,18 @@ importers:
       express-rate-limit:
         specifier: ^7.4.0
         version: 7.5.1(express@4.22.1)
+      fastest-levenshtein:
+        specifier: ^1.0.16
+        version: 1.0.16
       helmet:
         specifier: ^7.1.0
         version: 7.2.0
       postgres:
         specifier: ^3.4.4
         version: 3.4.8
+      rate-my-professor-api-ts:
+        specifier: ^1.0.5
+        version: 1.0.5
       zod:
         specifier: ^3.23.0
         version: 3.25.76
@@ -2160,6 +2166,10 @@ packages:
   fast-uri@3.1.0:
     resolution: {integrity: sha512-iPeeDKJSWf4IEOasVVrknXpaBV0IApz/gp7S2bb7Z4Lljbl2MGJRqInZiUrQwV16cpzw/D3S5j5Julj/gT52AA==}
 
+  fastest-levenshtein@1.0.16:
+    resolution: {integrity: sha512-eRnCtTTtGZFpQCwhJiUOuxPQWRXVKYDn0b2PeHfXL6/Zi53SLAzAHfVhVWK2AryC/WH05kGfxhFIPvTF0SXQzg==}
+    engines: {node: '>= 4.9.1'}
+
   fastq@1.20.1:
     resolution: {integrity: sha512-GGToxJ/w1x32s/D2EKND7kTil4n8OVk/9mycTc4VDza13lOvpUZTGX3mFSCtV9ksdGBVzvsyAVLM6mHFThxXxw==}
 
@@ -2810,6 +2820,9 @@ packages:
   range-parser@1.2.1:
     resolution: {integrity: sha512-Hrgsx+orqoygnmhFbKaHE6c296J+HTAQXoxEF6gNupROmmGJRoyzfG3ccAveqCBrwr/2yxQ5BVd/GTl5agOwSg==}
     engines: {node: '>= 0.6'}
+
+  rate-my-professor-api-ts@1.0.5:
+    resolution: {integrity: sha512-knDXqOSmPbjQuHS0lYjmBvSGbq6kN/y142zFMILuQ6NA7dwNGEirHzFpc4Q9PbXfiT2iF4rFqQVDqyBZp0nEDA==}
 
   raw-body@2.5.3:
     resolution: {integrity: sha512-s4VSOf6yN0rvbRZGxs8Om5CWj6seneMwK3oDb4lWDH0UPhWcxwOWw5+qk24bxq87szX1ydrwylIOp2uG1ojUpA==}
@@ -5423,6 +5436,8 @@ snapshots:
 
   fast-uri@3.1.0: {}
 
+  fastest-levenshtein@1.0.16: {}
+
   fastq@1.20.1:
     dependencies:
       reusify: 1.1.0
@@ -6026,6 +6041,8 @@ snapshots:
       safe-buffer: 5.2.1
 
   range-parser@1.2.1: {}
+
+  rate-my-professor-api-ts@1.0.5: {}
 
   raw-body@2.5.3:
     dependencies:
