@@ -93,7 +93,7 @@ export const createReviewSchema = z.object({
   sectionId: z.number().int().positive(),
   ratingQuality: z.number().int().min(1).max(5),
   ratingDifficulty: z.number().int().min(1).max(5),
-  ratingWorkload: z.number().int().min(1).max(5),
+  ratingWorkload: z.number().int().min(1).max(5).nullable().default(null),
   comment: z.string().max(5000).optional(),
   isAnonymous: z.boolean().default(true),
 });

@@ -10,9 +10,10 @@ export interface Review {
   instructor: { id: number; name: string } | null;
   ratingQuality: number;
   ratingDifficulty: number;
-  ratingWorkload: number;
+  ratingWorkload: number | null;
   comment: string | null;
   isAnonymous: boolean;
+  source: "native" | "rmp";
   createdAt: string;
   updatedAt: string;
 }

@@ -230,9 +230,11 @@ export const reviews = pgTable(
     termCode: varchar("term_code", { length: 10 }).references(() => terms.srcdb),
     ratingQuality: smallint("rating_quality").notNull(),
     ratingDifficulty: smallint("rating_difficulty").notNull(),
-    ratingWorkload: smallint("rating_workload").notNull(),
+    ratingWorkload: smallint("rating_workload"),
     comment: text("comment"),
     isAnonymous: boolean("is_anonymous").default(true),
+    source: varchar("source", { length: 10 }).notNull().default("native"),
+    externalId: varchar("external_id", { length: 40 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -245,6 +247,7 @@ export const reviews = pgTable(
     courseIdx: index("idx_reviews_course").on(table.courseId),
     instructorIdx: index("idx_reviews_instructor").on(table.instructorId),
     sectionIdx: index("idx_reviews_section").on(table.sectionId),
+    externalIdIdx: uniqueIndex("idx_reviews_external_id").on(table.externalId),
   })
 );
 
