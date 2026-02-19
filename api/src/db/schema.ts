@@ -240,6 +240,184 @@ export const feedbackReports = pgTable(
   })
 );
 
+// Public feedback hub boards (feature requests, bugs, etc.)
+export const feedbackBoards = pgTable(
+  "feedback_boards",
+  {
+    id: serial("id").primaryKey(),
+    slug: varchar("slug", { length: 80 }).notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    isPublic: boolean("is_public").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    slugUnique: uniqueIndex("idx_feedback_boards_slug_unique").on(table.slug),
+    publicIdx: index("idx_feedback_boards_is_public").on(table.isPublic),
+  })
+);
+
+// Optional categories scoped to each board (catalog, worksheet, etc.)
+export const feedbackPostCategories = pgTable(
+  "feedback_post_categories",
+  {
+    id: serial("id").primaryKey(),
+    boardId: integer("board_id")
+      .references(() => feedbackBoards.id, { onDelete: "cascade" })
+      .notNull(),
+    slug: varchar("slug", { length: 80 }).notNull(),
+    name: text("name").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    boardSlugUnique: uniqueIndex("idx_feedback_post_categories_board_slug_unique").on(
+      table.boardId,
+      table.slug
+    ),
+    boardIdx: index("idx_feedback_post_categories_board").on(table.boardId),
+  })
+);
+
+// Posts that users create on public boards.
+export const feedbackPosts = pgTable(
+  "feedback_posts",
+  {
+    id: serial("id").primaryKey(),
+    boardId: integer("board_id")
+      .references(() => feedbackBoards.id, { onDelete: "cascade" })
+      .notNull(),
+    categoryId: integer("category_id").references(() => feedbackPostCategories.id, {
+      onDelete: "set null",
+    }),
+    title: varchar("title", { length: 160 }).notNull(),
+    details: text("details"),
+    status: varchar("status", { length: 32 }).notNull().default("open"),
+    authorUserId: uuid("author_user_id")
+      .references(() => users.id)
+      .notNull(),
+    authorMode: varchar("author_mode", { length: 24 }).notNull().default("pseudonymous"),
+    scoreCached: integer("score_cached").notNull().default(0),
+    commentCountCached: integer("comment_count_cached").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    boardIdx: index("idx_feedback_posts_board").on(table.boardId),
+    categoryIdx: index("idx_feedback_posts_category").on(table.categoryId),
+    statusIdx: index("idx_feedback_posts_status").on(table.status),
+    scoreIdx: index("idx_feedback_posts_score").on(table.scoreCached),
+    createdAtIdx: index("idx_feedback_posts_created_at").on(table.createdAt),
+    updatedAtIdx: index("idx_feedback_posts_updated_at").on(table.updatedAt),
+  })
+);
+
+// One vote per user per post (toggle on/off).
+export const feedbackPostVotes = pgTable(
+  "feedback_post_votes",
+  {
+    id: serial("id").primaryKey(),
+    postId: integer("post_id")
+      .references(() => feedbackPosts.id, { onDelete: "cascade" })
+      .notNull(),
+    userId: uuid("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    postUserUnique: uniqueIndex("idx_feedback_post_votes_post_user_unique").on(
+      table.postId,
+      table.userId
+    ),
+    postIdx: index("idx_feedback_post_votes_post").on(table.postId),
+    userIdx: index("idx_feedback_post_votes_user").on(table.userId),
+  })
+);
+
+// Flat comments for MVP; can be expanded to threads later.
+export const feedbackPostComments = pgTable(
+  "feedback_post_comments",
+  {
+    id: serial("id").primaryKey(),
+    postId: integer("post_id")
+      .references(() => feedbackPosts.id, { onDelete: "cascade" })
+      .notNull(),
+    authorUserId: uuid("author_user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    postIdx: index("idx_feedback_post_comments_post").on(table.postId),
+    authorIdx: index("idx_feedback_post_comments_author").on(table.authorUserId),
+    createdAtIdx: index("idx_feedback_post_comments_created_at").on(table.createdAt),
+  })
+);
+
+// Audit trail for status transitions.
+export const feedbackStatusHistory = pgTable(
+  "feedback_status_history",
+  {
+    id: serial("id").primaryKey(),
+    postId: integer("post_id")
+      .references(() => feedbackPosts.id, { onDelete: "cascade" })
+      .notNull(),
+    fromStatus: varchar("from_status", { length: 32 }),
+    toStatus: varchar("to_status", { length: 32 }).notNull(),
+    changedByUserId: uuid("changed_by_user_id")
+      .references(() => users.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    postIdx: index("idx_feedback_status_history_post").on(table.postId),
+    createdAtIdx: index("idx_feedback_status_history_created_at").on(table.createdAt),
+  })
+);
+
+// Public changelog entries maintained by admins.
+export const feedbackChangelogEntries = pgTable(
+  "feedback_changelog_entries",
+  {
+    id: serial("id").primaryKey(),
+    title: varchar("title", { length: 200 }).notNull(),
+    body: text("body").notNull(),
+    publishedByUserId: uuid("published_by_user_id")
+      .references(() => users.id, { onDelete: "set null" }),
+    publishedAt: timestamp("published_at", { withTimezone: true }).defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    publishedAtIdx: index("idx_feedback_changelog_entries_published_at").on(table.publishedAt),
+  })
+);
+
+// Join table to associate shipped posts with a changelog entry.
+export const feedbackChangelogPosts = pgTable(
+  "feedback_changelog_posts",
+  {
+    id: serial("id").primaryKey(),
+    changelogEntryId: integer("changelog_entry_id")
+      .references(() => feedbackChangelogEntries.id, { onDelete: "cascade" })
+      .notNull(),
+    postId: integer("post_id")
+      .references(() => feedbackPosts.id, { onDelete: "cascade" })
+      .notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => ({
+    entryPostUnique: uniqueIndex("idx_feedback_changelog_posts_entry_post_unique").on(
+      table.changelogEntryId,
+      table.postId
+    ),
+    entryIdx: index("idx_feedback_changelog_posts_entry").on(table.changelogEntryId),
+    postIdx: index("idx_feedback_changelog_posts_post").on(table.postId),
+  })
+);
+
 // Course Ratings (aggregate cache)
 export const courseRatings = pgTable("course_ratings", {
   courseId: integer("course_id")

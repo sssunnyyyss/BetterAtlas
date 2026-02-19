@@ -11,6 +11,7 @@ import socialRoutes from "./routes/social.js";
 import scheduleRoutes from "./routes/schedule.js";
 import aiRoutes from "./routes/ai.js";
 import feedbackRoutes from "./routes/feedback.js";
+import feedbackHubRoutes from "./routes/feedbackHub.js";
 import programsRoutes from "./routes/programs.js";
 import adminProgramsRoutes, { recordAdminAppError } from "./routes/adminPrograms.js";
 import aiTrainerRoutes from "./routes/aiTrainer.js";
@@ -70,6 +71,7 @@ app.use("/api", reviewRoutes);
 app.use("/api", socialRoutes);
 app.use("/api", scheduleRoutes);
 app.use("/api", feedbackRoutes);
+app.use("/api/feedback-hub", feedbackHubRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api", aiRoutes);
 

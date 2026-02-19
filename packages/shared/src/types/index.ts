@@ -1,5 +1,6 @@
 export * from "./course.js";
 export * from "./feedback.js";
+export * from "./feedbackHub.js";
 export * from "./user.js";
 export * from "./review.js";
 export * from "./social.js";

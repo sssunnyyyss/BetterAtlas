@@ -46,3 +46,11 @@ export const oauthTokenLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+export const feedbackHubWriteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: isDev ? 2_000 : 80,
+  message: { error: "Too many feedback actions, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});

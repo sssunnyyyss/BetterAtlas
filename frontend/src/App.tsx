@@ -22,6 +22,12 @@ import AdminUsers from "./pages/admin/AdminUsers.js";
 import AdminLogs from "./pages/admin/AdminLogs.js";
 import AdminInviteCodes from "./pages/admin/AdminInviteCodes.js";
 import Footer from "./components/layout/Footer.js";
+import AdminFeedback from "./pages/admin/AdminFeedback.js";
+import FeedbackHubLayout from "./pages/feedbackHub/FeedbackHubLayout.js";
+import FeedbackHubRoadmap from "./pages/feedbackHub/FeedbackHubRoadmap.js";
+import FeedbackHubBoard from "./pages/feedbackHub/FeedbackHubBoard.js";
+import FeedbackHubPostDetail from "./pages/feedbackHub/FeedbackHubPostDetail.js";
+import FeedbackHubChangelog from "./pages/feedbackHub/FeedbackHubChangelog.js";
 import OnboardingProvider from "./components/onboarding/OnboardingProvider.js";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -123,7 +129,14 @@ function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
           <Route path="stats" element={<AdminStats />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="invite-codes" element={<AdminInviteCodes />} />
+          <Route path="feedback" element={<AdminFeedback />} />
           <Route path="logs" element={<AdminLogs />} />
+        </Route>
+        <Route path="/feedback-hub" element={<FeedbackHubLayout />}>
+          <Route index element={<FeedbackHubRoadmap />} />
+          <Route path="changelog" element={<FeedbackHubChangelog />} />
+          <Route path=":boardSlug" element={<FeedbackHubBoard />} />
+          <Route path=":boardSlug/post/:postId" element={<FeedbackHubPostDetail />} />
         </Route>
         <Route
           path="/feedback"

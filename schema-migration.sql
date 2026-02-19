@@ -692,4 +692,174 @@ CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_user
 CREATE INDEX IF NOT EXISTS idx_oauth_access_tokens_expires
   ON oauth_access_tokens (expires_at);
 
+-- ============================================================
+-- 19. CREATE feedback hub tables
+-- ============================================================
+CREATE TABLE IF NOT EXISTS feedback_boards (
+  id SERIAL PRIMARY KEY,
+  slug VARCHAR(80) NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  is_public BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_boards_slug_unique
+  ON feedback_boards (slug);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_boards_is_public
+  ON feedback_boards (is_public);
+
+CREATE TABLE IF NOT EXISTS feedback_post_categories (
+  id SERIAL PRIMARY KEY,
+  board_id INTEGER NOT NULL REFERENCES feedback_boards(id) ON DELETE CASCADE,
+  slug VARCHAR(80) NOT NULL,
+  name TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_post_categories_board_slug_unique
+  ON feedback_post_categories (board_id, slug);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_post_categories_board
+  ON feedback_post_categories (board_id);
+
+CREATE TABLE IF NOT EXISTS feedback_posts (
+  id SERIAL PRIMARY KEY,
+  board_id INTEGER NOT NULL REFERENCES feedback_boards(id) ON DELETE CASCADE,
+  category_id INTEGER REFERENCES feedback_post_categories(id) ON DELETE SET NULL,
+  title VARCHAR(160) NOT NULL,
+  details TEXT,
+  status VARCHAR(32) NOT NULL DEFAULT 'open',
+  author_user_id UUID NOT NULL REFERENCES users(id),
+  author_mode VARCHAR(24) NOT NULL DEFAULT 'pseudonymous',
+  score_cached INTEGER NOT NULL DEFAULT 0,
+  comment_count_cached INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_posts_board
+  ON feedback_posts (board_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_posts_category
+  ON feedback_posts (category_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_posts_status
+  ON feedback_posts (status);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_posts_score
+  ON feedback_posts (score_cached);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_posts_created_at
+  ON feedback_posts (created_at);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_posts_updated_at
+  ON feedback_posts (updated_at);
+
+CREATE TABLE IF NOT EXISTS feedback_post_votes (
+  id SERIAL PRIMARY KEY,
+  post_id INTEGER NOT NULL REFERENCES feedback_posts(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_post_votes_post_user_unique
+  ON feedback_post_votes (post_id, user_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_post_votes_post
+  ON feedback_post_votes (post_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_post_votes_user
+  ON feedback_post_votes (user_id);
+
+CREATE TABLE IF NOT EXISTS feedback_post_comments (
+  id SERIAL PRIMARY KEY,
+  post_id INTEGER NOT NULL REFERENCES feedback_posts(id) ON DELETE CASCADE,
+  author_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  body TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_post_comments_post
+  ON feedback_post_comments (post_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_post_comments_author
+  ON feedback_post_comments (author_user_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_post_comments_created_at
+  ON feedback_post_comments (created_at);
+
+CREATE TABLE IF NOT EXISTS feedback_status_history (
+  id SERIAL PRIMARY KEY,
+  post_id INTEGER NOT NULL REFERENCES feedback_posts(id) ON DELETE CASCADE,
+  from_status VARCHAR(32),
+  to_status VARCHAR(32) NOT NULL,
+  changed_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  note TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_status_history_post
+  ON feedback_status_history (post_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_status_history_created_at
+  ON feedback_status_history (created_at);
+
+CREATE TABLE IF NOT EXISTS feedback_changelog_entries (
+  id SERIAL PRIMARY KEY,
+  title VARCHAR(200) NOT NULL,
+  body TEXT NOT NULL,
+  published_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  published_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_changelog_entries_published_at
+  ON feedback_changelog_entries (published_at);
+
+CREATE TABLE IF NOT EXISTS feedback_changelog_posts (
+  id SERIAL PRIMARY KEY,
+  changelog_entry_id INTEGER NOT NULL REFERENCES feedback_changelog_entries(id) ON DELETE CASCADE,
+  post_id INTEGER NOT NULL REFERENCES feedback_posts(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feedback_changelog_posts_entry_post_unique
+  ON feedback_changelog_posts (changelog_entry_id, post_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_changelog_posts_entry
+  ON feedback_changelog_posts (changelog_entry_id);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_changelog_posts_post
+  ON feedback_changelog_posts (post_id);
+
+INSERT INTO feedback_boards (slug, name, description, is_public)
+VALUES
+  ('feature-requests', 'Feature Requests', 'Share ideas for what BetterAtlas should build next.', true),
+  ('bugs', 'Bugs', 'Report issues so we can investigate and fix them.', true)
+ON CONFLICT (slug) DO NOTHING;
+
+INSERT INTO feedback_post_categories (board_id, slug, name)
+SELECT b.id, c.slug, c.name
+FROM feedback_boards b
+JOIN (
+  VALUES
+    ('feature-requests', 'catalog', 'Catalog'),
+    ('feature-requests', 'schedule', 'Schedule'),
+    ('feature-requests', 'reviews', 'Reviews'),
+    ('feature-requests', 'social', 'Social'),
+    ('feature-requests', 'general', 'General'),
+    ('bugs', 'catalog', 'Catalog'),
+    ('bugs', 'schedule', 'Schedule'),
+    ('bugs', 'reviews', 'Reviews'),
+    ('bugs', 'social', 'Social'),
+    ('bugs', 'data', 'Data'),
+    ('bugs', 'general', 'General')
+) AS c(board_slug, slug, name)
+  ON c.board_slug = b.slug
+ON CONFLICT (board_id, slug) DO NOTHING;
+
 COMMIT;

@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { label: "Catalog", path: "/catalog" },
   { label: "My Schedule", path: "/schedule" },
   { label: "Friends", path: "/friends" },
-  { label: "Feedback", path: "/feedback" },
+  { label: "Feedback Hub", path: "/feedback-hub" },
   { label: "Profile", path: "/profile" },
 ];
 

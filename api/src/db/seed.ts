@@ -8,7 +8,10 @@ import {
   courseRatings,
   badges,
   inviteCodes,
+  feedbackBoards,
+  feedbackPostCategories,
 } from "./schema.js";
+import { inArray } from "drizzle-orm";
 
 const TERMS = [
   { srcdb: "5249", name: "Fall 2024", season: "Fall", year: 2024, isActive: false },
@@ -32,6 +35,26 @@ const INVITE_CODES = [
     maxUses: 250,
   },
 ] as const;
+
+const FEEDBACK_BOARDS = [
+  {
+    slug: "feature-requests",
+    name: "Feature Requests",
+    description: "Share ideas for what BetterAtlas should build next.",
+    isPublic: true,
+  },
+  {
+    slug: "bugs",
+    name: "Bugs",
+    description: "Report issues so we can investigate and fix them.",
+    isPublic: true,
+  },
+] as const;
+
+const FEEDBACK_BOARD_CATEGORIES: Record<string, string[]> = {
+  "feature-requests": ["Catalog", "Schedule", "Reviews", "Social", "General"],
+  bugs: ["Catalog", "Schedule", "Reviews", "Social", "Data", "General"],
+};
 
 const DEPARTMENTS = [
   { code: "CS", name: "Computer Science" },
@@ -229,6 +252,24 @@ async function seed() {
   // Badges + Invite Codes
   await db.insert(badges).values(BADGES as any).onConflictDoNothing();
   await db.insert(inviteCodes).values(INVITE_CODES as any).onConflictDoNothing();
+  await db.insert(feedbackBoards).values(FEEDBACK_BOARDS as any).onConflictDoNothing();
+
+  const feedbackBoardRows = await db
+    .select({ id: feedbackBoards.id, slug: feedbackBoards.slug })
+    .from(feedbackBoards)
+    .where(inArray(feedbackBoards.slug, FEEDBACK_BOARDS.map((b) => b.slug)));
+
+  const categoryRows = feedbackBoardRows.flatMap((board) =>
+    (FEEDBACK_BOARD_CATEGORIES[board.slug] ?? []).map((name) => ({
+      boardId: board.id,
+      slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""),
+      name,
+    }))
+  );
+
+  if (categoryRows.length > 0) {
+    await db.insert(feedbackPostCategories).values(categoryRows).onConflictDoNothing();
+  }
 
   // Departments
   const deptRows = await db.insert(departments).values(DEPARTMENTS).returning();

@@ -109,6 +109,84 @@ export const createFeedbackSchema = z.object({
   pagePath: z.string().trim().max(500).optional(),
 });
 
+// Feedback Hub
+export const feedbackHubPostStatusSchema = z.enum([
+  "open",
+  "under_review",
+  "planned",
+  "in_progress",
+  "complete",
+]);
+
+export const feedbackHubSortSchema = z.enum(["trending", "top", "new"]);
+
+export const feedbackHubBoardPostsQuerySchema = z.object({
+  status: feedbackHubPostStatusSchema.optional(),
+  category: z.string().trim().min(1).max(80).optional(),
+  q: z.string().trim().min(1).max(200).optional(),
+  sort: feedbackHubSortSchema.default("trending"),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const feedbackHubRoadmapQuerySchema = z.object({
+  limitPerStatus: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export const feedbackHubSearchQuerySchema = z.object({
+  q: z.string().trim().min(1).max(200),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const feedbackHubChangelogQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const feedbackHubCreatePostSchema = z.object({
+  boardSlug: z.string().trim().min(1).max(80),
+  categorySlug: z.string().trim().min(1).max(80).optional(),
+  title: z.string().trim().min(5).max(160),
+  details: z.string().trim().min(1).max(4000).optional(),
+  authorMode: z.enum(["pseudonymous", "linked_profile"]).default("pseudonymous"),
+});
+
+export const feedbackHubCreateCommentSchema = z.object({
+  body: z.string().trim().min(1).max(3000),
+});
+
+export const feedbackHubSimilarPostsQuerySchema = z.object({
+  boardSlug: z.string().trim().min(1).max(80),
+  q: z.string().trim().min(3).max(160),
+  limit: z.coerce.number().int().min(1).max(10).default(5),
+});
+
+export const feedbackHubAdminPostsQuerySchema = z.object({
+  boardSlug: z.string().trim().min(1).max(80).optional(),
+  status: feedbackHubPostStatusSchema.optional(),
+  q: z.string().trim().min(1).max(200).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+export const feedbackHubUpdatePostSchema = z.object({
+  title: z.string().trim().min(5).max(160).optional(),
+  details: z.string().trim().min(1).max(4000).optional(),
+  categorySlug: z.string().trim().min(1).max(80).nullable().optional(),
+});
+
+export const feedbackHubUpdateStatusSchema = z.object({
+  status: feedbackHubPostStatusSchema,
+  note: z.string().trim().max(500).optional(),
+});
+
+export const feedbackHubCreateChangelogSchema = z.object({
+  title: z.string().trim().min(5).max(200),
+  body: z.string().trim().min(10).max(12000),
+  postIds: z.array(z.number().int().positive()).max(50).default([]),
+});
+
 // Social
 export const friendRequestSchema = z.object({
   username: z
@@ -154,6 +232,19 @@ export type ProgramCoursesQuery = z.infer<typeof programCoursesQuerySchema>;
 export type CreateReviewInput = z.infer<typeof createReviewSchema>;
 export type UpdateReviewInput = z.infer<typeof updateReviewSchema>;
 export type CreateFeedbackInput = z.infer<typeof createFeedbackSchema>;
+export type FeedbackHubPostStatusInput = z.infer<typeof feedbackHubPostStatusSchema>;
+export type FeedbackHubSortInput = z.infer<typeof feedbackHubSortSchema>;
+export type FeedbackHubBoardPostsQuery = z.infer<typeof feedbackHubBoardPostsQuerySchema>;
+export type FeedbackHubRoadmapQuery = z.infer<typeof feedbackHubRoadmapQuerySchema>;
+export type FeedbackHubSearchQuery = z.infer<typeof feedbackHubSearchQuerySchema>;
+export type FeedbackHubChangelogQuery = z.infer<typeof feedbackHubChangelogQuerySchema>;
+export type FeedbackHubCreatePostInput = z.infer<typeof feedbackHubCreatePostSchema>;
+export type FeedbackHubCreateCommentInput = z.infer<typeof feedbackHubCreateCommentSchema>;
+export type FeedbackHubSimilarPostsQuery = z.infer<typeof feedbackHubSimilarPostsQuerySchema>;
+export type FeedbackHubAdminPostsQuery = z.infer<typeof feedbackHubAdminPostsQuerySchema>;
+export type FeedbackHubUpdatePostInput = z.infer<typeof feedbackHubUpdatePostSchema>;
+export type FeedbackHubUpdateStatusInput = z.infer<typeof feedbackHubUpdateStatusSchema>;
+export type FeedbackHubCreateChangelogInput = z.infer<typeof feedbackHubCreateChangelogSchema>;
 export type FriendRequestInput = z.infer<typeof friendRequestSchema>;
 export type CreateListInput = z.infer<typeof createListSchema>;
 export type AddListItemInput = z.infer<typeof addListItemSchema>;
