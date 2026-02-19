@@ -24,6 +24,11 @@ export default function ReviewCard({ review, onDelete, onEdit }: ReviewCardProps
             {(review.author?.badges ?? []).map((badge) => (
               <UserBadge key={badge.slug} badge={badge} />
             ))}
+            {review.source === "rmp" && (
+              <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
+                RateMyProfessor
+              </span>
+            )}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500">
             {review.semester && <span>{review.semester}</span>}
@@ -61,10 +66,12 @@ export default function ReviewCard({ review, onDelete, onEdit }: ReviewCardProps
           <span className="text-xs text-gray-500">Difficulty:</span>
           <RatingStars value={review.ratingDifficulty} readonly size="sm" />
         </div>
-        <div className="flex items-center gap-1">
-          <span className="text-xs text-gray-500">Workload:</span>
-          <RatingStars value={review.ratingWorkload} readonly size="sm" />
-        </div>
+        {review.ratingWorkload != null && (
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-gray-500">Workload:</span>
+            <RatingStars value={review.ratingWorkload} readonly size="sm" />
+          </div>
+        )}
       </div>
 
       {review.comment && (

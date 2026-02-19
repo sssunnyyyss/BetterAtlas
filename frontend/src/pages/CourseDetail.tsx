@@ -1,7 +1,14 @@
 import { useParams, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useCourseDetail } from "../hooks/useCourses.js";
 import { useMemo, useState, useCallback, useEffect, useRef, type FormEvent } from "react";
-import { useReviews, useSectionReviews, useCreateReview, useUpdateReview, useDeleteReview } from "../hooks/useReviews.js";
+import {
+  useReviews,
+  useSectionReviews,
+  useCreateReview,
+  useUpdateReview,
+  useDeleteReview,
+  type ReviewSourceFilter,
+} from "../hooks/useReviews.js";
 import RatingBadge from "../components/course/RatingBadge.js";
 import GerPills from "../components/course/GerPills.js";
 import ReviewCard from "../components/review/ReviewCard.js";
@@ -364,7 +371,10 @@ export default function CourseDetail() {
     isError,
     error,
   } = useCourseDetail(courseId);
-  const { data: reviews } = useReviews(courseId);
+  const [sourceFilter, setSourceFilter] = useState<
+    ReviewSourceFilter | undefined
+  >(undefined);
+  const { data: reviews } = useReviews(courseId, sourceFilter);
   const createReview = useCreateReview(courseId);
   const updateReview = useUpdateReview(courseId);
   const deleteReview = useDeleteReview();
@@ -1152,6 +1162,29 @@ export default function CourseDetail() {
             {(createReview.error as any)?.message || "Failed to submit review"}
           </p>
         )}
+
+        <div className="mt-4 mb-3 flex gap-2">
+          {[
+            { value: undefined, label: "All" },
+            { value: "native", label: "BetterAtlas" },
+            { value: "rmp", label: "RateMyProfessor" },
+          ].map((option) => (
+            <button
+              key={option.label}
+              type="button"
+              onClick={() =>
+                setSourceFilter(option.value as ReviewSourceFilter | undefined)
+              }
+              className={`rounded-full px-2 py-1 text-xs ${
+                sourceFilter === option.value
+                  ? "bg-primary-100 text-primary-700"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
 
         <div className="space-y-3 mt-4">
           {reviews?.map((review) => (

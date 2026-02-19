@@ -16,7 +16,17 @@ import type { CreateReviewInput, UpdateReviewInput } from "@betteratlas/shared";
 import { resolveTermCode } from "./termLookup.js";
 import { listBadgesForUsers } from "./badgeService.js";
 
-export async function getReviewsForCourse(courseId: number) {
+type ReviewSource = "native" | "rmp";
+
+export async function getReviewsForCourse(
+  courseId: number,
+  source?: ReviewSource
+) {
+  const conditions = [eq(reviews.courseId, courseId)];
+  if (source) {
+    conditions.push(eq(reviews.source, source));
+  }
+
   const data = await db
     .select({
       id: reviews.id,
@@ -29,6 +39,7 @@ export async function getReviewsForCourse(courseId: number) {
       ratingWorkload: reviews.ratingWorkload,
       comment: reviews.comment,
       isAnonymous: reviews.isAnonymous,
+      source: reviews.source,
       createdAt: reviews.createdAt,
       updatedAt: reviews.updatedAt,
       username: users.username,
@@ -40,7 +51,7 @@ export async function getReviewsForCourse(courseId: number) {
     .leftJoin(users, eq(reviews.userId, users.id))
     .leftJoin(terms, eq(reviews.termCode, terms.srcdb))
     .leftJoin(instructors, eq(reviews.instructorId, instructors.id))
-    .where(eq(reviews.courseId, courseId))
+    .where(and(...conditions))
     .orderBy(desc(reviews.createdAt));
   const badgesByUser = await listBadgesForUsers(
     data.filter((r) => !r.isAnonymous).map((r) => r.userId)
@@ -59,6 +70,7 @@ export async function getReviewsForCourse(courseId: number) {
     ratingWorkload: r.ratingWorkload,
     comment: r.comment,
     isAnonymous: r.isAnonymous,
+    source: r.source === "rmp" ? "rmp" : "native",
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
     author: r.isAnonymous
@@ -87,6 +99,7 @@ export async function getReviewsForUser(userId: string) {
       ratingWorkload: reviews.ratingWorkload,
       comment: reviews.comment,
       isAnonymous: reviews.isAnonymous,
+      source: reviews.source,
       createdAt: reviews.createdAt,
       updatedAt: reviews.updatedAt,
       username: users.username,
@@ -124,6 +137,7 @@ export async function getReviewsForUser(userId: string) {
     ratingWorkload: r.ratingWorkload,
     comment: r.comment,
     isAnonymous: r.isAnonymous,
+    source: r.source === "rmp" ? "rmp" : "native",
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
     // This is a private "my reviews" view.
@@ -146,6 +160,7 @@ export async function getReviewsForSection(sectionId: number) {
       ratingWorkload: reviews.ratingWorkload,
       comment: reviews.comment,
       isAnonymous: reviews.isAnonymous,
+      source: reviews.source,
       createdAt: reviews.createdAt,
       updatedAt: reviews.updatedAt,
       username: users.username,
@@ -175,6 +190,7 @@ export async function getReviewsForSection(sectionId: number) {
     ratingWorkload: r.ratingWorkload,
     comment: r.comment,
     isAnonymous: r.isAnonymous,
+    source: r.source === "rmp" ? "rmp" : "native",
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
     author: r.isAnonymous

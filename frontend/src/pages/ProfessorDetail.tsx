@@ -70,6 +70,37 @@ export default function ProfessorDetail() {
             <span className="text-xs text-gray-500">Reviews</span>
           </div>
         </div>
+
+        {data.rmp && (
+          <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <h3 className="mb-2 text-sm font-semibold text-amber-800">RateMyProfessor</h3>
+            <div className="flex flex-wrap gap-4 text-sm text-amber-700">
+              {data.rmp.avgRating != null && (
+                <span>
+                  Rating: <strong>{data.rmp.avgRating.toFixed(1)}/5</strong>
+                </span>
+              )}
+              {data.rmp.wouldTakeAgain != null && (
+                <span>
+                  Would take again: <strong>{data.rmp.wouldTakeAgain.toFixed(0)}%</strong>
+                </span>
+              )}
+              {data.rmp.numRatings > 0 && <span>{data.rmp.numRatings} ratings</span>}
+            </div>
+            {data.rmp.tags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {data.rmp.tags.map((t) => (
+                  <span
+                    key={t.tag}
+                    className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-800"
+                  >
+                    {t.tag} ({t.count})
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div>

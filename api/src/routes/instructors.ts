@@ -2,8 +2,17 @@ import { Router } from "express";
 import { validate } from "../middleware/validate.js";
 import { instructorQuerySchema } from "@betteratlas/shared";
 import { db } from "../db/index.js";
-import { instructors, instructorRatings, sections, courses, departments, courseRatings } from "../db/schema.js";
-import { asc, and, eq, ilike, sql } from "drizzle-orm";
+import {
+  instructors,
+  instructorRatings,
+  sections,
+  courses,
+  departments,
+  courseRatings,
+  rmpProfessors,
+  rmpProfessorTags,
+} from "../db/schema.js";
+import { asc, and, desc, eq, ilike, sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -55,6 +64,25 @@ router.get("/:id", async (req, res) => {
   if (!prof) {
     return res.status(404).json({ error: "Instructor not found" });
   }
+
+  const [rmpData] = await db
+    .select({
+      avgRating: rmpProfessors.rmpAvgRating,
+      avgDifficulty: rmpProfessors.rmpAvgDifficulty,
+      numRatings: rmpProfessors.rmpNumRatings,
+      wouldTakeAgain: rmpProfessors.rmpWouldTakeAgain,
+    })
+    .from(rmpProfessors)
+    .where(eq(rmpProfessors.instructorId, instructorId))
+    .limit(1);
+
+  const rmpTags = rmpData
+    ? await db
+        .select({ tag: rmpProfessorTags.tag, count: rmpProfessorTags.count })
+        .from(rmpProfessorTags)
+        .where(eq(rmpProfessorTags.instructorId, instructorId))
+        .orderBy(desc(rmpProfessorTags.count), asc(rmpProfessorTags.tag))
+    : [];
 
   // Courses taught by this instructor (from active sections).
   const rows = await db
@@ -124,6 +152,22 @@ router.get("/:id", async (req, res) => {
     },
     avgQuality: prof.avgQuality ? parseFloat(prof.avgQuality) : null,
     reviewCount: prof.reviewCount ?? 0,
+    rmp: rmpData
+      ? {
+          avgRating: rmpData.avgRating ? parseFloat(rmpData.avgRating) : null,
+          avgDifficulty: rmpData.avgDifficulty
+            ? parseFloat(rmpData.avgDifficulty)
+            : null,
+          numRatings: rmpData.numRatings ?? 0,
+          wouldTakeAgain: rmpData.wouldTakeAgain
+            ? parseFloat(rmpData.wouldTakeAgain)
+            : null,
+          tags: rmpTags.map((t) => ({
+            tag: t.tag,
+            count: t.count ?? 0,
+          })),
+        }
+      : null,
     courses: rows.map((row: any) => ({
       id: row.id,
       code: row.code,
