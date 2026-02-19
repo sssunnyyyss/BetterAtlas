@@ -735,3 +735,37 @@ export const oauthAccessTokens = pgTable("oauth_access_tokens", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }), // soft revocation
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
+
+// RMP professor linkage (maps instructors to RMP teacher IDs)
+export const rmpProfessors = pgTable("rmp_professors", {
+  instructorId: integer("instructor_id")
+    .primaryKey()
+    .references(() => instructors.id),
+  rmpTeacherId: varchar("rmp_teacher_id", { length: 20 }).notNull(),
+  rmpAvgRating: numeric("rmp_avg_rating", { precision: 3, scale: 2 }),
+  rmpAvgDifficulty: numeric("rmp_avg_difficulty", { precision: 3, scale: 2 }),
+  rmpNumRatings: integer("rmp_num_ratings"),
+  rmpWouldTakeAgain: numeric("rmp_would_take_again", { precision: 5, scale: 2 }),
+  rmpDepartment: text("rmp_department"),
+  importedAt: timestamp("imported_at", { withTimezone: true }).defaultNow(),
+});
+
+// RMP community tags per instructor
+export const rmpProfessorTags = pgTable(
+  "rmp_professor_tags",
+  {
+    id: serial("id").primaryKey(),
+    instructorId: integer("instructor_id")
+      .references(() => instructors.id)
+      .notNull(),
+    tag: text("tag").notNull(),
+    count: integer("count").default(1),
+  },
+  (table) => ({
+    instructorTagUnique: uniqueIndex("idx_rmp_professor_tags_instructor_tag").on(
+      table.instructorId,
+      table.tag
+    ),
+    instructorIdx: index("idx_rmp_professor_tags_instructor").on(table.instructorId),
+  })
+);
