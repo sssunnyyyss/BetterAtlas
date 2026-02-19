@@ -74,6 +74,14 @@ function schedulesForSection(section: Section): Schedule[] {
   return section.schedule ? [section.schedule as Schedule] : [];
 }
 
+function sectionTopic(section: Section): string | null {
+  const raw =
+    typeof section.sectionDescription === "string"
+      ? section.sectionDescription.trim()
+      : "";
+  return raw || null;
+}
+
 function SectionDetails({ section }: { section: Section }) {
   const scheds = schedulesForSection(section);
   return (
@@ -170,6 +178,12 @@ function SectionDetails({ section }: { section: Section }) {
         <div>
           <span className="font-medium text-gray-800">Requirement Designation:</span>{" "}
           {section.gerDesignation}
+        </div>
+      )}
+
+      {sectionTopic(section) && (
+        <div>
+          <span className="font-medium text-gray-800">Topic:</span> {sectionTopic(section)}
         </div>
       )}
 
@@ -433,20 +447,42 @@ export default function CourseDetail() {
 
   const { data: sectionReviews } = useSectionReviews(activeSection?.id ?? null);
 
+  const hasMultipleSectionTopics = useMemo(() => {
+    const topics = new Set<string>();
+    for (const section of visibleSections) {
+      const topic = sectionTopic(section);
+      if (topic) topics.add(topic);
+    }
+    return topics.size > 1;
+  }, [visibleSections]);
+
   const groupedSections = useMemo(() => {
     if (visibleSections.length === 0) return [];
 
     const map = new Map<
       string,
-      { key: string; instructorId: number | null; instructorName: string; sections: Section[] }
+      {
+        key: string;
+        instructorId: number | null;
+        instructorName: string;
+        topic: string | null;
+        sections: Section[];
+      }
     >();
 
     for (const s of visibleSections) {
       const instructorId = s.instructor?.id ?? null;
       const instructorName = s.instructor?.name ?? "TBA";
-      const key = instructorId !== null ? `i:${instructorId}` : "i:tba";
+      const topic = hasMultipleSectionTopics ? sectionTopic(s) : null;
+      const instructorKey = instructorId !== null ? `i:${instructorId}` : "i:tba";
+      const key =
+        topic !== null
+          ? `t:${topic.toLowerCase()}::${instructorKey}`
+          : hasMultipleSectionTopics
+            ? `t:tbd::${instructorKey}`
+            : instructorKey;
       if (!map.has(key)) {
-        map.set(key, { key, instructorId, instructorName, sections: [] });
+        map.set(key, { key, instructorId, instructorName, topic, sections: [] });
       }
       map.get(key)!.sections.push(s);
     }
@@ -463,7 +499,11 @@ export default function CourseDetail() {
     }
 
     groups.sort((a, b) => {
-      // Put "TBA" at the end.
+      if (hasMultipleSectionTopics) {
+        const aTopic = a.topic ?? "~";
+        const bTopic = b.topic ?? "~";
+        if (aTopic !== bTopic) return aTopic.localeCompare(bTopic);
+      }
       const atba = a.instructorId === null;
       const btba = b.instructorId === null;
       if (atba !== btba) return atba ? 1 : -1;
@@ -471,7 +511,7 @@ export default function CourseDetail() {
     });
 
     return groups;
-  }, [visibleSections]);
+  }, [visibleSections, hasMultipleSectionTopics]);
 
   const miniCalendarBlocks = useMemo(() => {
     if (!course || visibleSections.length === 0) return [] as MiniBlock[];
@@ -740,6 +780,12 @@ export default function CourseDetail() {
       {course.sections.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Sections</h2>
+          {hasMultipleSectionTopics && (
+            <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+              This course has section-specific topics. Each section group below is treated like a
+              mini class.
+            </div>
+          )}
           {selectedSemester && visibleSections.length === 0 && (
             <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
               No sections found for <span className="font-medium text-gray-900">{selectedSemester}</span>.
@@ -756,11 +802,16 @@ export default function CourseDetail() {
                 <summary className="cursor-pointer select-none list-none flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-semibold text-gray-900 truncate">
-                      {group.instructorName}
+                      {hasMultipleSectionTopics ? (group.topic ?? "Topic TBD") : group.instructorName}
                       <span className="text-xs font-normal text-gray-500 ml-2">
                         {group.sections.length} section{group.sections.length !== 1 ? "s" : ""}
                       </span>
                     </div>
+                    {hasMultipleSectionTopics && (
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        Professor: {group.instructorName}
+                      </div>
+                    )}
                     {group.instructorId !== null && (
                       <div className="text-xs text-gray-500">
                         <Link
@@ -814,6 +865,12 @@ export default function CourseDetail() {
                               <div className="mt-1 text-xs text-gray-500 line-clamp-2">
                                 <span className="font-medium text-gray-600">Requirements:</span>{" "}
                                 {section.registrationRestrictions}
+                              </div>
+                            )}
+                            {sectionTopic(section) && (
+                              <div className="mt-1 text-xs text-gray-600 line-clamp-2">
+                                <span className="font-medium text-gray-700">Topic:</span>{" "}
+                                {sectionTopic(section)}
                               </div>
                             )}
                           </div>

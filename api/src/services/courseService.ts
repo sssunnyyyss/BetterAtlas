@@ -13,6 +13,10 @@ import {
 import { eq, sql, and, asc, desc, ilike, inArray } from "drizzle-orm";
 import type { CourseQuery, SearchQuery, CourseWithRatings } from "@betteratlas/shared";
 import { scheduleFromMeetings, schedulesFromMeetings } from "../lib/schedule.js";
+import {
+  buildCrossListSignatureMap,
+  haveExactCrossListSignatures,
+} from "../lib/crossListSignatures.js";
 
 type CourseFilterQuery = Partial<
   Pick<
@@ -710,6 +714,7 @@ export async function getCourseById(id: number) {
 	      endDate: sections.endDate,
 	      gerDesignation: sections.gerDesignation,
 	      gerCodes: sections.gerCodes,
+	      sectionDescription: sections.sectionDescription,
 	      registrationRestrictions: sections.registrationRestrictions,
 	      meetings: sections.meetings,
 	      createdAt: sections.createdAt,
@@ -752,12 +757,59 @@ export async function getCourseById(id: number) {
       .orderBy(asc(instructors.name)),
     crossListPromise,
   ]);
+  const candidateCourseIds = Array.from(
+    new Set(
+      (crossListRows as any[])
+        .map((row) => Number(row.id))
+        .filter((courseId) => Number.isInteger(courseId))
+    )
+  );
+
+  let filteredCrossListRows = crossListRows as any[];
+
+  if (candidateCourseIds.length > 0) {
+    const signatureRows = await db
+      .select({
+        courseId: sections.courseId,
+        termCode: sections.termCode,
+        instructorId: sections.instructorId,
+        meetsDisplay: sections.meetsDisplay,
+      })
+      .from(sections)
+      .where(
+        and(
+          eq(sections.isActive, true),
+          inArray(sections.courseId, [id, ...candidateCourseIds])
+        )
+      );
+
+    const signatureMap = buildCrossListSignatureMap(signatureRows);
+    const sourceSignatures = signatureMap.get(id);
+
+    filteredCrossListRows = filteredCrossListRows.filter((row) =>
+      haveExactCrossListSignatures(sourceSignatures, signatureMap.get(Number(row.id)))
+    );
+  }
+
+  const distinctSectionDescriptions = Array.from(
+    new Set(
+      (courseSections as any[])
+        .map((s) =>
+          typeof s.sectionDescription === "string" ? s.sectionDescription.trim() : ""
+        )
+        .filter(Boolean)
+    )
+  );
+  const hasMultipleSectionDescriptions = distinctSectionDescriptions.length > 1;
+  const resolvedCourseDescription = hasMultipleSectionDescriptions
+    ? null
+    : (course.description ?? distinctSectionDescriptions[0] ?? null);
 
   return {
     id: course.id,
     code: course.code,
     title: course.title,
-    description: course.description,
+    description: resolvedCourseDescription,
     prerequisites: course.prerequisites ?? null,
     credits: course.credits,
     gradeMode: course.gradeMode ?? null,
@@ -800,7 +852,7 @@ export async function getCourseById(id: number) {
       avgWorkload: p.avgWorkload ? parseFloat(p.avgWorkload) : null,
       reviewCount: p.reviewCount ?? 0,
     })),
-    crossListedWith: (crossListRows as any[]).map((r) => ({
+    crossListedWith: filteredCrossListRows.map((r) => ({
       id: Number(r.id),
       code: String(r.code),
       department: r.dept_code
@@ -821,6 +873,10 @@ export async function getCourseById(id: number) {
         enrollmentStatus: s.enrollmentStatus ?? null,
         waitlistCount: s.waitlistCount ?? 0,
         waitlistCap: s.waitlistCap ?? null,
+        sectionDescription:
+          typeof s.sectionDescription === "string" && s.sectionDescription.trim()
+            ? s.sectionDescription.trim()
+            : null,
         registrationRestrictions: s.registrationRestrictions ?? null,
         instructor: s.instructorName
           ? {

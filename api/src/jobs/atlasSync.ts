@@ -703,6 +703,7 @@ async function main() {
               gerCodes: sections.gerCodes,
               instructorId: sections.instructorId,
               registrationRestrictions: sections.registrationRestrictions,
+              sectionDescription: sections.sectionDescription,
             })
             .from(sections)
             .where(and(eq(sections.crn, crn), eq(sections.termCode, termCode)))
@@ -733,7 +734,8 @@ async function main() {
             existing?.seatsAvail == null ||
             existing?.gerCodes == null ||
             existing?.instructorId == null ||
-            existing?.registrationRestrictions == null;
+            existing?.registrationRestrictions == null ||
+            existing?.sectionDescription == null;
 
           if (detailsMode === "all") {
             detailsTasks.push({ courseId: courseRow.id, courseCode, crn, atlasKey });
@@ -791,7 +793,7 @@ async function main() {
 
       const details = await fosePostJson<FoseDetailsResponse>(FOSE_DETAILS_URL, body, opts);
 
-      const description = (details.description ?? "").trim();
+      const sectionDescription = (details.description ?? "").trim();
       const registrationRestrictionsRaw = stripHtml(details.registration_restrictions ?? "");
       const registrationRestrictions = registrationRestrictionsRaw ? registrationRestrictionsRaw : null;
       const attributes = (details.attributes ?? "").trim();
@@ -807,7 +809,11 @@ async function main() {
       const instr = parseInstructorDetail(details.instructordetail_html);
 
       const set: Record<string, any> = {};
-      if (description) set.description = description;
+      if (sectionDescription) {
+        // Details can vary by section for special-topics courses.
+        // Only backfill the course-level description when it's currently empty.
+        set.description = sql`coalesce(${courses.description}, ${sectionDescription})`;
+      }
       if (attributes) set.attributes = attributes;
       if (gradeMode) set.gradeMode = gradeMode;
       if (credits && /^[0-9]+$/.test(credits)) set.credits = Number(credits);
@@ -821,6 +827,7 @@ async function main() {
       if (statusCode) sectionSet.enrollmentStatus = statusCode;
       if (dates.start) sectionSet.startDate = dates.start;
       if (dates.end) sectionSet.endDate = dates.end;
+      if (sectionDescription) sectionSet.sectionDescription = sectionDescription;
       if (registrationRestrictions) sectionSet.registrationRestrictions = registrationRestrictions;
 
       if (seatInfo.enrollmentCap !== null) sectionSet.enrollmentCap = seatInfo.enrollmentCap;

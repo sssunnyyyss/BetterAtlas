@@ -72,6 +72,7 @@ export interface Section {
   endDate?: string | null;
   gerDesignation?: string | null;
   gerCodes?: string[];
+  sectionDescription?: string | null;
   registrationRestrictions?: string | null;
   avgQuality?: number | null;
   avgDifficulty?: number | null;

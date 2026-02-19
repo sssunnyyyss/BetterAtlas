@@ -334,7 +334,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_unique
 -- 10. ALTER sections — add per-section registration restrictions
 -- ============================================================
 ALTER TABLE sections
-  ADD COLUMN IF NOT EXISTS registration_restrictions TEXT;
+  ADD COLUMN IF NOT EXISTS registration_restrictions TEXT,
+  ADD COLUMN IF NOT EXISTS section_description TEXT;
 
 -- ============================================================
 -- 11. ALTER users - admin flags + deactivation + activity tracking

@@ -88,6 +88,7 @@ export const sections = pgTable(
     gerDesignation: text("ger_designation"),
     gerCodes: text("ger_codes"),
     registrationRestrictions: text("registration_restrictions"),
+    sectionDescription: text("section_description"),
     atlasKey: varchar("atlas_key", { length: 20 }),
     lastSynced: timestamp("last_synced", { withTimezone: true }),
     isActive: boolean("is_active").notNull().default(true),
