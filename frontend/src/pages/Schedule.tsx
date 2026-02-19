@@ -221,46 +221,55 @@ function courseLabel(item: ScheduleCourseBlock) {
   return `${item.course.code} (${sec})`;
 }
 
+function schedulesForScheduleItem(item: ScheduleCourseBlock) {
+  if (Array.isArray(item.section.schedules) && item.section.schedules.length > 0) {
+    return item.section.schedules;
+  }
+  return item.section.schedule ? [item.section.schedule] : [];
+}
+
 function blocksFromSchedule(items: ScheduleCourseBlock[], ownerLabel: string, owner: "me" | "friend") {
   const blocks: CalendarBlock[] = [];
   for (const item of items) {
-    const sched = item.section.schedule;
-    if (!sched) continue;
-    const startMin = parseHHMMColon(sched.start);
-    const endMin = parseHHMMColon(sched.end);
-    if (startMin === null || endMin === null || endMin <= startMin) continue;
-    const color = item.color ?? hashColor(`${ownerLabel}:${item.course.code}`);
+    const scheds = schedulesForScheduleItem(item);
+    for (let i = 0; i < scheds.length; i++) {
+      const sched = scheds[i];
+      const startMin = parseHHMMColon(sched.start);
+      const endMin = parseHHMMColon(sched.end);
+      if (startMin === null || endMin === null || endMin <= startMin) continue;
+      const color = item.color ?? hashColor(`${ownerLabel}:${item.course.code}`);
 
-    for (const day of sched.days) {
-      blocks.push({
-        id: `${owner}:${ownerLabel}:${item.itemId}:${day}`,
-        owner,
-        ownerLabel,
-        day,
-        startMin,
-        endMin,
-        title: item.course.code,
-        subtitle: `${formatTimeRange12h(sched.start, sched.end)}${item.section.location ? ` • ${item.section.location}` : ""}`,
-        color,
-        itemId: item.itemId,
-        sectionId: item.sectionId,
-        courseId: item.course.id,
-        courseTitle: item.course.title,
-        sectionNumber: item.section.sectionNumber ?? null,
-        instructorName: item.section.instructorName ?? null,
-        location: item.section.location ?? null,
-        campus: item.section.campus ?? null,
-        componentType: item.section.componentType ?? null,
-        instructionMethod: item.section.instructionMethod ?? null,
-        enrollmentStatus: item.section.enrollmentStatus ?? null,
-        enrollmentCap: item.section.enrollmentCap ?? null,
-        enrollmentCur: item.section.enrollmentCur ?? 0,
-        seatsAvail: item.section.seatsAvail ?? null,
-        waitlistCount: item.section.waitlistCount ?? 0,
-        waitlistCap: item.section.waitlistCap ?? null,
-        startDate: item.section.startDate ?? null,
-        endDate: item.section.endDate ?? null,
-      });
+      for (const day of sched.days) {
+        blocks.push({
+          id: `${owner}:${ownerLabel}:${item.itemId}:${i}:${day}`,
+          owner,
+          ownerLabel,
+          day,
+          startMin,
+          endMin,
+          title: item.course.code,
+          subtitle: `${formatTimeRange12h(sched.start, sched.end)}${sched.location ? ` • ${sched.location}` : ""}`,
+          color,
+          itemId: item.itemId,
+          sectionId: item.sectionId,
+          courseId: item.course.id,
+          courseTitle: item.course.title,
+          sectionNumber: item.section.sectionNumber ?? null,
+          instructorName: item.section.instructorName ?? null,
+          location: (sched.location || item.section.location) ?? null,
+          campus: item.section.campus ?? null,
+          componentType: item.section.componentType ?? null,
+          instructionMethod: item.section.instructionMethod ?? null,
+          enrollmentStatus: item.section.enrollmentStatus ?? null,
+          enrollmentCap: item.section.enrollmentCap ?? null,
+          enrollmentCur: item.section.enrollmentCur ?? 0,
+          seatsAvail: item.section.seatsAvail ?? null,
+          waitlistCount: item.section.waitlistCount ?? 0,
+          waitlistCap: item.section.waitlistCap ?? null,
+          startDate: item.section.startDate ?? null,
+          endDate: item.section.endDate ?? null,
+        });
+      }
     }
   }
   return blocks;
@@ -348,7 +357,10 @@ export default function Schedule() {
     return mins.length ? Math.max(...mins, 18 * 60) : 18 * 60;
   }, [calendarBlocks]);
 
-  const unscheduled = useMemo(() => (mine?.items ?? []).filter((i) => !i.section.schedule), [mine?.items]);
+  const unscheduled = useMemo(
+    () => (mine?.items ?? []).filter((i) => schedulesForScheduleItem(i).length === 0),
+    [mine?.items]
+  );
 
   if (isLoading) {
     return (
@@ -491,10 +503,14 @@ export default function Schedule() {
                 <li key={item.itemId} className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-gray-900 truncate">{courseLabel(item)}</div>
-                    {item.section.schedule ? (
-                      <div className="text-xs text-gray-500 truncate">
-                        {item.section.schedule.days.join("/")} {formatTimeRange12h(item.section.schedule.start, item.section.schedule.end)}
-                        {item.section.location ? ` • ${item.section.location}` : ""}
+                    {schedulesForScheduleItem(item).length > 0 ? (
+                      <div className="text-xs text-gray-500">
+                        {schedulesForScheduleItem(item).map((sched, idx) => (
+                          <div key={`${item.itemId}:${sched.days.join("/")}:${sched.start}:${idx}`} className="truncate">
+                            {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
+                            {sched.location ? ` • ${sched.location}` : ""}
+                          </div>
+                        ))}
                       </div>
                     ) : (
                       <div className="text-xs text-gray-500 truncate">No meeting time listed</div>

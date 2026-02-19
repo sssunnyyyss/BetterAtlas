@@ -12,7 +12,7 @@ import {
 } from "../db/schema.js";
 import { eq, sql, and, asc, desc, ilike, inArray } from "drizzle-orm";
 import type { CourseQuery, SearchQuery, CourseWithRatings } from "@betteratlas/shared";
-import { scheduleFromMeetings } from "../lib/schedule.js";
+import { scheduleFromMeetings, schedulesFromMeetings } from "../lib/schedule.js";
 
 type CourseFilterQuery = Partial<
   Pick<
@@ -807,29 +807,32 @@ export async function getCourseById(id: number) {
         ? { id: Number(r.department_id), code: String(r.dept_code), name: String(r.dept_name) }
         : null,
     })),
-	    sections: courseSections.map((s) => ({
-	      id: s.id,
-	      courseId: s.courseId,
-	      semester: s.semester ?? s.termCode,
-	      sectionNumber: s.sectionNumber,
-	      instructorId: s.instructorId,
-	      componentType: s.componentType ?? null,
-	      campus: s.campus ?? null,
-	      instructionMethod: s.instructionMethod ?? null,
-	      enrollmentStatus: s.enrollmentStatus ?? null,
-	      waitlistCount: s.waitlistCount ?? 0,
-	      waitlistCap: s.waitlistCap ?? null,
-	      registrationRestrictions: s.registrationRestrictions ?? null,
-	      instructor: s.instructorName
-	        ? {
-	            id: s.instructorId!,
-	            name: s.instructorName,
-            email: s.instructorEmail ?? null,
-            departmentId: s.instructorDepartmentId ?? null,
-          }
-        : undefined,
-      schedule: scheduleFromMeetings(s.meetings),
-      enrollmentCap: s.enrollmentCap,
+    sections: courseSections.map((s) => {
+      const schedules = schedulesFromMeetings(s.meetings);
+      return {
+        id: s.id,
+        courseId: s.courseId,
+        semester: s.semester ?? s.termCode,
+        sectionNumber: s.sectionNumber,
+        instructorId: s.instructorId,
+        componentType: s.componentType ?? null,
+        campus: s.campus ?? null,
+        instructionMethod: s.instructionMethod ?? null,
+        enrollmentStatus: s.enrollmentStatus ?? null,
+        waitlistCount: s.waitlistCount ?? 0,
+        waitlistCap: s.waitlistCap ?? null,
+        registrationRestrictions: s.registrationRestrictions ?? null,
+        instructor: s.instructorName
+          ? {
+              id: s.instructorId!,
+              name: s.instructorName,
+              email: s.instructorEmail ?? null,
+              departmentId: s.instructorDepartmentId ?? null,
+            }
+          : undefined,
+        schedule: scheduleFromMeetings(s.meetings),
+        schedules,
+        enrollmentCap: s.enrollmentCap,
       enrollmentCur: s.enrollmentCur ?? 0,
       seatsAvail: s.seatsAvail ?? (s.enrollmentCap !== null ? Math.max(0, (s.enrollmentCap ?? 0) - (s.enrollmentCur ?? 0)) : null),
       startDate: s.startDate ?? null,
@@ -850,7 +853,8 @@ export async function getCourseById(id: number) {
       instructorAvgQuality: s.instructorAvgQuality ? parseFloat(s.instructorAvgQuality) : null,
       instructorReviewCount: s.instructorReviewCount ?? 0,
       createdAt: s.createdAt?.toISOString() ?? "",
-    })),
+      };
+    }),
   };
 }
 

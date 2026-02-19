@@ -10,7 +10,7 @@ import {
   terms,
   users,
 } from "../db/schema.js";
-import { scheduleFromMeetings } from "../lib/schedule.js";
+import { scheduleFromMeetings, schedulesFromMeetings } from "../lib/schedule.js";
 import { resolveTermCode } from "./termLookup.js";
 
 const SCHEDULE_LIST_NAME = "My Schedule";
@@ -121,6 +121,7 @@ async function getScheduleItemsForList(listId: number) {
 
   return rows.map((r) => {
     const sched = scheduleFromMeetings(r.meetings);
+    const schedules = schedulesFromMeetings(r.meetings);
     return {
       itemId: r.itemId,
       sectionId: r.sectionId,
@@ -131,6 +132,7 @@ async function getScheduleItemsForList(listId: number) {
         sectionNumber: r.sectionNumber ?? null,
         semester: r.termName ?? r.termCode,
         schedule: sched,
+        schedules,
         instructorName: r.instructorName ?? null,
         location: sched?.location ?? null,
         campus: r.campus ?? null,

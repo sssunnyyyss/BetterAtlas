@@ -10,6 +10,7 @@ export interface ScheduleCourseBlock {
     sectionNumber: string | null;
     semester: string;
     schedule: Schedule | null;
+    schedules?: Schedule[] | null;
     instructorName: string | null;
     location: string | null;
     campus: string | null;

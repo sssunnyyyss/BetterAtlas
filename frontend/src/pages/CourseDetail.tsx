@@ -67,8 +67,15 @@ function enrollmentTone(percent: number | null) {
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
+function schedulesForSection(section: Section): Schedule[] {
+  if (Array.isArray(section.schedules) && section.schedules.length > 0) {
+    return section.schedules;
+  }
+  return section.schedule ? [section.schedule as Schedule] : [];
+}
+
 function SectionDetails({ section }: { section: Section }) {
-  const sched = section.schedule as Schedule | null;
+  const scheds = schedulesForSection(section);
   return (
     <div className="space-y-2 text-sm text-gray-700">
       <div className="flex flex-wrap gap-x-4 gap-y-1">
@@ -104,11 +111,19 @@ function SectionDetails({ section }: { section: Section }) {
         </div>
       )}
 
-      {sched && (
+      {scheds.length > 0 && (
         <div>
-          <span className="font-medium text-gray-800">Meeting:</span>{" "}
-          {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
-          {sched.location ? <span className="text-gray-600">, {sched.location}</span> : null}
+          <span className="font-medium text-gray-800">
+            {scheds.length > 1 ? "Meetings:" : "Meeting:"}
+          </span>
+          <div className="mt-1 space-y-1">
+            {scheds.map((sched, idx) => (
+              <div key={`${sched.days.join("/")}:${sched.start}:${sched.end}:${idx}`}>
+                {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
+                {sched.location ? <span className="text-gray-600">, {sched.location}</span> : null}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -463,28 +478,30 @@ export default function CourseDetail() {
 
     const blocks: MiniBlock[] = [];
     for (const s of visibleSections) {
-      const sched = s.schedule as Schedule | null;
-      if (!sched) continue;
-      const startMin = parseHHMMColon(sched.start);
-      const endMin = parseHHMMColon(sched.end);
-      if (startMin === null || endMin === null || endMin <= startMin) continue;
+      const scheds = schedulesForSection(s);
+      for (let i = 0; i < scheds.length; i++) {
+        const sched = scheds[i];
+        const startMin = parseHHMMColon(sched.start);
+        const endMin = parseHHMMColon(sched.end);
+        if (startMin === null || endMin === null || endMin <= startMin) continue;
 
-      const label = `Sec ${s.sectionNumber ?? "—"}`;
-      const instructor = s.instructor?.name ? ` • ${s.instructor.name}` : "";
-      const title = `${course.code} ${label} — ${formatTimeRange12h(sched.start, sched.end)}${sched.location ? ` • ${sched.location}` : ""}${instructor}`;
-      const color = hashColor(`section:${s.id}`);
+        const label = `Sec ${s.sectionNumber ?? "—"}`;
+        const instructor = s.instructor?.name ? ` • ${s.instructor.name}` : "";
+        const title = `${course.code} ${label} — ${formatTimeRange12h(sched.start, sched.end)}${sched.location ? ` • ${sched.location}` : ""}${instructor}`;
+        const color = hashColor(`section:${s.id}`);
 
-      for (const day of sched.days) {
-        blocks.push({
-          id: `sec:${s.id}:${day}`,
-          sectionId: s.id,
-          day,
-          startMin,
-          endMin,
-          label,
-          color,
-          title,
-        });
+        for (const day of sched.days) {
+          blocks.push({
+            id: `sec:${s.id}:${i}:${day}`,
+            sectionId: s.id,
+            day,
+            startMin,
+            endMin,
+            label,
+            color,
+            title,
+          });
+        }
       }
     }
 
@@ -761,7 +778,7 @@ export default function CourseDetail() {
 
                 <div className="mt-3 space-y-2">
                   {group.sections.map((section) => {
-                    const sched = section.schedule as Schedule | null;
+                    const scheds = schedulesForSection(section);
                     const sectionEnrollment = enrollmentPercent(
                       section.enrollmentCur ?? 0,
                       section.enrollmentCap
@@ -801,13 +818,15 @@ export default function CourseDetail() {
                             )}
                           </div>
                           <div className="text-right text-sm shrink-0">
-                            {sched && (
-                              <div className="font-medium text-gray-700">
-                                {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
+                            {scheds.length > 0 && (
+                              <div className="font-medium text-gray-700 space-y-0.5">
+                                {scheds.map((sched, idx) => (
+                                  <div key={`${section.id}:${sched.days.join("/")}:${sched.start}:${idx}`}>
+                                    {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
+                                    {sched.location ? ` • ${sched.location}` : ""}
+                                  </div>
+                                ))}
                               </div>
-                            )}
-                            {sched?.location && (
-                              <div className="text-sm text-gray-600 mt-0.5">{sched.location}</div>
                             )}
                             {sectionEnrollment !== null && (
                               <div

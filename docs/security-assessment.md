@@ -109,15 +109,15 @@ if (env.nodeEnv !== "production") {
 
 ## Positive Findings (Already Secure)
 
-| Area | Status |
-|------|--------|
-| SQL Injection | Protected — Drizzle ORM uses parameterized queries throughout |
-| XSS | Protected — No `dangerouslySetInnerHTML` in React frontend |
-| Input Validation | Zod schema validation applied on route handlers |
-| Auth Rate Limiting | `authLimiter` already configured (20 req/15min in production) |
-| AI Rate Limiting | `aiLimiter` already configured (30 req/15min in production) |
-| Secrets in Git | `.env` is in `.gitignore` |
-| Authentication | Supabase token-based auth with proper Bearer token validation |
-| Password Storage | Delegated to Supabase Auth (not stored in application code) |
+| Area                 | Status                                                               |
+| -------------------- | -------------------------------------------------------------------- |
+| SQL Injection        | Protected — Drizzle ORM uses parameterized queries throughout        |
+| XSS                  | Protected — No `dangerouslySetInnerHTML` in React frontend           |
+| Input Validation     | Zod schema validation applied on route handlers                      |
+| Auth Rate Limiting   | `authLimiter` already configured (20 req/15min in production)        |
+| AI Rate Limiting     | `aiLimiter` already configured (30 req/15min in production)          |
+| Secrets in Git       | `.env` is in `.gitignore`                                            |
+| Authentication       | Supabase token-based auth with proper Bearer token validation        |
+| Password Storage     | Delegated to Supabase Auth (not stored in application code)          |
 | Global Rate Limiting | `generalLimiter` applied to all routes (100 req/15min in production) |
-| Error Handler | Global error handler returns generic "Internal server error" message |
+| Error Handler        | Global error handler returns generic "Internal server error" message |

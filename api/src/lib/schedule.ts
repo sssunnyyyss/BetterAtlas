@@ -33,10 +33,17 @@ function normalizeTimeDigits(t: string): string {
   return "";
 }
 
-export function scheduleFromMeetings(meetings: unknown) {
-  if (!Array.isArray(meetings) || meetings.length === 0) return null;
+type ParsedMeeting = {
+  day: number;
+  startTime: string;
+  endTime: string;
+  location: string;
+};
 
-  const parsed = meetings
+function parseMeetings(meetings: unknown): ParsedMeeting[] {
+  if (!Array.isArray(meetings) || meetings.length === 0) return [];
+
+  return meetings
     .map((m: any) => ({
       day: typeof m?.day === "string" ? Number(m.day) : m?.day,
       // Atlas times are usually "0830" but can sometimes come through as "830".
@@ -46,7 +53,59 @@ export function scheduleFromMeetings(meetings: unknown) {
       location: String(m?.location ?? ""),
     }))
     .filter((m) => Number.isFinite(m.day) && m.startTime && m.endTime);
+}
 
+export function schedulesFromMeetings(meetings: unknown) {
+  const parsed = parseMeetings(meetings);
+  if (parsed.length === 0) return null;
+
+  const grouped = new Map<string, { days: number[]; start: string; end: string; location: string }>();
+  for (const m of parsed) {
+    const key = `${m.startTime}|${m.endTime}|${m.location}`;
+    const existing = grouped.get(key);
+    if (existing) {
+      existing.days.push(m.day);
+    } else {
+      grouped.set(key, {
+        days: [m.day],
+        start: m.startTime,
+        end: m.endTime,
+        location: m.location,
+      });
+    }
+  }
+
+  return Array.from(grouped.values())
+    .map((g) => {
+      const dayNums = Array.from(new Set(g.days)).sort((a, b) => a - b);
+      return {
+        dayNums,
+        days: dayNums.map(dayNumToAbbrev),
+        start: hhmmToColon(g.start),
+        end: hhmmToColon(g.end),
+        location: g.location,
+      };
+    })
+    .sort((a, b) => {
+      const dayA = a.dayNums[0] ?? Number.POSITIVE_INFINITY;
+      const dayB = b.dayNums[0] ?? Number.POSITIVE_INFINITY;
+      if (dayA !== dayB) return dayA - dayB;
+      if (a.start !== b.start) return a.start.localeCompare(b.start);
+      if (a.end !== b.end) return a.end.localeCompare(b.end);
+      return a.location.localeCompare(b.location);
+    })
+    .map(({ dayNums: _dayNums, ...rest }) => rest);
+}
+
+export function scheduleFromMeetings(meetings: unknown) {
+  const schedules = schedulesFromMeetings(meetings);
+  if (!schedules || schedules.length === 0) return null;
+
+  // Backward-compatible single schedule representation for clients that have not
+  // migrated to `schedules` yet.
+  if (schedules.length === 1) return schedules[0];
+
+  const parsed = parseMeetings(meetings);
   if (parsed.length === 0) return null;
 
   const days = Array.from(new Set(parsed.map((m) => m.day)))

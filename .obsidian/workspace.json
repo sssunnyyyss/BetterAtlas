@@ -1,0 +1,208 @@
+{
+  "main": {
+    "id": "8ce019118bc927f4",
+    "type": "split",
+    "children": [
+      {
+        "id": "120170a87af3a16d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "831336b85da146a8",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/security-assessment.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "security-assessment"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "aefd8889b43d5109",
+    "type": "split",
+    "children": [
+      {
+        "id": "bf65f190a8b64307",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "ce374e498d79f891",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "249733031cefa0d6",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "549b1d8c2d7c3413",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "8c41fedc5aee2abc",
+    "type": "split",
+    "children": [
+      {
+        "id": "510c5feddc15903c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "9e7fbe2ee6edd121",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "docs/plans/2026-02-16-beta-onboarding-implementation.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for 2026-02-16-beta-onboarding-implementation"
+            }
+          },
+          {
+            "id": "55478673f24524ba",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "docs/plans/2026-02-16-beta-onboarding-implementation.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from 2026-02-16-beta-onboarding-implementation"
+            }
+          },
+          {
+            "id": "ff556bf4ddbccb63",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "6c1b685cbe9a3a87",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "4786d7dde73f06de",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "docs/plans/2026-02-16-beta-onboarding-implementation.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of 2026-02-16-beta-onboarding-implementation"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "831336b85da146a8",
+  "lastOpenFiles": [
+    "frontend/dist/workbox-1c1d9437.js",
+    "frontend/dist/sw.js",
+    "frontend/dist/registerSW.js",
+    "frontend/dist/manifest.webmanifest",
+    "frontend/dist/index.html",
+    "frontend/dist/assets/index-EqTbO3I_.css",
+    "frontend/dist/assets/index-DRaf_KA4.js",
+    "frontend/dist/assets",
+    "frontend/vite.config.ts.timestamp-1771482071500-1229af5607b25.mjs",
+    "api/vitest.config.ts.timestamp-1771482020483-ec84dd552453d8.mjs",
+    "api/dist/lib/schedule.test.js",
+    "frontend/dist/icons/icon-512.svg",
+    "frontend/dist/icons/icon-192.svg",
+    "docs/plans/2026-02-19-feedback-hub-implementation.md",
+    "docs/plans/2026-02-19-feedback-hub-design.md",
+    "docs/plans/2026-02-16-beta-onboarding-implementation.md",
+    "docs/architecture-plan.md",
+    "docs/plans/2026-02-16-beta-onboarding-design.md",
+    "emory-sso-request-email.md"
+  ]
+}

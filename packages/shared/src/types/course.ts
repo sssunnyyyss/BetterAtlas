@@ -58,6 +58,7 @@ export interface Section {
   instructorId: number | null;
   instructor?: Instructor;
   schedule: Schedule | null;
+  schedules?: Schedule[] | null;
   campus?: string | null;
   componentType?: string | null;
   instructionMethod?: string | null;
