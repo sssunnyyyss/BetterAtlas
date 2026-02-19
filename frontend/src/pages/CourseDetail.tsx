@@ -53,6 +53,20 @@ function seatsAvailForSection(section: Section) {
   return null;
 }
 
+function enrollmentPercent(enrolled: number | null | undefined, cap: number | null | undefined) {
+  if (typeof cap !== "number" || cap <= 0) return null;
+  const safeEnrolled = typeof enrolled === "number" ? Math.max(0, enrolled) : 0;
+  return Math.max(0, Math.round((safeEnrolled / cap) * 100));
+}
+
+function enrollmentTone(percent: number | null) {
+  if (percent === null) return "border-gray-200 bg-gray-100 text-gray-700";
+  if (percent >= 95) return "border-red-200 bg-red-50 text-red-700";
+  if (percent >= 80) return "border-amber-200 bg-amber-50 text-amber-700";
+  if (percent >= 60) return "border-yellow-200 bg-yellow-50 text-yellow-700";
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
+}
+
 function SectionDetails({ section }: { section: Section }) {
   const sched = section.schedule as Schedule | null;
   return (
@@ -365,6 +379,43 @@ export default function CourseDetail() {
     return visibleSections.find((s) => s.id === activeSectionId) ?? null;
   }, [visibleSections, activeSectionId]);
 
+  const courseEnrollment = useMemo(() => {
+    const totals = visibleSections.reduce(
+      (acc, section) => {
+        const cap = section.enrollmentCap;
+        if (typeof cap === "number" && cap > 0) {
+          const enrolled = Math.max(0, section.enrollmentCur ?? 0);
+          const sectionPct = enrollmentPercent(enrolled, cap);
+          acc.cap += cap;
+          acc.enrolled += enrolled;
+          if (sectionPct !== null) {
+            acc.sectionPercents.push(sectionPct);
+          }
+        }
+        return acc;
+      },
+      { cap: 0, enrolled: 0, sectionPercents: [] as number[] }
+    );
+
+    if (totals.cap <= 0 && totals.sectionPercents.length === 0) return null;
+
+    const averagePercent =
+      totals.sectionPercents.length > 0
+        ? Math.round(
+            totals.sectionPercents.reduce((sum, pct) => sum + pct, 0) /
+              totals.sectionPercents.length
+          )
+        : null;
+
+    return {
+      enrolled: totals.enrolled,
+      cap: totals.cap,
+      percent: enrollmentPercent(totals.enrolled, totals.cap) ?? 0,
+      averagePercent,
+      sectionCount: totals.sectionPercents.length,
+    };
+  }, [visibleSections]);
+
   const { data: sectionReviews } = useSectionReviews(activeSection?.id ?? null);
 
   const groupedSections = useMemo(() => {
@@ -566,13 +617,13 @@ export default function CourseDetail() {
             {isActionsMenuOpen && (
               <div
                 role="menu"
-                className="absolute right-0 mt-2 min-w-[220px] rounded-md border border-gray-200 bg-white shadow-lg z-20"
+                className="absolute right-0 mt-2 min-w-[220px] rounded-xl border border-gray-200 bg-white shadow-lg z-20"
               >
                 <button
                   type="button"
                   role="menuitem"
                   onClick={openReportModal}
-                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                  className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 first:rounded-t-xl last:rounded-b-xl"
                 >
                   Report inaccurate details
                 </button>
@@ -641,6 +692,30 @@ export default function CourseDetail() {
             <span className="text-lg font-bold text-gray-700">{course.reviewCount}</span>
             <span className="text-xs text-gray-500">Reviews</span>
           </div>
+          {courseEnrollment && (
+            <div
+              className={`flex flex-col items-center rounded-lg border px-3 py-1.5 ${enrollmentTone(
+                courseEnrollment.percent
+              )}`}
+            >
+              <span className="text-sm font-semibold">{courseEnrollment.percent}% enrolled</span>
+              <span className="text-[10px]">
+                {courseEnrollment.enrolled}/{courseEnrollment.cap}
+              </span>
+            </div>
+          )}
+          {courseEnrollment && courseEnrollment.averagePercent !== null && (
+            <div
+              className={`flex flex-col items-center rounded-lg border px-3 py-1.5 ${enrollmentTone(
+                courseEnrollment.averagePercent
+              )}`}
+            >
+              <span className="text-sm font-semibold">
+                Avg {courseEnrollment.averagePercent}% enrolled
+              </span>
+              <span className="text-[10px]">{courseEnrollment.sectionCount} sections</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -687,6 +762,10 @@ export default function CourseDetail() {
                 <div className="mt-3 space-y-2">
                   {group.sections.map((section) => {
                     const sched = section.schedule as Schedule | null;
+                    const sectionEnrollment = enrollmentPercent(
+                      section.enrollmentCur ?? 0,
+                      section.enrollmentCap
+                    );
                     return (
                       <button
                         key={section.id}
@@ -730,6 +809,15 @@ export default function CourseDetail() {
                             {sched?.location && (
                               <div className="text-sm text-gray-600 mt-0.5">{sched.location}</div>
                             )}
+                            {sectionEnrollment !== null && (
+                              <div
+                                className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${enrollmentTone(
+                                  sectionEnrollment
+                                )}`}
+                              >
+                                {sectionEnrollment}% enrolled
+                              </div>
+                            )}
                             <div className="flex justify-end gap-3 mt-2">
                               <RatingBadge value={section.instructorAvgQuality ?? null} label="Prof" size="sm" />
                               <RatingBadge value={section.avgDifficulty ?? null} label="D" size="sm" />
@@ -767,6 +855,21 @@ export default function CourseDetail() {
           >
             {activeSection ? (
               <div className="space-y-4">
+                {(() => {
+                  const activeEnrollment = enrollmentPercent(
+                    activeSection.enrollmentCur ?? 0,
+                    activeSection.enrollmentCap
+                  );
+                  return activeEnrollment !== null ? (
+                    <div
+                      className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${enrollmentTone(
+                        activeEnrollment
+                      )}`}
+                    >
+                      {activeEnrollment}% enrolled
+                    </div>
+                  ) : null;
+                })()}
                 <div className="flex gap-4">
                   <RatingBadge value={activeSection.instructorAvgQuality ?? null} label="Prof" />
                   <RatingBadge value={activeSection.avgDifficulty ?? null} label="Difficulty" />

@@ -20,6 +20,20 @@ function getInitials(name: string) {
     .slice(0, 2);
 }
 
+const AVATAR_BUCKET = "avatars";
+
+function getAvatarObjectPath(url: string | null | undefined) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    const match = parsed.pathname.match(/\/storage\/v1\/object\/(?:public|sign)\/avatars\/(.+)$/);
+    if (!match?.[1]) return null;
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
 export default function Profile() {
   const { user, logout, refresh } = useAuth();
   const { restartTour } = useOnboarding();
@@ -50,23 +64,33 @@ export default function Profile() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
-    const ext = file.name.split(".").pop() ?? "jpg";
-    const path = `${user.id}/${Date.now()}.${ext}`;
+    const ext = (file.name.split(".").pop() ?? "jpg")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext || "jpg"}`;
+    const previousPath = getAvatarObjectPath(avatarUrl || user.avatarUrl);
 
     setAvatarUploading(true);
+    setMessage("");
     try {
       const { error } = await supabase.storage
-        .from("avatars")
-        .upload(path, file, { upsert: true });
+        .from(AVATAR_BUCKET)
+        .upload(path, file, { upsert: false });
 
       if (error) throw error;
 
-      const { data } = supabase.storage.from("avatars").getPublicUrl(path);
+      if (previousPath && previousPath !== path) {
+        await supabase.storage.from(AVATAR_BUCKET).remove([previousPath]);
+      }
+
+      const { data } = supabase.storage.from(AVATAR_BUCKET).getPublicUrl(path);
       setAvatarUrl(data.publicUrl);
+      setMessage("Photo uploaded. Save profile to apply changes.");
     } catch (err: any) {
       setMessage("Avatar upload failed: " + (err.message || "Unknown error"));
     } finally {
       setAvatarUploading(false);
+      e.target.value = "";
     }
   }
 

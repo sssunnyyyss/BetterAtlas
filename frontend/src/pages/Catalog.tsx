@@ -52,6 +52,18 @@ function ThumbDownIcon({ className = "h-4 w-4" }: { className?: string }) {
 }
 
 const AI_PREFS_STORAGE_KEY = "betteratlas.ai.preferences.v1";
+const CATALOG_VIEW_STORAGE_KEY = "betteratlas.catalog.view.v1";
+const FILTER_LABELS: Partial<Record<keyof AiRecommendationFilters, string>> = {
+  semester: "Semester",
+  department: "Department",
+  minRating: "Min rating",
+  credits: "Credits",
+  attributes: "GER",
+  instructor: "Instructor",
+  campus: "Campus",
+  componentType: "Component",
+  instructionMethod: "Instruction method",
+};
 
 function truncate(value: string, max: number) {
   if (value.length <= max) return value;
@@ -115,6 +127,14 @@ export default function Catalog() {
   const [mode, setMode] = useState<"search" | "ai">(initialMode);
   const [searchInput, setSearchInput] = useState(searchParams.get("q") || "");
   const [debouncedSearch, setDebouncedSearch] = useState(searchInput);
+  const [catalogView, setCatalogView] = useState<"grid" | "list">(() => {
+    try {
+      const saved = localStorage.getItem(CATALOG_VIEW_STORAGE_KEY);
+      return saved === "list" ? "list" : "grid";
+    } catch {
+      return "grid";
+    }
+  });
 
   const [aiInput, setAiInput] = useState(searchParams.get("prompt") || "");
   const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
@@ -132,6 +152,15 @@ export default function Catalog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode]);
 
+  // Live search: narrow results as the user types/deletes.
+  useEffect(() => {
+    if (mode !== "search") return;
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(searchInput.trim());
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [mode, searchInput]);
+
   // Keep mode in sync if the URL is changed externally (e.g. Home -> Catalog deep-link).
   useEffect(() => {
     const urlMode =
@@ -143,7 +172,13 @@ export default function Catalog() {
       const prompt = searchParams.get("prompt") || "";
       setAiInput(prompt);
     } else {
-      setSearchInput(searchParams.get("q") || "");
+      // Only hydrate from URL when q is explicitly present.
+      // This avoids wiping in-progress search text when other filters change.
+      if (searchParams.has("q")) {
+        const qFromUrl = searchParams.get("q") || "";
+        setSearchInput(qFromUrl);
+        setDebouncedSearch(qFromUrl.trim());
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams.toString()]);
@@ -178,6 +213,14 @@ export default function Catalog() {
       // Ignore storage failures.
     }
   }, [likedPreferenceCourses, dislikedPreferenceCourses]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CATALOG_VIEW_STORAGE_KEY, catalogView);
+    } catch {
+      // Ignore storage failures.
+    }
+  }, [catalogView]);
 
   // Build filters from URL (everything except the free-text search param "q")
   const filters: Record<string, string> = {};
@@ -226,14 +269,24 @@ export default function Catalog() {
   // Use search or browse (or program mode)
   const isSearching = mode === "search" && debouncedSearch.length > 0;
   const page = parseInt(searchParams.get("page") || "1", 10);
+  const searchParamsWithFilters: Record<string, string> = {
+    ...filters,
+    q: debouncedSearch.trim(),
+    page: String(page),
+  };
+  delete searchParamsWithFilters.mode;
+  delete searchParamsWithFilters.ai;
+  delete searchParamsWithFilters.prompt;
+  delete searchParamsWithFilters.programId;
+  delete searchParamsWithFilters.programTab;
+  if (!searchParamsWithFilters.q) delete searchParamsWithFilters.q;
 
   const browseResult = useCourses(
     { ...filters, page: String(page) },
     mode === "search" && !isProgramMode
   );
   const searchResult = useCourseSearch(
-    debouncedSearch,
-    page,
+    searchParamsWithFilters,
     mode === "search" && !isProgramMode
   );
 
@@ -257,6 +310,15 @@ export default function Catalog() {
   const aiData = aiRec.data;
   const displayedRecs = aiAllRecs.length > 0 ? aiAllRecs : aiData?.recommendations ?? [];
   const aiRequestFilters = buildAiFilters(filters);
+  const hardFilterSummary = Object.entries(aiRequestFilters)
+    .map(([key, value]) => {
+      const typedKey = key as keyof AiRecommendationFilters;
+      if (value === undefined || value === null || String(value).trim() === "") return null;
+      const label = FILTER_LABELS[typedKey] ?? key;
+      return `${label}: ${String(value)}`;
+    })
+    .filter(Boolean)
+    .join(" • ");
   const aiDebug = (aiData as any)?.debug as
     | {
         model?: string;
@@ -503,12 +565,13 @@ export default function Catalog() {
           </div>
 
           <form
-            className="flex gap-2 items-stretch"
+            className="flex w-full max-w-3xl gap-2 items-stretch"
             onSubmit={(e) => {
               e.preventDefault();
               if (mode === "ai") runAi(aiInput);
               else {
                 const q = searchInput.trim();
+                setSearchInput(q);
                 setDebouncedSearch(q);
                 setSearchParams((prev) => {
                   if (q) prev.set("q", q);
@@ -535,16 +598,16 @@ export default function Catalog() {
                   ? 'Tell me your goals: "I want a chill writing class", "I like neuroscience + philosophy", ...'
                   : "Search by anything: course code, title, description, professor, department..."
               }
-              className={`w-full max-w-3xl rounded-lg border text-sm px-4 py-2.5 shadow-sm transition-shadow focus:outline-none focus:ring-4 focus:ring-primary-500/20 focus:border-primary-500 ${
+              className={`w-full rounded-full border text-sm px-5 py-2.5 shadow-sm transition-colors focus:outline-none focus:border-primary-500 ${
                 mode === "ai"
-                  ? "border-primary-300 ring-2 ring-primary-500/20 shadow-[0_22px_72px_rgba(0,40,120,0.18)]"
-                  : "border-gray-300"
+                  ? "border-primary-300 bg-primary-50/30 shadow-[0_14px_38px_rgba(0,40,120,0.14)]"
+                  : "border-gray-300 bg-white"
               }`}
             />
             <button
               type="submit"
               disabled={mode === "ai" && aiRec.isPending}
-              className={`shrink-0 px-4 rounded-lg text-sm font-medium border transition-colors ${
+              className={`shrink-0 px-5 rounded-full text-sm font-medium border transition-colors ${
                 mode === "ai"
                   ? "bg-primary-600 text-white border-primary-600 hover:bg-primary-700 disabled:opacity-60"
                   : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
@@ -560,6 +623,13 @@ export default function Catalog() {
               )}
             </button>
           </form>
+
+          <div className="mt-2 max-w-3xl text-xs text-gray-600">
+            <span className="font-semibold text-primary-700">Filters are hard constraints.</span>{" "}
+            {hardFilterSummary
+              ? `Current filters: ${hardFilterSummary}. Search and AI only show courses inside these filters.`
+              : "Set filters in the left panel first. Search and AI will always stay within them."}
+          </div>
 
           {mode === "ai" && (
             <div className="mt-3 max-w-3xl rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
@@ -912,15 +982,41 @@ export default function Catalog() {
               </div>
             )}
 
-            {/* Results count */}
-            {meta && (
-              <p className="text-sm text-gray-500 mb-4">
-                {meta.total} course{meta.total !== 1 ? "s" : ""} found
-                {!isProgramMode && isSearching && ` for "${debouncedSearch}"`}
-              </p>
-            )}
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              {meta && (
+                <p className="text-sm text-gray-500">
+                  {meta.total} course{meta.total !== 1 ? "s" : ""} found
+                  {!isProgramMode && isSearching && ` for "${debouncedSearch}"`}
+                </p>
+              )}
 
-            <CourseGrid courses={courses} isLoading={result.isLoading} />
+              <div className="ml-auto inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                <button
+                  type="button"
+                  onClick={() => setCatalogView("grid")}
+                  className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                    catalogView === "grid"
+                      ? "bg-primary-600 text-white"
+                      : "text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  Cards
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCatalogView("list")}
+                  className={`px-3 py-1.5 text-sm rounded-md font-medium transition-colors ${
+                    catalogView === "list"
+                      ? "bg-primary-600 text-white"
+                      : "text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  List
+                </button>
+              </div>
+            </div>
+
+            <CourseGrid courses={courses} isLoading={result.isLoading} view={catalogView} />
 
             {/* Pagination */}
             {meta && meta.totalPages > 1 && (

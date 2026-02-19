@@ -20,6 +20,7 @@ import { isAdminEmail } from "../utils/admin.js";
 import {
   addFeedbackPostComment,
   adminCreateFeedbackChangelog,
+  adminDeleteFeedbackPost,
   adminDeleteFeedbackComment,
   adminUpdateFeedbackPost,
   adminUpdateFeedbackPostStatus,
@@ -213,6 +214,15 @@ router.patch(
     res.json(updated);
   }
 );
+
+router.delete("/admin/posts/:id", requireAuth, requireAdmin, async (req, res) => {
+  const postId = parsePositiveId(req.params.id);
+  if (!postId) return res.status(400).json({ error: "Invalid post id" });
+
+  const deleted = await adminDeleteFeedbackPost(postId);
+  if (!deleted) return res.status(404).json({ error: "Post not found" });
+  res.json({ ok: true });
+});
 
 router.delete("/admin/comments/:id", requireAuth, requireAdmin, async (req, res) => {
   const commentId = parsePositiveId(req.params.id);

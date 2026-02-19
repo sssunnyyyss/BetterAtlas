@@ -33,6 +33,9 @@ const authUserSelect = {
   fullName: users.displayName,
   graduationYear: users.graduationYear,
   major: users.major,
+  bio: users.bio,
+  interests: users.interests,
+  avatarUrl: users.avatarUrl,
   hasCompletedOnboarding: users.hasCompletedOnboarding,
   createdAt: users.createdAt,
 };
@@ -44,6 +47,9 @@ type AuthUserRow = {
   fullName: string;
   graduationYear: number | null;
   major: string | null;
+  bio: string | null;
+  interests: string[] | null;
+  avatarUrl: string | null;
   hasCompletedOnboarding: boolean;
   createdAt: Date | null;
 };
@@ -59,6 +65,9 @@ async function withAuthPayload(user: AuthUserRow) {
   const badges = await listBadgesForUser(user.id);
   return withAdminFlag({
     ...user,
+    bio: user.bio ?? null,
+    interests: Array.isArray(user.interests) ? user.interests : [],
+    avatarUrl: user.avatarUrl ?? null,
     badges,
   });
 }
@@ -231,16 +240,7 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
 
     // Get user profile from database
     const [user] = await db
-      .select({
-        id: users.id,
-        email: users.email,
-        username: users.username,
-        fullName: users.displayName,
-        graduationYear: users.graduationYear,
-        major: users.major,
-        hasCompletedOnboarding: users.hasCompletedOnboarding,
-        createdAt: users.createdAt,
-      })
+      .select(authUserSelect)
       .from(users)
       .where(eq(users.id, authData.user.id))
       .limit(1);
@@ -266,16 +266,7 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
           username: derivedUsername,
           displayName: authData.user.user_metadata?.display_name || email.split("@")[0],
         })
-        .returning({
-          id: users.id,
-          email: users.email,
-          username: users.username,
-          fullName: users.displayName,
-          graduationYear: users.graduationYear,
-          major: users.major,
-          hasCompletedOnboarding: users.hasCompletedOnboarding,
-          createdAt: users.createdAt,
-        });
+        .returning(authUserSelect);
 
       const authUser = await withAuthPayload(newUser);
       
@@ -292,16 +283,7 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
         .update(users)
         .set({ username: derivedUsername })
         .where(eq(users.id, authData.user.id))
-        .returning({
-          id: users.id,
-          email: users.email,
-          username: users.username,
-          fullName: users.displayName,
-          graduationYear: users.graduationYear,
-          major: users.major,
-          hasCompletedOnboarding: users.hasCompletedOnboarding,
-          createdAt: users.createdAt,
-        });
+        .returning(authUserSelect);
       if (updated) {
         const authUser = await withAuthPayload(updated);
         return res.json({ user: authUser, session: authData.session });
@@ -377,16 +359,7 @@ router.post("/logout", async (req, res) => {
 router.get("/me", requireAuth, async (req, res) => {
   try {
     const [user] = await db
-        .select({
-          id: users.id,
-          email: users.email,
-          username: users.username,
-          fullName: users.displayName,
-          graduationYear: users.graduationYear,
-          major: users.major,
-          hasCompletedOnboarding: users.hasCompletedOnboarding,
-          createdAt: users.createdAt,
-        })
+        .select(authUserSelect)
       .from(users)
       .where(eq(users.id, req.user!.id))
       .limit(1);
@@ -418,31 +391,13 @@ router.get("/me", requireAuth, async (req, res) => {
           displayName,
         })
         .onConflictDoNothing()
-        .returning({
-          id: users.id,
-          email: users.email,
-          username: users.username,
-          fullName: users.displayName,
-          graduationYear: users.graduationYear,
-          major: users.major,
-          hasCompletedOnboarding: users.hasCompletedOnboarding,
-          createdAt: users.createdAt,
-        });
+        .returning(authUserSelect);
 
       if (created) return res.json(await withAuthPayload(created));
 
       // In case of a race where another request inserted the row, re-read once.
       const [reloaded] = await db
-        .select({
-          id: users.id,
-          email: users.email,
-          username: users.username,
-          fullName: users.displayName,
-          graduationYear: users.graduationYear,
-          major: users.major,
-          hasCompletedOnboarding: users.hasCompletedOnboarding,
-          createdAt: users.createdAt,
-        })
+        .select(authUserSelect)
         .from(users)
         .where(eq(users.id, req.user!.id))
         .limit(1);
@@ -458,16 +413,7 @@ router.get("/me", requireAuth, async (req, res) => {
         .update(users)
         .set({ username: derivedUsername })
         .where(eq(users.id, req.user!.id))
-        .returning({
-          id: users.id,
-          email: users.email,
-          username: users.username,
-          fullName: users.displayName,
-          graduationYear: users.graduationYear,
-          major: users.major,
-          hasCompletedOnboarding: users.hasCompletedOnboarding,
-          createdAt: users.createdAt,
-        });
+        .returning(authUserSelect);
       if (updated) return res.json(await withAuthPayload(updated));
     }
 

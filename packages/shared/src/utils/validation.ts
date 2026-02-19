@@ -56,6 +56,15 @@ export const courseQuerySchema = z.object({
 
 export const searchQuerySchema = z.object({
   q: z.string().min(1).max(200),
+  department: z.string().optional(),
+  semester: z.string().optional(),
+  minRating: z.coerce.number().min(1).max(5).optional(),
+  credits: z.coerce.number().int().positive().optional(),
+  attributes: z.string().optional(),
+  instructor: z.string().optional(),
+  campus: z.string().optional(),
+  componentType: z.string().optional(),
+  instructionMethod: z.string().optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });

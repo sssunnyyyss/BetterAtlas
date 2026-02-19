@@ -7,14 +7,14 @@ const NAV_ITEMS = [
   { label: "Catalog", path: "/catalog" },
   { label: "My Schedule", path: "/schedule" },
   { label: "Friends", path: "/friends" },
-  { label: "Feedback Hub", path: "/feedback-hub" },
-  { label: "Profile", path: "/profile" },
 ];
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isProfileActive = location.pathname.startsWith("/profile");
+  const avatarInitial = (user?.fullName?.trim()?.[0] || user?.username?.[0] || "U").toUpperCase();
   const navItems = user?.isAdmin
     ? [...NAV_ITEMS, { label: "Admin", path: "/admin" }]
     : NAV_ITEMS;
@@ -52,6 +52,24 @@ export default function Navbar() {
           <div className="flex items-center gap-4">
             {user ? (
               <>
+                <Link
+                  to="/profile"
+                  className={`inline-flex h-9 w-9 overflow-hidden items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-sm font-semibold text-primary-700 transition-colors ${
+                    isProfileActive ? "ring-2 ring-primary-500/40 border-primary-300" : "hover:border-gray-300"
+                  }`}
+                  title="Profile"
+                  aria-label="Open profile"
+                >
+                  {user.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      alt={`${user.username} profile`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>{avatarInitial}</span>
+                  )}
+                </Link>
                 <span className="text-sm text-gray-500 hidden sm:inline">@{user.username}</span>
                 <button
                   onClick={logout}

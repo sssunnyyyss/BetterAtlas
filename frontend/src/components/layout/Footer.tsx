@@ -21,6 +21,9 @@ export default function Footer() {
 
           {/* Links */}
           <nav className="flex items-center gap-6">
+            <Link to="/feedback-hub" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
+              Feedback
+            </Link>
             <Link to="/privacy" className="text-sm text-gray-500 hover:text-gray-900 transition-colors">
               Privacy Policy
             </Link>

@@ -202,6 +202,20 @@ export function useAdminUpdateFeedbackStatus() {
   });
 }
 
+export function useAdminDeleteFeedbackPost() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (postId: number) => api.delete<{ ok: true }>(`/feedback-hub/admin/posts/${postId}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["feedback-hub", "admin-posts"] });
+      queryClient.invalidateQueries({ queryKey: ["feedback-hub", "board-posts"] });
+      queryClient.invalidateQueries({ queryKey: ["feedback-hub", "roadmap"] });
+      queryClient.invalidateQueries({ queryKey: ["feedback-hub", "search"] });
+      queryClient.invalidateQueries({ queryKey: ["feedback-hub", "changelog"] });
+    },
+  });
+}
+
 export function useAdminCreateChangelog() {
   const queryClient = useQueryClient();
   return useMutation({

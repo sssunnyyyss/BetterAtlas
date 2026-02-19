@@ -1020,6 +1020,18 @@ export async function adminDeleteFeedbackComment(commentId: number) {
   return true;
 }
 
+export async function adminDeleteFeedbackPost(postId: number) {
+  const [post] = await db
+    .select({ id: feedbackPosts.id })
+    .from(feedbackPosts)
+    .where(eq(feedbackPosts.id, postId))
+    .limit(1);
+  if (!post) return false;
+
+  await db.delete(feedbackPosts).where(eq(feedbackPosts.id, postId));
+  return true;
+}
+
 export async function adminCreateFeedbackChangelog(
   input: FeedbackHubCreateChangelogInput,
   adminUserId: string

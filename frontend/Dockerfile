@@ -8,7 +8,7 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.json ./
 COPY packages/shared/ ./packages/shared/
 COPY frontend/package.json ./frontend/
 RUN pnpm config set node-linker hoisted
-RUN pnpm install
+RUN i=0; until [ "$i" -ge 5 ]; do pnpm install && exit 0; i=$((i+1)); echo "pnpm install retry $i/5"; sleep 2; done; exit 1
 COPY frontend/ ./frontend/
 RUN pnpm --filter @betteratlas/shared build
 WORKDIR /app/frontend
@@ -20,7 +20,7 @@ COPY pnpm-workspace.yaml package.json pnpm-lock.yaml tsconfig.json ./
 COPY packages/shared/ ./packages/shared/
 COPY frontend/package.json ./frontend/
 RUN pnpm config set node-linker hoisted
-RUN pnpm install
+RUN i=0; until [ "$i" -ge 5 ]; do pnpm install && exit 0; i=$((i+1)); echo "pnpm install retry $i/5"; sleep 2; done; exit 1
 COPY frontend/ ./frontend/
 RUN pnpm --filter @betteratlas/shared build
 RUN pnpm --filter frontend build

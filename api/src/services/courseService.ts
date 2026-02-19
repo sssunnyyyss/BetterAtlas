@@ -35,6 +35,23 @@ function classScoreExpr() {
   return sql`avg(DISTINCT ${instructorRatings.avgQuality})`;
 }
 
+function avgEnrollmentPercentExpr() {
+  return sql<number>`avg(
+    case
+      when ${sections.enrollmentCap} is not null and ${sections.enrollmentCap} > 0
+      then (coalesce(${sections.enrollmentCur}, 0)::float / nullif(${sections.enrollmentCap}, 0)) * 100
+      else null
+    end
+  )`;
+}
+
+function toRoundedPercent(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
 function normalizeInstructionMethodFilter(value: string | undefined) {
   if (!value) return value;
   if (value === "O") return "DL";
@@ -120,6 +137,7 @@ export async function listCourses(query: CourseQuery) {
       avgWorkload: courseRatings.avgWorkload,
       reviewCount: courseRatings.reviewCount,
       classScore: classScoreExpr(),
+      avgEnrollmentPercent: avgEnrollmentPercentExpr(),
       instructors: sql<any>`coalesce(
         json_agg(DISTINCT ${instructors.name})
           FILTER (WHERE ${instructors.name} IS NOT NULL),
@@ -327,6 +345,7 @@ export async function listCourses(query: CourseQuery) {
       avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
       reviewCount: row.reviewCount ?? 0,
       classScore: row.classScore ? parseFloat(row.classScore) : null,
+      avgEnrollmentPercent: toRoundedPercent((row as any).avgEnrollmentPercent),
     })),
     meta: {
       page,
@@ -482,6 +501,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
   const courseIds = data.map((r) => r.id);
   const instructorsByCourse = new Map<number, string[]>();
   const classScoreByCourse = new Map<number, number | null>();
+  const avgEnrollmentByCourse = new Map<number, number | null>();
   const campusesByCourse = new Map<number, string[]>();
   const gersByCourse = new Map<number, string[]>();
   const requirementsByCourse = new Map<number, string | null>();
@@ -557,6 +577,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       .select({
         courseId: sections.courseId,
         classScore: classScoreExpr(),
+        avgEnrollmentPercent: avgEnrollmentPercentExpr(),
       })
       .from(sections)
       .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
@@ -568,6 +589,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
         r.courseId,
         r.classScore ? parseFloat(r.classScore) : null
       );
+      avgEnrollmentByCourse.set(r.courseId, toRoundedPercent(r.avgEnrollmentPercent));
     }
   }
 
@@ -593,6 +615,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
       reviewCount: row.reviewCount ?? 0,
       classScore: classScoreByCourse.get(row.id) ?? null,
+      avgEnrollmentPercent: avgEnrollmentByCourse.get(row.id) ?? null,
     })),
     meta: {
       page,
@@ -978,6 +1001,7 @@ export async function semanticSearchCoursesByEmbedding(input: {
   const courseIds = data.map((r) => r.id);
   const instructorsByCourse = new Map<number, string[]>();
   const classScoreByCourse = new Map<number, number | null>();
+  const avgEnrollmentByCourse = new Map<number, number | null>();
   const campusesByCourse = new Map<number, string[]>();
   const gersByCourse = new Map<number, string[]>();
   const requirementsByCourse = new Map<number, string | null>();
@@ -1054,6 +1078,7 @@ export async function semanticSearchCoursesByEmbedding(input: {
       .select({
         courseId: sections.courseId,
         classScore: classScoreExpr(),
+        avgEnrollmentPercent: avgEnrollmentPercentExpr(),
       })
       .from(sections)
       .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
@@ -1065,6 +1090,7 @@ export async function semanticSearchCoursesByEmbedding(input: {
         r.courseId,
         r.classScore ? parseFloat(r.classScore) : null
       );
+      avgEnrollmentByCourse.set(r.courseId, toRoundedPercent(r.avgEnrollmentPercent));
     }
   }
 
@@ -1091,6 +1117,7 @@ export async function semanticSearchCoursesByEmbedding(input: {
       avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
       reviewCount: row.reviewCount ?? 0,
       classScore: classScoreByCourse.get(row.id) ?? null,
+      avgEnrollmentPercent: avgEnrollmentByCourse.get(row.id) ?? null,
     });
   }
 

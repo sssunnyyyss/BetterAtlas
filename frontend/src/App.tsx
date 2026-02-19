@@ -9,7 +9,6 @@ import ProfessorDetail from "./pages/ProfessorDetail.js";
 import Profile from "./pages/Profile.js";
 import Friends from "./pages/Friends.js";
 import Schedule from "./pages/Schedule.js";
-import Feedback from "./pages/Feedback.js";
 import PrivacyPolicy from "./pages/PrivacyPolicy.js";
 import FAQ from "./pages/FAQ.js";
 import AboutUs from "./pages/AboutUs.js";
@@ -138,14 +137,7 @@ function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
           <Route path=":boardSlug" element={<FeedbackHubBoard />} />
           <Route path=":boardSlug/post/:postId" element={<FeedbackHubPostDetail />} />
         </Route>
-        <Route
-          path="/feedback"
-          element={
-            <ProtectedRoute>
-              <Feedback />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/feedback" element={<Navigate to="/feedback-hub" replace />} />
         <Route path="/privacy" element={<PrivacyPolicy />} />
         <Route path="/faq" element={<FAQ />} />
         <Route path="/about" element={<AboutUs />} />

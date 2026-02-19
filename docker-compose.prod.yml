@@ -10,6 +10,7 @@ services:
       DATABASE_URL: ${DATABASE_URL_DOCKER}
       CORS_ORIGIN: ${CORS_ORIGIN:-https://betteratlas.net}
       FRONTEND_URL: ${FRONTEND_URL:-https://betteratlas.net}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
     volumes: []
 
   frontend:

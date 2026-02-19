@@ -1280,10 +1280,29 @@ router.delete("/users/:id", async (req, res) => {
     return res.status(400).json({ error: "You cannot delete your own account" });
   }
 
-  const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
-  if (authDeleteError) {
-    console.error("User deletion failed:", authDeleteError.message);
-    return res.status(400).json({ error: "Failed to delete user" });
+  const [existingUser] = await db
+    .select({ id: users.id, email: users.email })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!existingUser) {
+    return res.status(404).json({ error: "User not found" });
+  }
+
+  const isAlreadyAuthTombstone = existingUser.email.endsWith("@invalid.local");
+  if (!isAlreadyAuthTombstone) {
+    const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+    if (authDeleteError) {
+      const msg = String(authDeleteError.message || "");
+      const missingInAuth =
+        msg.toLowerCase().includes("not found") ||
+        msg.toLowerCase().includes("user not found");
+      // If auth user is already gone, continue profile cleanup.
+      if (!missingInAuth) {
+        console.error("User deletion failed:", msg);
+        return res.status(400).json({ error: "Failed to delete user" });
+      }
+    }
   }
 
   // Keep relational integrity: try to delete profile row, and if blocked by FKs,
@@ -1338,4 +1357,3 @@ router.get("/logs", async (_req, res) => {
 });
 
 export default router;
-

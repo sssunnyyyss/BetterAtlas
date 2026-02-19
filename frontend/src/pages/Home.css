@@ -64,12 +64,9 @@
   color: #333333;
 }
 
-/* Emory navy → medium blue gradient for the brand name */
+/* Solid Emory navy wordmark */
 .home-titleAccent {
-  background: linear-gradient(90deg, #002878, #6384c6, #002878);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: #002878;
 }
 
 .home-tagline {
@@ -95,6 +92,7 @@
   margin-top: 26px;
   display: grid;
   justify-items: center;
+  width: min(920px, 100%);
 }
 
 .home-modeToggle {
@@ -142,7 +140,7 @@
   box-shadow: var(--home-shadow);
   padding: 6px 8px 6px 14px;
   backdrop-filter: blur(10px);
-  width: min(920px, 100%);
+  width: 100%;
 }
 
 /* AI mode: Emory navy glow with gold undertone */
@@ -202,8 +200,18 @@
   font-size: 18px;
   color: #333333;
   background: transparent;
+  border: 0 !important;
+  border-radius: 999px !important;
+  box-shadow: none !important;
+  padding: 0 2px !important;
   outline: none;
   text-align: left;
+}
+
+.home-searchInput:focus {
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none !important;
 }
 
 .home-searchInput::placeholder {
@@ -238,7 +246,7 @@
   font-family: var(--ba-font-sans);
   font-size: 14px;
   color: rgba(0, 40, 120, 0.58);
-  width: min(920px, 100%);
+  width: 100%;
 }
 
 .home-browseLink {

@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { FeedbackHubPostStatus } from "@betteratlas/shared";
 import {
   useAdminCreateChangelog,
+  useAdminDeleteFeedbackPost,
   useAdminFeedbackPosts,
   useAdminUpdateFeedbackStatus,
   useFeedbackBoards,
@@ -28,6 +29,7 @@ export default function AdminFeedback() {
     limit: 60,
   });
   const updateStatus = useAdminUpdateFeedbackStatus();
+  const deletePost = useAdminDeleteFeedbackPost();
   const createChangelog = useAdminCreateChangelog();
   const [selectedPostIds, setSelectedPostIds] = useState<number[]>([]);
   const [changelogTitle, setChangelogTitle] = useState("");
@@ -55,6 +57,17 @@ export default function AdminFeedback() {
       setChangelogTitle("");
       setChangelogBody("");
       setSelectedPostIds([]);
+    } catch {
+      // mutation state shows error
+    }
+  }
+
+  async function onDeletePost(postId: number, title: string) {
+    const ok = confirm(`Delete this feedback post?\n\n"${title}"\n\nThis cannot be undone.`);
+    if (!ok) return;
+    try {
+      await deletePost.mutateAsync(postId);
+      setSelectedPostIds((prev) => prev.filter((id) => id !== postId));
     } catch {
       // mutation state shows error
     }
@@ -138,9 +151,22 @@ export default function AdminFeedback() {
                   </option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() => onDeletePost(post.id, post.title)}
+                disabled={deletePost.isPending}
+                className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
+              >
+                Delete
+              </button>
             </div>
           ))}
         </div>
+        {deletePost.isError && (
+          <p className="text-sm text-red-600">
+            {(deletePost.error as Error)?.message || "Failed to delete post."}
+          </p>
+        )}
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">

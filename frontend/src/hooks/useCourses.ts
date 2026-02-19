@@ -19,12 +19,14 @@ export function useCourses(params: Record<string, string>, enabled = true) {
   });
 }
 
-export function useCourseSearch(q: string, page = 1, enabled = true) {
+export function useCourseSearch(params: Record<string, string>, enabled = true) {
+  const queryString = new URLSearchParams(params).toString();
+  const q = params.q?.trim() ?? "";
   return useQuery({
-    queryKey: ["courses", "search", q, page],
+    queryKey: ["courses", "search", params],
     queryFn: () =>
       api.get<PaginatedResponse<CourseWithRatings>>(
-        `/courses/search?q=${encodeURIComponent(q)}&page=${page}`
+        `/courses/search?${queryString}`
       ),
     enabled: enabled && q.length > 0,
   });

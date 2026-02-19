@@ -31,6 +31,8 @@ export interface CourseWithRatings extends Course {
   reviewCount: number;
   // "Class" score: aggregate of professor scores for instructors teaching this course.
   classScore?: number | null;
+  // Average section fill percentage across active sections for this course.
+  avgEnrollmentPercent?: number | null;
   // Aggregated from sections/instructors (often filtered by selected semester).
   instructors?: string[];
   // Emory GER requirement codes aggregated from active sections.
