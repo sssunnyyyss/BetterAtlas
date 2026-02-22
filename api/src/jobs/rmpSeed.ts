@@ -21,6 +21,7 @@
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { createHash } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { db, dbClient } from "../db/index.js";
 import {
@@ -28,6 +29,9 @@ import {
   instructors,
   departments,
   courses,
+  sections,
+  sectionInstructors,
+  terms,
   reviews,
   courseRatings,
   courseInstructorRatings,
@@ -39,7 +43,6 @@ import { matchProfessor, matchCourse } from "../lib/rmpMatching.js";
 import {
   API_LINK,
   HEADERS,
-  TEACHER_LIST,
   TEACHER_RATING_QUERY,
   retrieve_school_id,
 } from "rate-my-professor-api-ts";
@@ -54,6 +57,65 @@ const CHECKPOINT_PATH = resolve(
   process.env.RMP_CHECKPOINT ?? "rmp-checkpoint.json"
 );
 const RATE_DELAY_MS = 300;
+const ONLY_INSTRUCTOR_IDS = parseCsvIntSet(process.env.RMP_ONLY_INSTRUCTOR_IDS);
+const ONLY_RMP_TEACHER_IDS = parseCsvSet(process.env.RMP_ONLY_TEACHER_IDS);
+const LETTER_GRADE_POINTS: Record<string, number> = {
+  "A+": 4.0,
+  A: 4.0,
+  "A-": 3.7,
+  "B+": 3.3,
+  B: 3.0,
+  "B-": 2.7,
+  "C+": 2.3,
+  C: 2.0,
+  "C-": 1.7,
+  "D+": 1.3,
+  D: 1.0,
+  "D-": 0.7,
+  F: 0.0,
+};
+
+const TEACHER_LIST_PAGINATED = `
+  query TeacherSearchResultsPageQuery(
+    $query: TeacherSearchQuery!
+    $schoolID: ID
+    $includeSchoolFilter: Boolean!
+    $after: String
+  ) {
+    search: newSearch {
+      teachers(query: $query, first: 1000, after: $after) {
+        edges {
+          node {
+            id
+            legacyId
+            firstName
+            lastName
+            department
+            avgRating
+            numRatings
+            wouldTakeAgainPercent
+            avgDifficulty
+            school {
+              name
+              id
+            }
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+    school: node(id: $schoolID) @include(if: $includeSchoolFilter) {
+      __typename
+      ... on School {
+        name
+      }
+      id
+    }
+  }
+`;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -68,13 +130,384 @@ function jitter(base: number): number {
   return base + Math.floor(Math.random() * spread);
 }
 
+function parseCsvSet(raw: string | undefined): Set<string> | null {
+  if (!raw) return null;
+  const values = raw
+    .split(",")
+    .map((v) => v.trim())
+    .filter(Boolean);
+  if (values.length === 0) return null;
+  return new Set(values);
+}
+
+function parseCsvIntSet(raw: string | undefined): Set<number> | null {
+  const values = parseCsvSet(raw);
+  if (!values) return null;
+  const out = new Set<number>();
+  for (const value of values) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) out.add(parsed);
+  }
+  return out.size > 0 ? out : null;
+}
+
 async function rateLimitedPause() {
   await sleep(jitter(RATE_DELAY_MS));
 }
 
-/** Clamp a number to [min, max] and round to nearest integer. */
-function clampRound(val: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, Math.round(val)));
+/** Clamp a number to [min, max] and round to nearest 0.5. */
+function clampHalfStep(val: number, min: number, max: number): number {
+  const bounded = Math.min(max, Math.max(min, val));
+  return Math.round(bounded * 2) / 2;
+}
+
+/**
+ * Keep external review IDs deterministic and <= 40 chars to fit reviews.external_id.
+ */
+function buildRmpExternalId(
+  legacyTeacherId: number | string,
+  dateStr: string,
+  reviewIndex: number
+): string {
+  const raw = `${legacyTeacherId}|${dateStr}|${reviewIndex}`;
+  const digest = createHash("sha1").update(raw).digest("hex").slice(0, 36);
+  return `rmp-${digest}`;
+}
+
+function parseRmpTags(raw: unknown): string[] {
+  const value = String(raw ?? "").trim();
+  if (!value) return [];
+
+  const normalizeTagToken = (token: string): string =>
+    token
+      .toLowerCase()
+      .replace(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const canonicalizeRmpTag = (token: string): string | null => {
+    const t = normalizeTagToken(token);
+    if (!t) return null;
+
+    if (t.includes("tough grader") || t.includes("tests are tough")) {
+      return "Tough Grader";
+    }
+    if (t.includes("get ready to read")) {
+      return "Get Ready To Read";
+    }
+    if (
+      t.includes("participation matters") ||
+      t.startsWith("participatio") ||
+      t === "matters"
+    ) {
+      return "Participation Matters";
+    }
+    if (t.includes("extra credit")) {
+      return "Extra Credit";
+    }
+    if (t.includes("group projects")) {
+      return "Group Projects";
+    }
+    if (t.includes("amazing lectures") || t.startsWith("amazi") || t === "g lectures") {
+      return "Amazing Lectures";
+    }
+    if (
+      t.includes("clear grading criteria") ||
+      t.startsWith("clear gradi") ||
+      t === "g criteria"
+    ) {
+      return "Clear Grading Criteria";
+    }
+    if (t.includes("gives good feedback")) {
+      return "Gives Good Feedback";
+    }
+    if (t.includes("inspirational") || t.startsWith("spiratio")) {
+      return "Inspirational";
+    }
+    if (t.includes("lots of homework")) {
+      return "Lots Of Homework";
+    }
+    if (t.includes("hilarious")) {
+      return "Hilarious";
+    }
+    if (t.includes("beware of pop quizzes")) {
+      return "Beware Of Pop Quizzes";
+    }
+    if (t.includes("so many papers") || t.startsWith("so ma") || t === "y papers") {
+      return "So Many Papers";
+    }
+    if (t.includes("caring") || t === "cari" || t.includes("cares about students")) {
+      return "Caring";
+    }
+    if (t.includes("respected")) {
+      return "Respected";
+    }
+    if (t.includes("lecture heavy")) {
+      return "Lecture Heavy";
+    }
+    if (t.includes("test heavy")) {
+      return "Test Heavy";
+    }
+    if (
+      t.includes("graded by few things") ||
+      t.startsWith("graded by few thi") ||
+      t === "gs"
+    ) {
+      return "Graded By Few Things";
+    }
+    if (t.includes("accessible outside class")) {
+      return "Accessible Outside Class";
+    }
+    if (t.includes("online savvy") || t === "e savvy") {
+      return "Online Savvy";
+    }
+
+    return null;
+  };
+
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const tag of value
+    .split(/\s*--\s*|[,\n;]+/)
+    .map((t) => t.trim())
+    .filter(Boolean)) {
+    const canonical = canonicalizeRmpTag(tag);
+    if (!canonical) continue;
+    const key = canonical.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(canonical);
+  }
+  return tags;
+}
+
+function parseRmpDate(raw: string | null): Date | null {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+
+  const normalized = value
+    .replace(/\s+UTC$/i, "")
+    .replace(
+      /^(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+([+-]\d{2})(\d{2})$/,
+      "$1T$2$3:$4"
+    );
+
+  const parsed = new Date(normalized);
+  if (!Number.isNaN(parsed.getTime())) return parsed;
+
+  const fallback = new Date(value);
+  if (!Number.isNaN(fallback.getTime())) return fallback;
+  return null;
+}
+
+function normalizeReportedGrade(raw: unknown): string | null {
+  const value = String(raw ?? "").trim();
+  if (!value) return null;
+
+  const canonical = /\b(A\+|A-|A|B\+|B-|B|C\+|C-|C|D\+|D-|D|F)\b/i.exec(value)?.[1];
+  if (canonical) return canonical.toUpperCase();
+
+  return value.toUpperCase().slice(0, 12);
+}
+
+function toGradePoints(reportedGrade: string | null): number | null {
+  if (!reportedGrade) return null;
+  const canonical = /\b(A\+|A-|A|B\+|B-|B|C\+|C-|C|D\+|D-|D|F)\b/i.exec(reportedGrade)?.[1];
+  if (!canonical) return null;
+  const points = LETTER_GRADE_POINTS[canonical.toUpperCase()];
+  return typeof points === "number" ? points : null;
+}
+
+function seasonSortOrder(season: string | null): number {
+  switch (String(season ?? "").toLowerCase()) {
+    case "winter":
+      return 0;
+    case "spring":
+      return 1;
+    case "summer":
+      return 2;
+    case "fall":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function termAnchorMs(year: number, season: string | null): number {
+  const normalized = String(season ?? "").toLowerCase();
+  switch (normalized) {
+    case "winter":
+      return Date.UTC(year, 0, 15);
+    case "spring":
+      return Date.UTC(year, 2, 15);
+    case "summer":
+      return Date.UTC(year, 5, 15);
+    case "fall":
+      return Date.UTC(year, 9, 1);
+    default:
+      return Date.UTC(year, 6, 1);
+  }
+}
+
+type SectionCandidate = {
+  id: number;
+  courseId: number;
+  termCode: string;
+  termRank: number;
+  anchorMs: number | null;
+  instructorIds: Set<number>;
+};
+
+type ParsedCourseCode = {
+  deptCode: string;
+  courseNumber: string;
+  courseSuffix: string;
+};
+
+function parseCourseCodeToken(value: string): ParsedCourseCode | null {
+  const m = /\b([A-Za-z]{2,8})\s*[- ]?\s*(\d{3})([A-Za-z]{0,2})\b/.exec(value);
+  if (!m) return null;
+
+  const deptCode = String(m[1] ?? "").toUpperCase();
+  const courseNumber = String(m[2] ?? "");
+  const courseSuffix = String(m[3] ?? "").toUpperCase();
+  if (!deptCode || !courseNumber) return null;
+  return { deptCode, courseNumber, courseSuffix };
+}
+
+function assignClosestSectionForReview(
+  courseId: number,
+  instructorId: number,
+  reviewDate: Date | null,
+  sectionsByCourseId: Map<number, SectionCandidate[]>
+): { sectionId: number | null; termCode: string | null } {
+  const courseSections = sectionsByCourseId.get(courseId) ?? [];
+  if (courseSections.length === 0) {
+    return { sectionId: null, termCode: null };
+  }
+
+  const taughtByInstructor = courseSections.filter((section) =>
+    section.instructorIds.has(instructorId)
+  );
+  const pool = taughtByInstructor.length > 0 ? taughtByInstructor : courseSections;
+
+  let picked = pool[0];
+  const reviewMs = reviewDate?.getTime();
+
+  if (typeof reviewMs === "number" && Number.isFinite(reviewMs)) {
+    for (const candidate of pool.slice(1)) {
+      const pickedDelta =
+        typeof picked.anchorMs === "number"
+          ? Math.abs(reviewMs - picked.anchorMs)
+          : Number.POSITIVE_INFINITY;
+      const candidateDelta =
+        typeof candidate.anchorMs === "number"
+          ? Math.abs(reviewMs - candidate.anchorMs)
+          : Number.POSITIVE_INFINITY;
+
+      if (candidateDelta < pickedDelta) {
+        picked = candidate;
+        continue;
+      }
+      if (candidateDelta === pickedDelta) {
+        if (candidate.termRank > picked.termRank) {
+          picked = candidate;
+          continue;
+        }
+        if (candidate.termRank === picked.termRank && candidate.id < picked.id) {
+          picked = candidate;
+        }
+      }
+    }
+  } else {
+    for (const candidate of pool.slice(1)) {
+      if (candidate.termRank > picked.termRank) {
+        picked = candidate;
+        continue;
+      }
+      if (candidate.termRank === picked.termRank && candidate.id < picked.id) {
+        picked = candidate;
+      }
+    }
+  }
+
+  return {
+    sectionId: picked.id,
+    termCode: picked.termCode,
+  };
+}
+
+function resolveCourseIdWithSectionContext(
+  rmpClassLabel: string,
+  matchedCourseId: number,
+  instructorId: number,
+  reviewDate: Date | null,
+  allCourses: Array<{ id: number; code: string }>,
+  sectionsByCourseId: Map<number, SectionCandidate[]>
+): number {
+  const parsedTarget = parseCourseCodeToken(rmpClassLabel);
+  if (!parsedTarget) return matchedCourseId;
+
+  const candidateIds = allCourses
+    .filter((course) => {
+      const parsedLocal = parseCourseCodeToken(course.code);
+      if (!parsedLocal) return false;
+      if (
+        parsedLocal.deptCode !== parsedTarget.deptCode ||
+        parsedLocal.courseNumber !== parsedTarget.courseNumber
+      ) {
+        return false;
+      }
+      if (!parsedTarget.courseSuffix) return true;
+      return parsedLocal.courseSuffix === parsedTarget.courseSuffix;
+    })
+    .map((course) => course.id);
+
+  if (candidateIds.length <= 1) return matchedCourseId;
+
+  const reviewMs = reviewDate?.getTime();
+  const reviewMsFinite = typeof reviewMs === "number" && Number.isFinite(reviewMs);
+
+  let bestCourseId = matchedCourseId;
+  let bestHasInstructor = false;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  let bestTermRank = Number.NEGATIVE_INFINITY;
+
+  for (const candidateId of candidateIds) {
+    const sectionMatch = assignClosestSectionForReview(
+      candidateId,
+      instructorId,
+      reviewDate,
+      sectionsByCourseId
+    );
+    const sections = sectionsByCourseId.get(candidateId) ?? [];
+    const chosenSection =
+      sections.find((section) => section.id === sectionMatch.sectionId) ?? null;
+
+    const hasInstructor = Boolean(chosenSection?.instructorIds.has(instructorId));
+    const delta =
+      reviewMsFinite && typeof chosenSection?.anchorMs === "number"
+        ? Math.abs(reviewMs - chosenSection.anchorMs)
+        : Number.POSITIVE_INFINITY;
+    const termRank = chosenSection?.termRank ?? Number.NEGATIVE_INFINITY;
+
+    const better =
+      (hasInstructor ? 1 : 0) > (bestHasInstructor ? 1 : 0) ||
+      ((hasInstructor ? 1 : 0) === (bestHasInstructor ? 1 : 0) &&
+        (delta < bestDelta ||
+          (delta === bestDelta &&
+            (termRank > bestTermRank ||
+              (termRank === bestTermRank && candidateId < bestCourseId)))));
+
+    if (better) {
+      bestCourseId = candidateId;
+      bestHasInstructor = hasInstructor;
+      bestDelta = delta;
+      bestTermRank = termRank;
+    }
+  }
+
+  return bestCourseId;
 }
 
 // ---------------------------------------------------------------------------
@@ -149,36 +582,57 @@ interface RmpRatingNode {
 async function fetchAllProfessors(
   schoolId: string
 ): Promise<RmpTeacherNode[]> {
-  const response = await fetch(API_LINK, {
-    credentials: "include",
-    headers: HEADERS as Record<string, string>,
-    body: JSON.stringify({
-      query: TEACHER_LIST,
-      variables: {
-        query: {
-          text: "",
-          schoolID: schoolId,
-          fallback: true,
-          departmentID: null,
-        },
-        schoolID: schoolId,
-        includeSchoolFilter: true,
-      },
-    }),
-    method: "POST",
-    mode: "cors",
-  });
+  const out: RmpTeacherNode[] = [];
+  let cursor: string | null = "";
+  let hasMore = true;
 
-  if (!response.ok) {
-    throw new Error(
-      `RMP fetchAllProfessors failed: ${response.status} ${response.statusText}`
-    );
+  while (hasMore) {
+    await rateLimitedPause();
+
+    const response = await fetch(API_LINK, {
+      credentials: "include",
+      headers: HEADERS as Record<string, string>,
+      body: JSON.stringify({
+        query: TEACHER_LIST_PAGINATED,
+        variables: {
+          query: {
+            text: "",
+            schoolID: schoolId,
+            fallback: true,
+            departmentID: null,
+          },
+          schoolID: schoolId,
+          includeSchoolFilter: true,
+          after: cursor,
+        },
+      }),
+      method: "POST",
+      mode: "cors",
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `RMP fetchAllProfessors failed: ${response.status} ${response.statusText}`
+      );
+    }
+
+    const data: any = await response.json();
+    const teachers = data?.data?.search?.teachers;
+    const edges: Array<{ node: RmpTeacherNode }> = teachers?.edges ?? [];
+    out.push(...edges.map((e) => e.node));
+
+    const pageInfo: { hasNextPage?: boolean; endCursor?: string | null } =
+      teachers?.pageInfo ?? {};
+    hasMore = pageInfo.hasNextPage === true;
+    cursor = pageInfo.endCursor ?? null;
+
+    if (hasMore && !cursor) {
+      // Guard against server returning hasNextPage=true without a cursor.
+      hasMore = false;
+    }
   }
 
-  const data = await response.json();
-  const edges: Array<{ node: RmpTeacherNode }> =
-    data?.data?.search?.teachers?.edges ?? [];
-  return edges.map((e) => e.node);
+  return out;
 }
 
 async function fetchProfessorRatings(
@@ -237,24 +691,81 @@ async function fetchProfessorRatings(
 // ---------------------------------------------------------------------------
 
 async function refreshAggregates() {
-  console.log("[rmpSeed] refreshing course_ratings...");
+  console.log("[rmpSeed] refreshing section_ratings...");
   await db.execute(sql`
-    INSERT INTO course_ratings (course_id, avg_quality, avg_difficulty, avg_workload, review_count, updated_at)
+    INSERT INTO section_ratings (section_id, avg_quality, avg_difficulty, avg_workload, review_count, updated_at)
     SELECT
-      r.course_id,
+      r.section_id,
       ROUND(AVG(r.rating_quality), 2),
       ROUND(AVG(r.rating_difficulty), 2),
       ROUND(AVG(r.rating_workload), 2),
       COUNT(*)::int,
       NOW()
     FROM reviews r
-    GROUP BY r.course_id
+    WHERE r.section_id IS NOT NULL
+    GROUP BY r.section_id
+    ON CONFLICT (section_id) DO UPDATE SET
+      avg_quality    = EXCLUDED.avg_quality,
+      avg_difficulty = EXCLUDED.avg_difficulty,
+      avg_workload   = EXCLUDED.avg_workload,
+      review_count   = EXCLUDED.review_count,
+      updated_at     = NOW()
+  `);
+  await db.execute(sql`
+    DELETE FROM section_ratings sr
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM reviews r
+      WHERE r.section_id = sr.section_id
+    )
+  `);
+
+  console.log("[rmpSeed] refreshing course_ratings...");
+  await db.execute(sql`
+    WITH review_agg AS (
+      SELECT
+        r.course_id,
+        ROUND(AVG(r.rating_quality), 2) AS avg_quality,
+        ROUND(AVG(r.rating_difficulty), 2) AS avg_difficulty_fallback,
+        ROUND(AVG(r.rating_workload), 2) AS avg_workload,
+        COUNT(*)::int AS review_count
+      FROM reviews r
+      GROUP BY r.course_id
+    ),
+    section_agg AS (
+      SELECT
+        s.course_id,
+        ROUND(AVG(sr.avg_difficulty), 2) AS avg_difficulty_from_sections
+      FROM section_ratings sr
+      INNER JOIN sections s ON s.id = sr.section_id
+      WHERE sr.avg_difficulty IS NOT NULL
+      GROUP BY s.course_id
+    )
+    INSERT INTO course_ratings (course_id, avg_quality, avg_difficulty, avg_workload, review_count, updated_at)
+    SELECT
+      ra.course_id,
+      ra.avg_quality,
+      COALESCE(sa.avg_difficulty_from_sections, ra.avg_difficulty_fallback),
+      ra.avg_workload,
+      ra.review_count,
+      NOW()
+    FROM review_agg ra
+    LEFT JOIN section_agg sa
+      ON sa.course_id = ra.course_id
     ON CONFLICT (course_id) DO UPDATE SET
       avg_quality    = EXCLUDED.avg_quality,
       avg_difficulty = EXCLUDED.avg_difficulty,
       avg_workload   = EXCLUDED.avg_workload,
       review_count   = EXCLUDED.review_count,
       updated_at     = NOW()
+  `);
+  await db.execute(sql`
+    DELETE FROM course_ratings cr
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM reviews r
+      WHERE r.course_id = cr.course_id
+    )
   `);
 
   console.log("[rmpSeed] refreshing course_instructor_ratings...");
@@ -278,6 +789,15 @@ async function refreshAggregates() {
       review_count   = EXCLUDED.review_count,
       updated_at     = NOW()
   `);
+  await db.execute(sql`
+    DELETE FROM course_instructor_ratings cir
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM reviews r
+      WHERE r.course_id = cir.course_id
+        AND r.instructor_id = cir.instructor_id
+    )
+  `);
 
   console.log("[rmpSeed] refreshing instructor_ratings...");
   await db.execute(sql`
@@ -295,6 +815,14 @@ async function refreshAggregates() {
       review_count = EXCLUDED.review_count,
       updated_at   = NOW()
   `);
+  await db.execute(sql`
+    DELETE FROM instructor_ratings ir
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM reviews r
+      WHERE r.instructor_id = ir.instructor_id
+    )
+  `);
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +837,7 @@ async function main() {
     matchedFuzzy: 0,
     unmatched: 0,
     reviewsImported: 0,
+    reviewsUpdatedExisting: 0,
     reviewsSkippedNoCourse: 0,
     reviewsSkippedDuplicate: 0,
     tagsImported: 0,
@@ -328,7 +857,9 @@ async function main() {
     .onConflictDoNothing();
 
   // ---- 2. Load local data ---
-  console.log("[rmpSeed] loading local instructors, departments, courses...");
+  console.log(
+    "[rmpSeed] loading local instructors, departments, courses, terms, and sections..."
+  );
   const allInstructors = await db
     .select({
       id: instructors.id,
@@ -344,10 +875,44 @@ async function main() {
   const allCourses = await db
     .select({
       id: courses.id,
+      code: courses.code,
       title: courses.title,
       departmentId: courses.departmentId,
     })
     .from(courses);
+
+  const allTerms = await db
+    .select({
+      srcdb: terms.srcdb,
+      name: terms.name,
+      season: terms.season,
+      year: terms.year,
+    })
+    .from(terms);
+
+  const allSections = await db
+    .select({
+      id: sections.id,
+      courseId: sections.courseId,
+      termCode: sections.termCode,
+      instructorId: sections.instructorId,
+      isActive: sections.isActive,
+    })
+    .from(sections);
+
+  let allSectionInstructors: Array<{ sectionId: number; instructorId: number }> = [];
+  try {
+    allSectionInstructors = await db
+      .select({
+        sectionId: sectionInstructors.sectionId,
+        instructorId: sectionInstructors.instructorId,
+      })
+      .from(sectionInstructors);
+  } catch {
+    console.warn(
+      "[rmpSeed] section_instructors table unavailable; falling back to primary section instructor only"
+    );
+  }
 
   // Build lookup maps
   const deptCodeMap = new Map<number, string>();
@@ -355,8 +920,57 @@ async function main() {
     deptCodeMap.set(d.id, d.code);
   }
 
+  const instructorDeptMap = new Map<number, number | null>();
+  for (const instructor of allInstructors) {
+    instructorDeptMap.set(instructor.id, instructor.departmentId ?? null);
+  }
+
+  const termMetaByCode = new Map<
+    string,
+    { anchorMs: number; termRank: number; name: string }
+  >();
+  for (const term of allTerms) {
+    const anchorMs = termAnchorMs(term.year, term.season ?? null);
+    const termRank = term.year * 10 + seasonSortOrder(term.season ?? null);
+    termMetaByCode.set(term.srcdb, {
+      anchorMs,
+      termRank,
+      name: term.name,
+    });
+  }
+
+  const sectionsById = new Map<number, SectionCandidate>();
+  const sectionsByCourseId = new Map<number, SectionCandidate[]>();
+  for (const section of allSections) {
+    const termMeta = termMetaByCode.get(section.termCode);
+    const fallbackTermRank = Number(section.termCode) || -1;
+    const candidate: SectionCandidate = {
+      id: section.id,
+      courseId: section.courseId,
+      termCode: section.termCode,
+      termRank: termMeta?.termRank ?? fallbackTermRank,
+      anchorMs: termMeta?.anchorMs ?? null,
+      instructorIds: new Set<number>(),
+    };
+
+    if (typeof section.instructorId === "number") {
+      candidate.instructorIds.add(section.instructorId);
+    }
+
+    sectionsById.set(candidate.id, candidate);
+    const courseSections = sectionsByCourseId.get(candidate.courseId) ?? [];
+    courseSections.push(candidate);
+    sectionsByCourseId.set(candidate.courseId, courseSections);
+  }
+
+  for (const roster of allSectionInstructors) {
+    const section = sectionsById.get(roster.sectionId);
+    if (!section) continue;
+    section.instructorIds.add(roster.instructorId);
+  }
+
   console.log(
-    `[rmpSeed] local data: ${allInstructors.length} instructors, ${allDepartments.length} departments, ${allCourses.length} courses`
+    `[rmpSeed] local data: ${allInstructors.length} instructors, ${allDepartments.length} departments, ${allCourses.length} courses, ${allSections.length} sections, ${allTerms.length} terms`
   );
 
   // ---- 3. RMP school lookup ---
@@ -414,7 +1028,18 @@ async function main() {
           rmpWouldTakeAgain: String(rmpProf.wouldTakeAgainPercent),
           rmpDepartment: String(rmpProf.department),
         })
-        .onConflictDoNothing();
+        .onConflictDoUpdate({
+          target: rmpProfessors.instructorId,
+          set: {
+            rmpTeacherId: String(rmpProf.id),
+            rmpAvgRating: String(rmpProf.avgRating),
+            rmpAvgDifficulty: String(rmpProf.avgDifficulty),
+            rmpNumRatings: rmpProf.numRatings,
+            rmpWouldTakeAgain: String(rmpProf.wouldTakeAgainPercent),
+            rmpDepartment: String(rmpProf.department),
+            importedAt: new Date(),
+          },
+        });
     } else {
       stats.unmatched++;
     }
@@ -424,12 +1049,30 @@ async function main() {
     `[rmpSeed] matching done: ${stats.matched} matched (${stats.matchedExact} exact, ${stats.matchedFuzzy} fuzzy), ${stats.unmatched} unmatched`
   );
 
+  const matchedToProcess =
+    ONLY_INSTRUCTOR_IDS || ONLY_RMP_TEACHER_IDS
+      ? matched.filter(({ rmpTeacher, instructorId }) => {
+          if (ONLY_INSTRUCTOR_IDS && !ONLY_INSTRUCTOR_IDS.has(instructorId)) {
+            return false;
+          }
+          if (ONLY_RMP_TEACHER_IDS && !ONLY_RMP_TEACHER_IDS.has(String(rmpTeacher.id))) {
+            return false;
+          }
+          return true;
+        })
+      : matched;
+  if (ONLY_INSTRUCTOR_IDS || ONLY_RMP_TEACHER_IDS) {
+    console.log(
+      `[rmpSeed] applying filter: processing ${matchedToProcess.length}/${matched.length} matched professors`
+    );
+  }
+
   // ---- 7 & 8. Fetch reviews and import ---
   console.log("[rmpSeed] loading checkpoint...");
   const processed = loadCheckpoint();
 
-  for (let i = 0; i < matched.length; i++) {
-    const { rmpTeacher, instructorId } = matched[i];
+  for (let i = 0; i < matchedToProcess.length; i++) {
+    const { rmpTeacher, instructorId } = matchedToProcess[i];
     const instrKey = String(instructorId);
 
     if (processed.has(instrKey)) {
@@ -438,7 +1081,7 @@ async function main() {
 
     const profLabel = `${rmpTeacher.firstName} ${rmpTeacher.lastName}`;
     console.log(
-      `[rmpSeed] [${i + 1}/${matched.length}] fetching reviews for ${profLabel} (instructorId=${instructorId})...`
+      `[rmpSeed] [${i + 1}/${matchedToProcess.length}] fetching reviews for ${profLabel} (instructorId=${instructorId})...`
     );
 
     let rmpRatings: RmpRatingNode[];
@@ -463,36 +1106,40 @@ async function main() {
       const rating = rmpRatings[ri];
 
       // Collect tags
-      const rawTags = String(rating.ratingTags ?? "");
-      if (rawTags) {
-        // Tags are typically a comma-separated or newline-separated string
-        const tags = rawTags
-          .split(/[,\n]+/)
-          .map((t) => t.trim())
-          .filter(Boolean);
-        for (const tag of tags) {
-          tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
-        }
+      const tags = parseRmpTags(rating.ratingTags);
+      for (const tag of tags) {
+        tagCounts.set(tag, (tagCounts.get(tag) ?? 0) + 1);
       }
 
       // Build a stable externalId from the professor + review index + date
       // RMP reviews don't have their own unique ID exposed in the wrapper,
-      // so we create a composite key from the teacher ID and review metadata.
+      // so we create a stable hash from the teacher ID and review metadata.
       const dateStr = String(rating.date ?? "unknown");
-      const externalId = `rmp-${rmpTeacher.legacyId}-${dateStr}-${ri}`;
+      const externalId = buildRmpExternalId(rmpTeacher.legacyId, dateStr, ri);
+      const reviewDate = parseRmpDate(rating.date);
 
       // Match the RMP "class" field to a local course
       const rmpClass = String(rating.class ?? "").trim();
-      if (!rmpClass) {
-        stats.reviewsSkippedNoCourse++;
-        continue;
-      }
 
-      const courseId = matchCourse(rmpClass, null, allCourses);
+      const courseId = matchCourse(
+        rmpClass,
+        instructorDeptMap.get(instructorId) ?? null,
+        allCourses,
+        deptCodeMap,
+        rating.comment
+      );
       if (!courseId) {
         stats.reviewsSkippedNoCourse++;
         continue;
       }
+      const resolvedCourseId = resolveCourseIdWithSectionContext(
+        rmpClass,
+        courseId,
+        instructorId,
+        reviewDate,
+        allCourses,
+        sectionsByCourseId
+      );
 
       // Map RMP quality rating: RMP uses helpfulRating + clarityRating averaged,
       // but the raw API gives helpfulRating and clarityRating separately.
@@ -508,24 +1155,45 @@ async function main() {
               ? rating.helpfulRating
               : 3; // fallback
 
-      const ratingQuality = clampRound(qualityRaw, 1, 5);
-      const ratingDifficulty = clampRound(rating.difficultyRating || 3, 1, 5);
+      const ratingQuality = clampHalfStep(qualityRaw, 1, 5);
+      const ratingDifficulty = clampHalfStep(rating.difficultyRating || 3, 1, 5);
+      const sectionMatch = assignClosestSectionForReview(
+        resolvedCourseId,
+        instructorId,
+        reviewDate,
+        sectionsByCourseId
+      );
+      const reportedGrade = normalizeReportedGrade(rating.grade);
+      const gradePoints = toGradePoints(reportedGrade);
+
+      const ratingQualityValue = ratingQuality.toFixed(1);
+      const ratingDifficultyValue = ratingDifficulty.toFixed(1);
 
       try {
+        const gradePointsValue = gradePoints !== null ? String(gradePoints) : null;
+        const updatePayload = {
+          courseId: resolvedCourseId,
+          instructorId,
+          sectionId: sectionMatch.sectionId,
+          termCode: sectionMatch.termCode,
+          ratingQuality: ratingQualityValue,
+          ratingDifficulty: ratingDifficultyValue,
+          ratingWorkload: null as string | null,
+          tags,
+          reportedGrade,
+          gradePoints: gradePointsValue,
+          comment: rating.comment || null,
+          isAnonymous: true,
+          source: "rmp" as const,
+          createdAt: reviewDate ?? new Date(),
+          updatedAt: reviewDate ?? new Date(),
+        };
+
         const result = await db
           .insert(reviews)
           .values({
             userId: SYSTEM_USER_ID,
-            courseId,
-            instructorId,
-            sectionId: null,
-            termCode: null,
-            ratingQuality,
-            ratingDifficulty,
-            ratingWorkload: null, // RMP has no workload metric
-            comment: rating.comment || null,
-            isAnonymous: true,
-            source: "rmp",
+            ...updatePayload,
             externalId,
           })
           .onConflictDoNothing()
@@ -534,7 +1202,11 @@ async function main() {
         if (result.length > 0) {
           stats.reviewsImported++;
         } else {
-          stats.reviewsSkippedDuplicate++;
+          await db
+            .update(reviews)
+            .set(updatePayload)
+            .where(eq(reviews.externalId, externalId));
+          stats.reviewsUpdatedExisting++;
         }
       } catch (err) {
         // Constraint violations (e.g. missing FK) are non-fatal
@@ -548,7 +1220,10 @@ async function main() {
         await db
           .insert(rmpProfessorTags)
           .values({ instructorId, tag, count })
-          .onConflictDoNothing();
+          .onConflictDoUpdate({
+            target: [rmpProfessorTags.instructorId, rmpProfessorTags.tag],
+            set: { count },
+          });
         stats.tagsImported++;
       } catch {
         // ignore tag insert failures
@@ -572,6 +1247,7 @@ async function main() {
   );
   console.log(`Unmatched:                ${stats.unmatched}`);
   console.log(`Reviews imported:         ${stats.reviewsImported}`);
+  console.log(`Reviews updated existing: ${stats.reviewsUpdatedExisting}`);
   console.log(`Reviews skipped (no course match): ${stats.reviewsSkippedNoCourse}`);
   console.log(`Reviews skipped (duplicate):       ${stats.reviewsSkippedDuplicate}`);
   console.log(`Tags imported:            ${stats.tagsImported}`);

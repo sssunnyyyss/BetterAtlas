@@ -11,6 +11,9 @@ export interface Review {
   ratingQuality: number;
   ratingDifficulty: number;
   ratingWorkload: number | null;
+  tags: string[];
+  reportedGrade: string | null;
+  gradePoints: number | null;
   comment: string | null;
   isAnonymous: boolean;
   source: "native" | "rmp";

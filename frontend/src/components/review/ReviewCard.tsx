@@ -3,6 +3,23 @@ import RatingStars from "./RatingStars.js";
 import { useAuth } from "../../lib/auth.js";
 import UserBadge from "../ui/UserBadge.js";
 
+const TAG_COLORS = [
+  "bg-blue-50 text-blue-700 ring-blue-600/20",
+  "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  "bg-orange-50 text-orange-700 ring-orange-600/20",
+  "bg-cyan-50 text-cyan-700 ring-cyan-600/20",
+  "bg-rose-50 text-rose-700 ring-rose-600/20",
+  "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
+];
+
+function tagColorClass(tag: string): string {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) {
+    hash = (hash * 31 + tag.charCodeAt(i)) >>> 0;
+  }
+  return TAG_COLORS[hash % TAG_COLORS.length] ?? TAG_COLORS[0];
+}
+
 interface ReviewCardProps {
   review: ReviewWithAuthor;
   onDelete?: (id: number) => void;
@@ -27,6 +44,11 @@ export default function ReviewCard({ review, onDelete, onEdit }: ReviewCardProps
             {review.source === "rmp" && (
               <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-inset ring-amber-600/20">
                 RateMyProfessor
+              </span>
+            )}
+            {review.reportedGrade && (
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-inset ring-slate-400/30">
+                Grade {review.reportedGrade}
               </span>
             )}
           </div>
@@ -73,6 +95,21 @@ export default function ReviewCard({ review, onDelete, onEdit }: ReviewCardProps
           </div>
         )}
       </div>
+
+      {review.source === "rmp" && review.tags.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {review.tags.map((tag) => (
+            <span
+              key={tag}
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${tagColorClass(
+                tag
+              )}`}
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
 
       {review.comment && (
         <p className="text-sm text-gray-700 mt-3">{review.comment}</p>

@@ -11,6 +11,7 @@ import {
   courseRatings,
   rmpProfessors,
   rmpProfessorTags,
+  reviews,
 } from "../db/schema.js";
 import { asc, and, desc, eq, ilike, sql } from "drizzle-orm";
 
@@ -76,7 +77,21 @@ router.get("/:id", async (req, res) => {
     .where(eq(rmpProfessors.instructorId, instructorId))
     .limit(1);
 
-  const rmpTags = rmpData
+  const [rmpReviewAgg] = await db
+    .select({
+      avgRating: sql<string>`avg(${reviews.ratingQuality})::numeric(3,2)`,
+      avgDifficulty: sql<string>`avg(${reviews.ratingDifficulty})::numeric(3,2)`,
+      numRatings: sql<number>`count(*)::int`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.instructorId, instructorId),
+        eq(reviews.source, "rmp")
+      )
+    );
+
+  const rmpTags = rmpData || (rmpReviewAgg?.numRatings ?? 0) > 0
     ? await db
         .select({ tag: rmpProfessorTags.tag, count: rmpProfessorTags.count })
         .from(rmpProfessorTags)
@@ -152,14 +167,20 @@ router.get("/:id", async (req, res) => {
     },
     avgQuality: prof.avgQuality ? parseFloat(prof.avgQuality) : null,
     reviewCount: prof.reviewCount ?? 0,
-    rmp: rmpData
+    rmp: rmpData || (rmpReviewAgg?.numRatings ?? 0) > 0
       ? {
-          avgRating: rmpData.avgRating ? parseFloat(rmpData.avgRating) : null,
-          avgDifficulty: rmpData.avgDifficulty
-            ? parseFloat(rmpData.avgDifficulty)
+          avgRating: rmpReviewAgg?.avgRating
+            ? parseFloat(rmpReviewAgg.avgRating)
+            : rmpData?.avgRating
+              ? parseFloat(rmpData.avgRating)
+              : null,
+          avgDifficulty: rmpReviewAgg?.avgDifficulty
+            ? parseFloat(rmpReviewAgg.avgDifficulty)
+            : rmpData?.avgDifficulty
+              ? parseFloat(rmpData.avgDifficulty)
             : null,
-          numRatings: rmpData.numRatings ?? 0,
-          wouldTakeAgain: rmpData.wouldTakeAgain
+          numRatings: rmpReviewAgg?.numRatings ?? rmpData?.numRatings ?? 0,
+          wouldTakeAgain: rmpData?.wouldTakeAgain
             ? parseFloat(rmpData.wouldTakeAgain)
             : null,
           tags: rmpTags.map((t) => ({

@@ -228,9 +228,21 @@ export const reviews = pgTable(
     instructorId: integer("instructor_id").references(() => instructors.id),
     sectionId: integer("section_id").references(() => sections.id),
     termCode: varchar("term_code", { length: 10 }).references(() => terms.srcdb),
-    ratingQuality: smallint("rating_quality").notNull(),
-    ratingDifficulty: smallint("rating_difficulty").notNull(),
-    ratingWorkload: smallint("rating_workload"),
+    ratingQuality: numeric("rating_quality", {
+      precision: 2,
+      scale: 1,
+    }).notNull(),
+    ratingDifficulty: numeric("rating_difficulty", {
+      precision: 2,
+      scale: 1,
+    }).notNull(),
+    ratingWorkload: numeric("rating_workload", {
+      precision: 2,
+      scale: 1,
+    }),
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+    reportedGrade: varchar("reported_grade", { length: 12 }),
+    gradePoints: numeric("grade_points", { precision: 3, scale: 2 }),
     comment: text("comment"),
     isAnonymous: boolean("is_anonymous").default(true),
     source: varchar("source", { length: 10 }).notNull().default("native"),
@@ -239,11 +251,11 @@ export const reviews = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    // One review per user per section.
+    // Native reviews: one review per user per section.
     userSectionUnique: uniqueIndex("reviews_user_section_unique").on(
       table.userId,
       table.sectionId
-    ),
+    ).where(sql`${table.source} = 'native' AND ${table.sectionId} IS NOT NULL`),
     courseIdx: index("idx_reviews_course").on(table.courseId),
     instructorIdx: index("idx_reviews_instructor").on(table.instructorId),
     sectionIdx: index("idx_reviews_section").on(table.sectionId),

@@ -1,6 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import CourseCard from "./CourseCard.js";
-import { formatRating, getRatingColor } from "../../lib/utils.js";
+import { formatRating, getDifficultyColor, getRatingColor } from "../../lib/utils.js";
 import type { CatalogCourseEntry } from "../../lib/courseTopics.js";
 import { buildCourseDetailSearch } from "../../lib/courseTopics.js";
 
@@ -28,9 +28,12 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
     return course.title;
   }
 
-  function ratingBlock(value: number | null | undefined) {
+  function ratingBlock(
+    value: number | null | undefined,
+    mode: "default" | "difficulty" = "default"
+  ) {
     const normalized = typeof value === "number" && Number.isFinite(value) ? value : null;
-    const color = getRatingColor(normalized);
+    const color = mode === "difficulty" ? getDifficultyColor(normalized) : getRatingColor(normalized);
     return (
       <span
         className="inline-flex min-w-11 items-center justify-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums"
@@ -118,7 +121,7 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
               </span>
               <span className="truncate text-gray-600">{formatInstructors(course.instructors)}</span>
               <span>{ratingBlock(course.classScore ?? null)}</span>
-              <span>{ratingBlock(course.avgDifficulty)}</span>
+              <span>{ratingBlock(course.avgDifficulty, "difficulty")}</span>
               <span className="tabular-nums text-gray-600">{course.reviewCount}</span>
             </Link>
           ))}

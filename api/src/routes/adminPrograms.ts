@@ -86,6 +86,21 @@ type EmbeddingSyncRun = {
   logs: SyncRunLog[];
 };
 
+type RmpSyncRun = {
+  id: number;
+  type: "rmp_sync";
+  status: RunStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  requestedBy: string;
+  requestedEmail: string;
+  onlyInstructorIds: number[];
+  onlyTeacherIds: string[];
+  error: string | null;
+  logs: SyncRunLog[];
+};
+
 type CourseSyncSchedule = {
   enabled: boolean;
   hour: number;
@@ -109,10 +124,12 @@ const embeddingsBackfillDistPath = path.resolve(
   apiRootDir,
   "dist/jobs/courseEmbeddingsBackfill.js"
 );
+const rmpSeedDistPath = path.resolve(apiRootDir, "dist/jobs/rmpSeed.js");
 
 const syncRuns: SyncRun[] = [];
 const courseSyncRuns: CourseSyncRun[] = [];
 const embeddingSyncRuns: EmbeddingSyncRun[] = [];
+const rmpSyncRuns: RmpSyncRun[] = [];
 const appErrors: AdminAppError[] = [];
 let nextRunId = 1;
 let nextRunLogId = 1;
@@ -259,6 +276,23 @@ function summarizeEmbeddingSyncRun(run: EmbeddingSyncRun) {
   };
 }
 
+function summarizeRmpSyncRun(run: RmpSyncRun) {
+  return {
+    id: run.id,
+    type: run.type,
+    status: run.status,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    requestedBy: run.requestedBy,
+    requestedEmail: run.requestedEmail,
+    onlyInstructorIds: run.onlyInstructorIds,
+    onlyTeacherIds: run.onlyTeacherIds,
+    error: run.error,
+    logCount: run.logs.length,
+  };
+}
+
 function getRunningCourseSyncRun() {
   return (
     courseSyncRuns.find((run) => run.status === "queued" || run.status === "running") || null
@@ -271,6 +305,10 @@ function getRunningEmbeddingSyncRun() {
   );
 }
 
+function getRunningRmpSyncRun() {
+  return rmpSyncRuns.find((run) => run.status === "queued" || run.status === "running") || null;
+}
+
 function findCourseSyncRunById(rawId: string) {
   const id = Number.parseInt(rawId, 10);
   if (!Number.isFinite(id)) return null;
@@ -281,6 +319,12 @@ function findEmbeddingSyncRunById(rawId: string) {
   const id = Number.parseInt(rawId, 10);
   if (!Number.isFinite(id)) return null;
   return embeddingSyncRuns.find((run) => run.id === id) || null;
+}
+
+function findRmpSyncRunById(rawId: string) {
+  const id = Number.parseInt(rawId, 10);
+  if (!Number.isFinite(id)) return null;
+  return rmpSyncRuns.find((run) => run.id === id) || null;
 }
 
 function createCourseSyncRun(input: {
@@ -334,6 +378,54 @@ function createEmbeddingSyncRun(input: { requestedBy: string; requestedEmail: st
   embeddingSyncRuns.unshift(run);
   if (embeddingSyncRuns.length > MAX_RUNS) {
     embeddingSyncRuns.splice(MAX_RUNS);
+  }
+  return run;
+}
+
+function normalizeStringList(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeIntList(values: unknown): number[] {
+  if (!Array.isArray(values)) return [];
+  const out = new Set<number>();
+  for (const value of values) {
+    const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+    if (Number.isFinite(parsed)) out.add(parsed);
+  }
+  return Array.from(out);
+}
+
+function createRmpSyncRun(input: {
+  requestedBy: string;
+  requestedEmail: string;
+  onlyInstructorIds: number[];
+  onlyTeacherIds: string[];
+}) {
+  const run: RmpSyncRun = {
+    id: nextRunId++,
+    type: "rmp_sync",
+    status: "queued",
+    createdAt: nowIso(),
+    startedAt: null,
+    finishedAt: null,
+    requestedBy: input.requestedBy,
+    requestedEmail: input.requestedEmail,
+    onlyInstructorIds: Array.from(new Set(input.onlyInstructorIds)),
+    onlyTeacherIds: Array.from(new Set(input.onlyTeacherIds)),
+    error: null,
+    logs: [],
+  };
+  rmpSyncRuns.unshift(run);
+  if (rmpSyncRuns.length > MAX_RUNS) {
+    rmpSyncRuns.splice(MAX_RUNS);
   }
   return run;
 }
@@ -624,6 +716,93 @@ async function executeEmbeddingSyncRun(run: EmbeddingSyncRun) {
         run.status = "failed";
         run.finishedAt = nowIso();
         run.error = `Embeddings sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
+        pushRunLog(run, "error", run.error);
+      }
+      resolve();
+    });
+  });
+}
+
+async function executeRmpSyncRun(run: RmpSyncRun) {
+  run.status = "running";
+  run.startedAt = nowIso();
+  const isTargeted = run.onlyInstructorIds.length > 0 || run.onlyTeacherIds.length > 0;
+  pushRunLog(run, "info", isTargeted ? "RMP sync started (targeted)" : "RMP sync started");
+
+  const useDistScript = existsSync(rmpSeedDistPath);
+  const command = useDistScript ? process.execPath : "pnpm";
+  const args = useDistScript ? [rmpSeedDistPath] : ["rmp:seed"];
+
+  const envVars: NodeJS.ProcessEnv = { ...process.env };
+  // Force a dedicated checkpoint per run so manual resyncs never skip prior-processed instructors.
+  envVars.RMP_CHECKPOINT = `/tmp/rmp-sync-run-${run.id}.json`;
+  if (run.onlyInstructorIds.length > 0) {
+    envVars.RMP_ONLY_INSTRUCTOR_IDS = run.onlyInstructorIds.join(",");
+  } else {
+    delete envVars.RMP_ONLY_INSTRUCTOR_IDS;
+  }
+  if (run.onlyTeacherIds.length > 0) {
+    envVars.RMP_ONLY_TEACHER_IDS = run.onlyTeacherIds.join(",");
+  } else {
+    delete envVars.RMP_ONLY_TEACHER_IDS;
+  }
+
+  pushRunLog(
+    run,
+    "info",
+    `Launching ${useDistScript ? `node ${rmpSeedDistPath}` : "pnpm rmp:seed"}`
+  );
+  if (run.onlyInstructorIds.length > 0) {
+    pushRunLog(run, "info", `Filter instructor IDs: ${run.onlyInstructorIds.join(", ")}`);
+  }
+  if (run.onlyTeacherIds.length > 0) {
+    pushRunLog(run, "info", `Filter RMP teacher IDs: ${run.onlyTeacherIds.join(", ")}`);
+  }
+
+  const child = spawn(command, args, {
+    cwd: apiRootDir,
+    env: envVars,
+    shell: !useDistScript && process.platform === "win32",
+  });
+
+  const stdoutBuffer = { value: "" };
+  const stderrBuffer = { value: "" };
+
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+
+  child.stdout?.on("data", (chunk: string) => {
+    lineSplitPump(run, "info", chunk, stdoutBuffer);
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    lineSplitPump(run, "warn", chunk, stderrBuffer);
+  });
+
+  await new Promise<void>((resolve) => {
+    child.on("error", (err) => {
+      run.status = "failed";
+      run.finishedAt = nowIso();
+      run.error = err.message || "Failed to launch RMP sync process";
+      pushRunLog(run, "error", run.error);
+      resolve();
+    });
+
+    child.on("close", (code, signal) => {
+      if (stdoutBuffer.value.trim()) {
+        pushRunLog(run, "info", stdoutBuffer.value.trim());
+      }
+      if (stderrBuffer.value.trim()) {
+        pushRunLog(run, "warn", stderrBuffer.value.trim());
+      }
+
+      if (code === 0) {
+        run.status = "succeeded";
+        run.finishedAt = nowIso();
+        pushRunLog(run, "info", "RMP sync completed successfully");
+      } else {
+        run.status = "failed";
+        run.finishedAt = nowIso();
+        run.error = `RMP sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
         pushRunLog(run, "error", run.error);
       }
       resolve();
@@ -1081,6 +1260,54 @@ router.get("/embeddings-sync/runs/:id/logs", async (req, res) => {
   res.json(logs);
 });
 
+router.post("/rmp-sync/runs", async (req, res) => {
+  const running = getRunningRmpSyncRun();
+  if (running) {
+    return res.status(409).json({
+      error: "An RMP sync run is already in progress",
+      run: summarizeRmpSyncRun(running),
+    });
+  }
+
+  const onlyInstructorIds = normalizeIntList(req.body?.onlyInstructorIds);
+  const onlyTeacherIds = normalizeStringList(req.body?.onlyTeacherIds);
+
+  const run = createRmpSyncRun({
+    requestedBy: req.user!.id,
+    requestedEmail: req.user!.email,
+    onlyInstructorIds,
+    onlyTeacherIds,
+  });
+  queueMicrotask(() => {
+    void executeRmpSyncRun(run);
+  });
+
+  res.status(202).json(summarizeRmpSyncRun(run));
+});
+
+router.get("/rmp-sync/runs", async (_req, res) => {
+  res.json(rmpSyncRuns.map(summarizeRmpSyncRun));
+});
+
+router.get("/rmp-sync/runs/:id", async (req, res) => {
+  const run = findRmpSyncRunById(req.params.id);
+  if (!run) return res.status(404).json({ error: "Run not found" });
+  res.json(summarizeRmpSyncRun(run));
+});
+
+router.get("/rmp-sync/runs/:id/logs", async (req, res) => {
+  const run = findRmpSyncRunById(req.params.id);
+  if (!run) return res.status(404).json({ error: "Run not found" });
+
+  const afterIdRaw = String(req.query.afterId || "0");
+  const afterId = Number.parseInt(afterIdRaw, 10);
+  const logs = Number.isFinite(afterId)
+    ? run.logs.filter((log) => log.id > afterId)
+    : run.logs;
+
+  res.json(logs);
+});
+
 router.get("/system/metrics", async (_req, res) => {
   const dbHealth = await measureDbHealth();
   const disk = await measureDisk();
@@ -1388,12 +1615,17 @@ router.get("/logs", async (_req, res) => {
     ...summarizeEmbeddingSyncRun(run),
     latestLogs: run.logs.slice(-20),
   }));
+  const recentRmpRuns = rmpSyncRuns.slice(0, 20).map((run) => ({
+    ...summarizeRmpSyncRun(run),
+    latestLogs: run.logs.slice(-20),
+  }));
 
   res.json({
     appErrors: appErrors.slice(0, 200),
     recentRuns,
     recentCourseRuns,
     recentEmbeddingRuns,
+    recentRmpRuns,
   });
 });
 

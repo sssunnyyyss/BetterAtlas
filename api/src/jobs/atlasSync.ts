@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { env } from "../config/env.js";
 import { db, dbClient } from "../db/index.js";
 import {
@@ -64,6 +64,9 @@ const FOSE_BASE = "https://atlas.emory.edu/api/?page=fose";
 const FOSE_SEARCH_URL = `${FOSE_BASE}&route=search`;
 const FOSE_DETAILS_URL = `${FOSE_BASE}&route=details`;
 let hasSectionInstructorsTableCache: boolean | null = null;
+const instructorIdCacheByName = new Map<string, number>();
+const instructorIdCacheByEmail = new Map<string, number>();
+const instructorUpsertInFlight = new Map<string, Promise<number | null>>();
 
 async function hasSectionInstructorsTable() {
   if (hasSectionInstructorsTableCache !== null) return hasSectionInstructorsTableCache;
@@ -102,6 +105,152 @@ function decodeHtmlEntities(s: string): string {
 function stripHtml(s: string): string {
   const noTags = s.replace(/<[^>]*>/g, " ");
   return decodeHtmlEntities(noTags).replace(/\s+/g, " ").trim();
+}
+
+function normalizeInstructorName(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizeInstructorEmail(email: string | null | undefined): string | null {
+  const out = String(email ?? "").trim().toLowerCase();
+  return out.length > 0 ? out : null;
+}
+
+function normalizePersonNameToken(value: string): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .trim();
+}
+
+function tokenizeInstructorName(value: string): string[] {
+  return normalizeInstructorName(value)
+    .split(" ")
+    .map(normalizePersonNameToken)
+    .filter(Boolean);
+}
+
+function abbreviatedFirstInitialFromToken(value: string | null | undefined): string | null {
+  const token = String(value ?? "").trim();
+  if (!token) return null;
+
+  const letters = token.replace(/[^A-Za-z]/g, "");
+  if (!letters) return null;
+
+  if (/^[A-Za-z]\.?$/.test(token)) return letters[0]!.toLowerCase();
+  if (/^(?:[A-Za-z]\.){2,4}$/.test(token)) return letters[0]!.toLowerCase();
+  if (/^[A-Z]{2,4}$/.test(token)) return letters[0]!.toLowerCase();
+  return null;
+}
+
+function isLikelyAbbreviatedInstructorName(value: string): boolean {
+  const parts = String(value ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return false;
+  return abbreviatedFirstInitialFromToken(parts[0]) !== null;
+}
+
+function parseAbbreviatedInstructorName(value: string): {
+  firstInitial: string;
+  lastName: string;
+} | null {
+  const parts = String(value ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return null;
+
+  const firstInitial = abbreviatedFirstInitialFromToken(parts[0]);
+  if (!firstInitial) return null;
+
+  const tokens = tokenizeInstructorName(value);
+  if (tokens.length === 0) return null;
+  const last = tokens[tokens.length - 1] ?? "";
+  if (!last) return null;
+
+  return {
+    firstInitial,
+    lastName: last,
+  };
+}
+
+function resolveAbbreviatedInstructorCandidate(
+  targetName: string,
+  candidates: Array<{
+    id: number;
+    name: string;
+    departmentId: number | null;
+    hasCourseDepartmentMatch: boolean;
+  }>,
+  departmentId: number | null
+): number | null {
+  const target = parseAbbreviatedInstructorName(targetName);
+  if (!target) return null;
+
+  const narrowed = candidates.filter((candidate) => {
+    const tokens = tokenizeInstructorName(candidate.name);
+    if (tokens.length < 2) return false;
+
+    const first = tokens[0] ?? "";
+    const last = tokens[tokens.length - 1] ?? "";
+    return first[0] === target.firstInitial && last === target.lastName;
+  });
+  if (narrowed.length === 0) return null;
+
+  const byInferredDepartment =
+    typeof departmentId === "number"
+      ? narrowed.filter((candidate) => candidate.hasCourseDepartmentMatch)
+      : [];
+  const byAssignedDepartment =
+    typeof departmentId === "number"
+      ? narrowed.filter((candidate) => candidate.departmentId === departmentId)
+      : [];
+
+  const preferredPool =
+    byInferredDepartment.length > 0
+      ? byInferredDepartment
+      : byAssignedDepartment.length > 0
+        ? byAssignedDepartment
+        : narrowed;
+
+  // Prefer canonical rows over already-abbreviated rows (e.g. "A. Kays").
+  const canonical = preferredPool.filter(
+    (candidate) => !isLikelyAbbreviatedInstructorName(candidate.name)
+  );
+  const finalPool = canonical.length > 0 ? canonical : preferredPool;
+
+  if (finalPool.length === 1) return finalPool[0]!.id;
+  return null;
+}
+
+async function mapInstructorIdsToTaughtDepartmentIds(instructorIds: number[]) {
+  const out = new Map<number, Set<number>>();
+  const unique = Array.from(
+    new Set(
+      instructorIds.filter((id) => Number.isInteger(id) && id > 0)
+    )
+  );
+  if (unique.length === 0) return out;
+
+  const rows = await db
+    .select({
+      instructorId: sections.instructorId,
+      departmentId: courses.departmentId,
+    })
+    .from(sections)
+    .innerJoin(courses, eq(sections.courseId, courses.id))
+    .where(
+      and(
+        inArray(sections.instructorId, unique),
+        sql`${courses.departmentId} is not null`
+      )
+    )
+    .groupBy(sections.instructorId, courses.departmentId);
+
+  for (const row of rows) {
+    if (typeof row.instructorId !== "number" || typeof row.departmentId !== "number") continue;
+    const set = out.get(row.instructorId) ?? new Set<number>();
+    set.add(row.departmentId);
+    out.set(row.instructorId, set);
+  }
+
+  return out;
 }
 
 function stripAtlasDescriptionLabels(value: string): string {
@@ -276,6 +425,27 @@ function normalizeInstructorRole(value: string | null | undefined): string | nul
   const cleaned = stripHtml(value ?? "").replace(/\s+/g, " ").trim();
   if (!cleaned) return null;
   return cleaned;
+}
+
+function parseSearchInstructorName(value: string | null | undefined): string | null {
+  const raw = stripHtml(value ?? "").replace(/\s+/g, " ").trim();
+  if (!raw) return null;
+
+  // FOSE search sometimes returns multiple instructors in one string.
+  const first = raw.split(/\s*(?:;|\/|\|)\s*/)[0]?.trim() ?? "";
+  if (!first) return null;
+
+  const normalized = first.toLowerCase();
+  if (
+    normalized === "tba" ||
+    normalized === "staff" ||
+    normalized === "arranged" ||
+    normalized === "to be announced"
+  ) {
+    return null;
+  }
+
+  return first;
 }
 
 function parseInstructorDetails(html: string | null | undefined): ParsedInstructorDetail[] {
@@ -592,28 +762,131 @@ async function upsertInstructorByName(input: {
   name: string;
   email?: string | null;
   departmentId: number | null;
-}) {
-  const name = input.name.trim();
-  const [existing] = await db
-    .select({ id: instructors.id, email: instructors.email })
-    .from(instructors)
-    .where(eq(instructors.name, name))
-    .limit(1);
+}, options?: { allowInsert?: boolean; allowAbbreviatedInsert?: boolean }) {
+  const allowInsert = options?.allowInsert ?? true;
+  const allowAbbreviatedInsert = options?.allowAbbreviatedInsert ?? true;
+  const normalizedName = normalizeInstructorName(input.name);
+  const name = input.name.trim().replace(/\s+/g, " ");
+  const normalizedEmail = normalizeInstructorEmail(input.email);
 
-  if (existing) {
-    const nextEmail = (input.email ?? "").trim() || null;
-    if (nextEmail && !existing.email) {
-      await db.update(instructors).set({ email: nextEmail }).where(eq(instructors.id, existing.id));
-    }
-    return existing.id;
+  if (!name) {
+    throw new Error("Cannot upsert instructor with empty name");
   }
 
-  const [row] = await db
-    .insert(instructors)
-    .values({ name, email: (input.email ?? "").trim() || null, departmentId: input.departmentId })
-    .returning({ id: instructors.id });
+  if (normalizedEmail) {
+    const cachedByEmail = instructorIdCacheByEmail.get(normalizedEmail);
+    if (typeof cachedByEmail === "number") {
+      instructorIdCacheByName.set(normalizedName, cachedByEmail);
+      return cachedByEmail;
+    }
+  }
+  const cachedByName = instructorIdCacheByName.get(normalizedName);
+  if (typeof cachedByName === "number") {
+    if (normalizedEmail) instructorIdCacheByEmail.set(normalizedEmail, cachedByName);
+    return cachedByName;
+  }
 
-  return row.id;
+  const inflightKey = normalizedEmail
+    ? `${normalizedName}|${normalizedEmail}|${input.departmentId ?? "-"}|${allowInsert ? "1" : "0"}|${allowAbbreviatedInsert ? "1" : "0"}`
+    : `${normalizedName}|-|${input.departmentId ?? "-"}|${allowInsert ? "1" : "0"}|${allowAbbreviatedInsert ? "1" : "0"}`;
+  const inflight = instructorUpsertInFlight.get(inflightKey);
+  if (inflight) return inflight;
+
+  const promise = (async () => {
+    const nextEmail = normalizedEmail;
+    const abbreviatedTarget = parseAbbreviatedInstructorName(name);
+    const candidates = await db
+      .select({ id: instructors.id, email: instructors.email })
+      .from(instructors)
+      .where(
+        nextEmail
+          ? sql`lower(trim(${instructors.name})) = ${normalizedName}
+              or lower(trim(coalesce(${instructors.email}, ''))) = ${nextEmail}`
+          : sql`lower(trim(${instructors.name})) = ${normalizedName}`
+      )
+      .orderBy(asc(instructors.id));
+
+    if (candidates.length > 0) {
+      const sorted = candidates
+        .slice()
+        .sort((a, b) => {
+          const aEmail = normalizeInstructorEmail(a.email);
+          const bEmail = normalizeInstructorEmail(b.email);
+          const aMatch = nextEmail && aEmail === nextEmail ? 1 : 0;
+          const bMatch = nextEmail && bEmail === nextEmail ? 1 : 0;
+          if (aMatch !== bMatch) return bMatch - aMatch;
+          const aHasEmail = aEmail ? 1 : 0;
+          const bHasEmail = bEmail ? 1 : 0;
+          if (aHasEmail !== bHasEmail) return bHasEmail - aHasEmail;
+          return a.id - b.id;
+        });
+      const canonical = sorted[0]!;
+
+      if (nextEmail && !normalizeInstructorEmail(canonical.email)) {
+        await db
+          .update(instructors)
+          .set({ email: nextEmail })
+          .where(eq(instructors.id, canonical.id));
+      }
+
+      instructorIdCacheByName.set(normalizedName, canonical.id);
+      if (nextEmail) instructorIdCacheByEmail.set(nextEmail, canonical.id);
+      return canonical.id;
+    }
+
+    if (abbreviatedTarget) {
+      const abbreviationCandidates = await db
+        .select({
+          id: instructors.id,
+          name: instructors.name,
+          departmentId: instructors.departmentId,
+        })
+        .from(instructors)
+        .where(sql`lower(${instructors.name}) like ${`%${abbreviatedTarget.lastName}%`}`)
+        .orderBy(asc(instructors.id));
+
+      const taughtDepartmentIds = await mapInstructorIdsToTaughtDepartmentIds(
+        abbreviationCandidates.map((candidate) => candidate.id)
+      );
+      const enrichedCandidates = abbreviationCandidates.map((candidate) => ({
+        ...candidate,
+        hasCourseDepartmentMatch:
+          typeof input.departmentId === "number" &&
+          Boolean(taughtDepartmentIds.get(candidate.id)?.has(input.departmentId)),
+      }));
+
+      const abbreviatedId = resolveAbbreviatedInstructorCandidate(
+        name,
+        enrichedCandidates,
+        input.departmentId
+      );
+      if (abbreviatedId !== null) {
+        instructorIdCacheByName.set(normalizedName, abbreviatedId);
+        if (nextEmail) instructorIdCacheByEmail.set(nextEmail, abbreviatedId);
+        return abbreviatedId;
+      }
+    }
+
+    if (!allowInsert || (abbreviatedTarget && !allowAbbreviatedInsert)) {
+      return null;
+    }
+
+    const [row] = await db
+      .insert(instructors)
+      .values({ name, email: nextEmail, departmentId: input.departmentId })
+      .returning({ id: instructors.id });
+
+    instructorIdCacheByName.set(normalizedName, row.id);
+    if (nextEmail) instructorIdCacheByEmail.set(nextEmail, row.id);
+    return row.id;
+  })();
+
+  instructorUpsertInFlight.set(inflightKey, promise);
+  try {
+    return await promise;
+  } finally {
+    instructorUpsertInFlight.delete(inflightKey);
+  }
 }
 
 function instructorRolePriority(role: string | null | undefined): number {
@@ -650,6 +923,7 @@ async function upsertSectionInstructorRoster(input: {
       email: item.email,
       departmentId: null,
     });
+    if (instructorId === null) continue;
     mapped.push({
       instructorId,
       role: item.role,
@@ -917,8 +1191,23 @@ async function main() {
           const campusLabel = campusLabelFromCriteria(campus);
           const instructionMethod = parseInstructionMethodCode(r.instmode);
           const session = r.session ? String(r.session).trim() : null;
-          // Prefer instructor info from details (`instructordetail_html`) to avoid short-name duplicates.
-          const instructorId = null;
+          // Prefer details roster for better instructor identity, but keep a search-row
+          // fallback so historical terms still show a professor when details omit it.
+          const searchInstructorName = parseSearchInstructorName(r.instr);
+          let instructorId: number | null = null;
+          if (searchInstructorName) {
+            try {
+              instructorId = await upsertInstructorByName({
+                name: searchInstructorName,
+                departmentId: deptId,
+              }, { allowAbbreviatedInsert: false });
+            } catch (e) {
+              console.warn(
+                `[atlasSync] search instructor upsert failed term=${termCode} crn=${crn} name=${searchInstructorName}:`,
+                e
+              );
+            }
+          }
 
           // Load previous snapshot for "sampled details" change detection.
           const [existing] = await db

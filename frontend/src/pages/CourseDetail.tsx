@@ -75,6 +75,31 @@ function enrollmentTone(percent: number | null) {
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
+function gradeTone(points: number | null | undefined) {
+  if (typeof points !== "number" || !Number.isFinite(points)) {
+    return "border-gray-200 bg-gray-100 text-gray-700";
+  }
+  if (points >= 3.65) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (points >= 2.65) return "border-yellow-200 bg-yellow-50 text-yellow-700";
+  return "border-red-200 bg-red-50 text-red-700";
+}
+
+function gradeLabelFromPoints(points: number | null | undefined): string | null {
+  if (typeof points !== "number" || !Number.isFinite(points)) return null;
+  if (points >= 3.85) return "A";
+  if (points >= 3.65) return "A-";
+  if (points >= 3.35) return "B+";
+  if (points >= 2.85) return "B";
+  if (points >= 2.65) return "B-";
+  if (points >= 2.35) return "C+";
+  if (points >= 1.85) return "C";
+  if (points >= 1.65) return "C-";
+  if (points >= 1.35) return "D+";
+  if (points >= 0.85) return "D";
+  if (points >= 0.65) return "D-";
+  return "F";
+}
+
 function schedulesForSection(section: Section): Schedule[] {
   if (Array.isArray(section.schedules) && section.schedules.length > 0) {
     return section.schedules;
@@ -126,7 +151,7 @@ function SectionDetails({ section }: { section: Section }) {
         )}
       </div>
 
-      {roster.length > 0 && (
+      {roster.length > 0 ? (
         <div>
           <span className="font-medium text-gray-800">
             {roster.length > 1 ? "Instructors:" : "Instructor:"}
@@ -146,6 +171,11 @@ function SectionDetails({ section }: { section: Section }) {
               </div>
             ))}
           </div>
+        </div>
+      ) : (
+        <div>
+          <span className="font-medium text-gray-800">Instructor:</span>{" "}
+          <span className="text-gray-500">Not provided by Atlas for this section.</span>
         </div>
       )}
 
@@ -374,6 +404,10 @@ export default function CourseDetail() {
   const [sourceFilter, setSourceFilter] = useState<
     ReviewSourceFilter | undefined
   >(undefined);
+  const [reviewProfessorSearch, setReviewProfessorSearch] = useState("");
+  const [selectedReviewProfessorIds, setSelectedReviewProfessorIds] = useState<
+    Set<number>
+  >(new Set());
   const { data: reviews } = useReviews(courseId, sourceFilter);
   const createReview = useCreateReview(courseId);
   const updateReview = useUpdateReview(courseId);
@@ -465,6 +499,7 @@ export default function CourseDetail() {
         avgQuality: number | null;
         avgDifficulty: number | null;
         avgWorkload: number | null;
+        avgGradePoints: number | null;
         reviewCount: number;
       }
     >();
@@ -481,6 +516,7 @@ export default function CourseDetail() {
           avgQuality: null,
           avgDifficulty: null,
           avgWorkload: null,
+          avgGradePoints: null,
           reviewCount: 0,
         });
       }
@@ -521,6 +557,48 @@ export default function CourseDetail() {
   }, [visibleSections]);
 
   const { data: sectionReviews } = useSectionReviews(activeSection?.id ?? null);
+
+  const reviewProfessorOptions = useMemo(() => {
+    const byId = new Map<number, string>();
+    for (const review of reviews ?? []) {
+      if (typeof review.instructorId !== "number") continue;
+      const name = review.instructor?.name?.trim();
+      if (!name) continue;
+      byId.set(review.instructorId, name);
+    }
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [reviews]);
+
+  const filteredReviewProfessorOptions = useMemo(() => {
+    const q = reviewProfessorSearch.trim().toLowerCase();
+    if (!q) return reviewProfessorOptions;
+    return reviewProfessorOptions.filter((option) =>
+      option.name.toLowerCase().includes(q)
+    );
+  }, [reviewProfessorOptions, reviewProfessorSearch]);
+
+  useEffect(() => {
+    if (selectedReviewProfessorIds.size === 0) return;
+    const validIds = new Set(reviewProfessorOptions.map((option) => option.id));
+    const next = new Set(
+      Array.from(selectedReviewProfessorIds).filter((id) => validIds.has(id))
+    );
+    if (next.size !== selectedReviewProfessorIds.size) {
+      setSelectedReviewProfessorIds(next);
+    }
+  }, [reviewProfessorOptions, selectedReviewProfessorIds]);
+
+  const filteredReviews = useMemo(() => {
+    const all = reviews ?? [];
+    if (selectedReviewProfessorIds.size === 0) return all;
+    return all.filter(
+      (review) =>
+        typeof review.instructorId === "number" &&
+        selectedReviewProfessorIds.has(review.instructorId)
+    );
+  }, [reviews, selectedReviewProfessorIds]);
 
   const hasMultipleSectionTopics = useMemo(() => {
     const topics = new Set<string>();
@@ -854,9 +932,20 @@ export default function CourseDetail() {
                   <Link to={`/professors/${p.id}`} className="text-gray-900 font-medium hover:underline">
                     {p.name}
                   </Link>
+                  {typeof p.avgGradePoints === "number" && Number.isFinite(p.avgGradePoints) && (
+                    <span className="text-xs text-gray-500">
+                      Avg grade {gradeLabelFromPoints(p.avgGradePoints) ?? "—"} (
+                      {p.avgGradePoints.toFixed(2)})
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
+          </div>
+        )}
+        {professors.length === 0 && (
+          <div className="mt-3 text-sm text-gray-500">
+            Professor data is not available for the currently visible sections.
           </div>
         )}
 
@@ -881,6 +970,18 @@ export default function CourseDetail() {
               <span className="text-[10px]">{courseEnrollment.sectionCount} sections</span>
             </div>
           )}
+          {typeof course.avgGradePoints === "number" && Number.isFinite(course.avgGradePoints) && (
+            <div
+              className={`flex flex-col items-center rounded-lg border px-3 py-1.5 ${gradeTone(
+                course.avgGradePoints
+              )}`}
+            >
+              <span className="text-sm font-semibold">
+                Avg grade {gradeLabelFromPoints(course.avgGradePoints) ?? "—"}
+              </span>
+              <span className="text-[10px]">{course.avgGradePoints.toFixed(2)} / 4.00</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -888,12 +989,6 @@ export default function CourseDetail() {
       {course.sections.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Sections</h2>
-          {hasMultipleSectionTopics && (
-            <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-              This course has section-specific topics. Each section group below is treated like a
-              mini class.
-            </div>
-          )}
           {selectedSemester && visibleSections.length === 0 && (
             <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
               No sections found for <span className="font-medium text-gray-900">{selectedSemester}</span>.
@@ -968,11 +1063,15 @@ export default function CourseDetail() {
                                 </span>
                               )}
                             </div>
-                            {sectionInstructorNames(section).length > 0 && (
+                            {sectionInstructorNames(section).length > 0 ? (
                               <div className="mt-1.5">
                                 <div className="text-sm text-gray-700 truncate">
                                   {sectionInstructorNames(section).join(", ")}
                                 </div>
+                              </div>
+                            ) : (
+                              <div className="mt-1.5 text-sm text-gray-500">
+                                Instructor not listed by Atlas
                               </div>
                             )}
                             {section.registrationRestrictions && (
@@ -1186,8 +1285,65 @@ export default function CourseDetail() {
           ))}
         </div>
 
+        {reviewProfessorOptions.length > 0 && (
+          <div className="mb-3 rounded-xl border border-gray-200 bg-white p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={reviewProfessorSearch}
+                onChange={(e) => setReviewProfessorSearch(e.target.value)}
+                placeholder="Search professor in ratings"
+                className="min-w-[220px] flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+              />
+              {selectedReviewProfessorIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedReviewProfessorIds(new Set())}
+                  className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-200"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+              {filteredReviewProfessorOptions.map((option) => {
+                const checked = selectedReviewProfessorIds.has(option.id);
+                return (
+                  <label
+                    key={option.id}
+                    className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedReviewProfessorIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(option.id)) next.delete(option.id);
+                          else next.add(option.id);
+                          return next;
+                        });
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span>{option.name}</span>
+                  </label>
+                );
+              })}
+              {filteredReviewProfessorOptions.length === 0 && (
+                <p className="px-1 py-1 text-xs text-gray-500">No professors match that search.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-gray-500">
+          Showing {filteredReviews.length} of {reviews?.length ?? 0} reviews
+        </p>
+
         <div className="space-y-3 mt-4">
-          {reviews?.map((review) => (
+          {filteredReviews.map((review) => (
             <ReviewCard
               key={review.id}
               review={review}
@@ -1197,8 +1353,12 @@ export default function CourseDetail() {
               }
             />
           ))}
-          {reviews?.length === 0 && (
-            <p className="text-sm text-gray-500">No reviews yet. Be the first!</p>
+          {filteredReviews.length === 0 && (
+            <p className="text-sm text-gray-500">
+              {(reviews?.length ?? 0) === 0
+                ? "No reviews yet. Be the first!"
+                : "No reviews match the selected professor filter."}
+            </p>
           )}
         </div>
       </div>

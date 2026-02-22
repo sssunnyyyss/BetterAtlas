@@ -1,4 +1,4 @@
-import { formatRating, getRatingColor } from "../../lib/utils.js";
+import { formatRating, getDifficultyColor, getRatingColor } from "../../lib/utils.js";
 
 interface RatingBadgeProps {
   value: number | null;
@@ -7,7 +7,8 @@ interface RatingBadgeProps {
 }
 
 export default function RatingBadge({ value, label, size = "md" }: RatingBadgeProps) {
-  const color = getRatingColor(value);
+  const isDifficultyLabel = /^(d|diff|difficulty)$/i.test(label.trim());
+  const color = isDifficultyLabel ? getDifficultyColor(value) : getRatingColor(value);
   const valueClass =
     size === "sm"
       ? "text-base font-bold rounded-md px-1.5 py-0.5"

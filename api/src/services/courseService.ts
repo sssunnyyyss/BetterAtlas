@@ -10,6 +10,7 @@ import {
   courseInstructorRatings,
   sectionRatings,
   instructorRatings,
+  reviews,
 } from "../db/schema.js";
 import { eq, sql, and, asc, desc, ilike, inArray } from "drizzle-orm";
 import type { CourseQuery, SearchQuery, CourseWithRatings } from "@betteratlas/shared";
@@ -74,6 +75,12 @@ function toRoundedPercent(value: unknown): number | null {
   const n = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(n)) return null;
   return Math.round(n);
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
 function normalizeInstructionMethodFilter(value: string | undefined) {
@@ -828,7 +835,7 @@ export async function getCourseById(id: number) {
     .leftJoin(terms, eq(sections.termCode, terms.srcdb))
 	    .leftJoin(sectionRatings, eq(sections.id, sectionRatings.sectionId))
 	    .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
-	    .where(and(eq(sections.courseId, id), eq(sections.isActive, true)));
+	    .where(eq(sections.courseId, id));
 
   const sectionIds = (courseSections as Array<{ id: number }>).map((s) => s.id);
   const sectionInstructorsTableAvailable = await hasSectionInstructorsTable();
@@ -881,7 +888,66 @@ export async function getCourseById(id: number) {
     }
   }
 
-  const professorsQuery = sectionInstructorsTableAvailable
+  // Visual-only normalization:
+  // for the same instructor teaching multiple sections of this course in one term,
+  // show a shared difficulty value in section cards without mutating stored aggregates.
+  const visualSectionDifficultyById = new Map<number, number | null>();
+  {
+    type Group = { sectionIds: number[]; sum: number; count: number };
+    const groups = new Map<string, Group>();
+
+    for (const s of courseSections as any[]) {
+      if (typeof s.id !== "number") continue;
+      if (typeof s.instructorId !== "number") continue;
+      const termCode = String(s.termCode ?? "").trim();
+      if (!termCode) continue;
+
+      const key = `${s.instructorId}:${termCode}`;
+      const g = groups.get(key) ?? { sectionIds: [], sum: 0, count: 0 };
+      g.sectionIds.push(s.id);
+
+      const sectionDifficulty = toNullableNumber(s.avgDifficulty);
+      if (sectionDifficulty !== null) {
+        g.sum += sectionDifficulty;
+        g.count += 1;
+      }
+
+      groups.set(key, g);
+    }
+
+    for (const g of groups.values()) {
+      if (g.sectionIds.length <= 1 || g.count === 0) continue;
+      const avg = g.sum / g.count;
+      for (const sectionId of g.sectionIds) {
+        visualSectionDifficultyById.set(sectionId, avg);
+      }
+    }
+  }
+
+  const sectionProfessorsQuery = db
+    .selectDistinct({
+      id: instructors.id,
+      name: instructors.name,
+      email: instructors.email,
+      departmentId: instructors.departmentId,
+      avgQuality: courseInstructorRatings.avgQuality,
+      avgDifficulty: courseInstructorRatings.avgDifficulty,
+      avgWorkload: courseInstructorRatings.avgWorkload,
+      reviewCount: courseInstructorRatings.reviewCount,
+    })
+    .from(sections)
+    .innerJoin(instructors, eq(sections.instructorId, instructors.id))
+    .leftJoin(
+      courseInstructorRatings,
+      and(
+        eq(courseInstructorRatings.courseId, sections.courseId),
+        eq(courseInstructorRatings.instructorId, sections.instructorId)
+      )
+    )
+    .where(eq(sections.courseId, id))
+    .orderBy(asc(instructors.name));
+
+  const rosterProfessorsQuery = sectionInstructorsTableAvailable
     ? db
         .selectDistinct({
           id: instructors.id,
@@ -903,35 +969,76 @@ export async function getCourseById(id: number) {
             eq(courseInstructorRatings.instructorId, instructors.id)
           )
         )
-        .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
+        .where(eq(sections.courseId, id))
         .orderBy(asc(instructors.name))
-    : db
-        .selectDistinct({
-          id: instructors.id,
-          name: instructors.name,
-          email: instructors.email,
-          departmentId: instructors.departmentId,
-          avgQuality: courseInstructorRatings.avgQuality,
-          avgDifficulty: courseInstructorRatings.avgDifficulty,
-          avgWorkload: courseInstructorRatings.avgWorkload,
-          reviewCount: courseInstructorRatings.reviewCount,
-        })
-        .from(sections)
-        .innerJoin(instructors, eq(sections.instructorId, instructors.id))
-        .leftJoin(
-          courseInstructorRatings,
-          and(
-            eq(courseInstructorRatings.courseId, sections.courseId),
-            eq(courseInstructorRatings.instructorId, sections.instructorId)
-          )
-        )
-        .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
-        .orderBy(asc(instructors.name));
+    : Promise.resolve([] as any[]);
 
-  const [professors, crossListRows] = await Promise.all([
-    professorsQuery,
+  const courseGradeAggPromise = db
+    .select({
+      avgGradePoints: sql<string>`avg(${reviews.gradePoints})::numeric(3,2)`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.courseId, id),
+        sql`${reviews.gradePoints} is not null`
+      )
+    )
+    .limit(1);
+
+  const professorGradeAggPromise = db
+    .select({
+      instructorId: reviews.instructorId,
+      avgGradePoints: sql<string>`avg(${reviews.gradePoints})::numeric(3,2)`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.courseId, id),
+        sql`${reviews.instructorId} is not null`,
+        sql`${reviews.gradePoints} is not null`
+      )
+    )
+    .groupBy(reviews.instructorId);
+
+  const [sectionProfessors, rosterProfessors, crossListRows, courseGradeAggRows, professorGradeAggRows] = await Promise.all([
+    sectionProfessorsQuery,
+    rosterProfessorsQuery,
     crossListPromise,
+    courseGradeAggPromise,
+    professorGradeAggPromise,
   ]);
+
+  const professorById = new Map<number, any>();
+  for (const row of [...sectionProfessors, ...rosterProfessors] as any[]) {
+    if (typeof row.id !== "number") continue;
+    const existing = professorById.get(row.id);
+    if (!existing) {
+      professorById.set(row.id, row);
+      continue;
+    }
+    professorById.set(row.id, {
+      ...existing,
+      name: existing.name ?? row.name,
+      email: existing.email ?? row.email,
+      departmentId: existing.departmentId ?? row.departmentId,
+      avgQuality: existing.avgQuality ?? row.avgQuality,
+      avgDifficulty: existing.avgDifficulty ?? row.avgDifficulty,
+      avgWorkload: existing.avgWorkload ?? row.avgWorkload,
+      reviewCount: existing.reviewCount ?? row.reviewCount,
+    });
+  }
+  const professors = Array.from(professorById.values()).sort((a, b) =>
+    String(a.name ?? "").localeCompare(String(b.name ?? ""))
+  );
+  const courseAvgGradePoints = toNullableNumber(courseGradeAggRows[0]?.avgGradePoints);
+  const avgGradeByProfessorId = new Map<number, number>();
+  for (const row of professorGradeAggRows) {
+    if (typeof row.instructorId !== "number") continue;
+    const avg = toNullableNumber(row.avgGradePoints);
+    if (avg !== null) avgGradeByProfessorId.set(row.instructorId, avg);
+  }
+
   const candidateCourseIds = Array.from(
     new Set(
       (crossListRows as any[])
@@ -1005,6 +1112,7 @@ export async function getCourseById(id: number) {
   );
 
   const resolvedLongDescription = pickLongestByWordCount(descriptionCandidates);
+  const resolvedShortDescription = pickShortestByWordCount(descriptionCandidates);
 
   return {
     id: course.id,
@@ -1023,6 +1131,7 @@ export async function getCourseById(id: number) {
     avgQuality: course.avgQuality ? parseFloat(course.avgQuality) : null,
     avgDifficulty: course.avgDifficulty ? parseFloat(course.avgDifficulty) : null,
     avgWorkload: course.avgWorkload ? parseFloat(course.avgWorkload) : null,
+    avgGradePoints: courseAvgGradePoints,
     reviewCount: course.reviewCount ?? 0,
     classScore: (() => {
       const seen = new Map<number, number>();
@@ -1052,6 +1161,7 @@ export async function getCourseById(id: number) {
       avgQuality: p.avgQuality ? parseFloat(p.avgQuality) : null,
       avgDifficulty: p.avgDifficulty ? parseFloat(p.avgDifficulty) : null,
       avgWorkload: p.avgWorkload ? parseFloat(p.avgWorkload) : null,
+      avgGradePoints: avgGradeByProfessorId.get(p.id) ?? null,
       reviewCount: p.reviewCount ?? 0,
     })),
     crossListedWith: filteredCrossListRows.map((r) => ({
@@ -1075,8 +1185,10 @@ export async function getCourseById(id: number) {
           )
         )
       );
-      const sectionShortDescription = pickShortestByWordCount(perSectionCandidates);
-      const sectionLongDescription = pickLongestByWordCount(perSectionCandidates);
+      const sectionShortDescription =
+        pickShortestByWordCount(perSectionCandidates) ?? resolvedShortDescription;
+      const sectionLongDescription =
+        pickLongestByWordCount(perSectionCandidates) ?? resolvedLongDescription;
       const fallbackPrimaryInstructor =
         s.instructorName && typeof s.instructorId === "number"
           ? {
@@ -1150,8 +1262,10 @@ export async function getCourseById(id: number) {
           .map((x) => x.trim())
           .filter((x) => x && x !== "");
       })(),
-      avgQuality: s.avgQuality ? parseFloat(s.avgQuality) : null,
-      avgDifficulty: s.avgDifficulty ? parseFloat(s.avgDifficulty) : null,
+        avgQuality: s.avgQuality ? parseFloat(s.avgQuality) : null,
+      avgDifficulty:
+        visualSectionDifficultyById.get(s.id) ??
+        (s.avgDifficulty ? parseFloat(s.avgDifficulty) : null),
       avgWorkload: s.avgWorkload ? parseFloat(s.avgWorkload) : null,
       reviewCount: s.sectionReviewCount ?? 0,
       instructorAvgQuality: s.instructorAvgQuality ? parseFloat(s.instructorAvgQuality) : null,

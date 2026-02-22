@@ -88,12 +88,20 @@ export const programCoursesQuerySchema = courseQuerySchema
   });
 
 // Reviews
+const halfStepRatingSchema = z
+  .number()
+  .min(1)
+  .max(5)
+  .refine((value) => Number.isInteger(value * 2), {
+    message: "Rating must use 0.5 increments",
+  });
+
 export const createReviewSchema = z.object({
   semester: z.string().min(1),
   sectionId: z.number().int().positive(),
-  ratingQuality: z.number().int().min(1).max(5),
-  ratingDifficulty: z.number().int().min(1).max(5),
-  ratingWorkload: z.number().int().min(1).max(5).nullable().default(null),
+  ratingQuality: halfStepRatingSchema,
+  ratingDifficulty: halfStepRatingSchema,
+  ratingWorkload: halfStepRatingSchema.nullable().default(null),
   comment: z.string().max(5000).optional(),
   isAnonymous: z.boolean().default(true),
 });

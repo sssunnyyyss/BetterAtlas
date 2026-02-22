@@ -80,6 +80,11 @@ export default function ProfessorDetail() {
                   Rating: <strong>{data.rmp.avgRating.toFixed(1)}/5</strong>
                 </span>
               )}
+              {data.rmp.avgDifficulty != null && (
+                <span>
+                  Difficulty: <strong>{data.rmp.avgDifficulty.toFixed(1)}/5</strong>
+                </span>
+              )}
               {data.rmp.wouldTakeAgain != null && (
                 <span>
                   Would take again: <strong>{data.rmp.wouldTakeAgain.toFixed(0)}%</strong>

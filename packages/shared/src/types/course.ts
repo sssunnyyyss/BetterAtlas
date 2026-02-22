@@ -29,6 +29,7 @@ export interface CourseWithRatings extends Course {
   avgQuality: number | null;
   avgDifficulty: number | null;
   avgWorkload: number | null;
+  avgGradePoints?: number | null;
   reviewCount: number;
   // "Class" score: aggregate of professor scores for instructors teaching this course.
   classScore?: number | null;
@@ -102,6 +103,7 @@ export interface CourseDetail extends CourseWithRatings {
     avgQuality: number | null;
     avgDifficulty: number | null;
     avgWorkload: number | null;
+    avgGradePoints?: number | null;
     reviewCount: number;
   }>;
   /** Other course codes that represent the same class (cross-listed). */
