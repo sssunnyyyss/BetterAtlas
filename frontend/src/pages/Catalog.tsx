@@ -1055,20 +1055,11 @@ export default function Catalog() {
               <div
                 className="ml-auto ba-segmented"
                 style={{
-                  ["--ba-segment-index" as any]: catalogView === "list" ? 1 : 0,
+                  ["--ba-segment-index" as any]: catalogView === "list" ? 0 : 1,
                   ["--ba-segments" as any]: 2,
                 }}
               >
                 <span className="ba-segmented-glider" aria-hidden="true" />
-                <button
-                  type="button"
-                  onClick={() => setCatalogView("grid")}
-                  className={`ba-segmented-btn ba-segmented-btn-compact ${
-                    catalogView === "grid" ? "ba-segmented-btn-active" : ""
-                  }`}
-                >
-                  Cards
-                </button>
                 <button
                   type="button"
                   onClick={() => setCatalogView("list")}
@@ -1077,6 +1068,15 @@ export default function Catalog() {
                   }`}
                 >
                   List
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCatalogView("grid")}
+                  className={`ba-segmented-btn ba-segmented-btn-compact ${
+                    catalogView === "grid" ? "ba-segmented-btn-active" : ""
+                  }`}
+                >
+                  Cards
                 </button>
               </div>
             </div>
