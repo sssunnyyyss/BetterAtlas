@@ -83,6 +83,33 @@ function toNullableNumber(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+async function avgGradePointsByCourseIds(courseIds: number[]): Promise<Map<number, number>> {
+  const map = new Map<number, number>();
+  if (courseIds.length === 0) return map;
+
+  const rows = await db
+    .select({
+      courseId: reviews.courseId,
+      avgGradePoints: sql<string>`avg(${reviews.gradePoints})::numeric(3,2)`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        inArray(reviews.courseId, courseIds),
+        sql`${reviews.gradePoints} is not null`
+      )
+    )
+    .groupBy(reviews.courseId);
+
+  for (const row of rows) {
+    const avg = toNullableNumber(row.avgGradePoints);
+    if (avg !== null) {
+      map.set(row.courseId, avg);
+    }
+  }
+  return map;
+}
+
 function normalizeInstructionMethodFilter(value: string | undefined) {
   if (!value) return value;
   if (value === "O") return "DL";
@@ -372,6 +399,9 @@ export async function listCourses(query: CourseQuery) {
     .then((r) => r[0]?.count ?? 0);
 
   const [data, countResult] = await Promise.all([dataQuery, countQuery]);
+  const avgGradeByCourse = await avgGradePointsByCourseIds(
+    data.map((row: any) => row.id as number)
+  );
 
   return {
     data: data.map((row: any) => ({
@@ -441,6 +471,7 @@ export async function listCourses(query: CourseQuery) {
       avgQuality: row.avgQuality ? parseFloat(row.avgQuality) : null,
       avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
       avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
+      avgGradePoints: avgGradeByCourse.get(row.id) ?? null,
       reviewCount: row.reviewCount ?? 0,
       classScore: row.classScore ? parseFloat(row.classScore) : null,
       avgEnrollmentPercent: toRoundedPercent((row as any).avgEnrollmentPercent),
@@ -601,6 +632,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     .then((r) => r[0]?.count ?? 0);
 
   const courseIds = data.map((r) => r.id);
+  const avgGradeByCoursePromise = avgGradePointsByCourseIds(courseIds);
   const instructorsByCourse = new Map<number, string[]>();
   const classScoreByCourse = new Map<number, number | null>();
   const avgEnrollmentByCourse = new Map<number, number | null>();
@@ -699,6 +731,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       avgEnrollmentByCourse.set(r.courseId, toRoundedPercent(r.avgEnrollmentPercent));
     }
   }
+  const avgGradeByCourse = await avgGradeByCoursePromise;
 
   return {
     data: data.map((row) => ({
@@ -720,6 +753,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       avgQuality: row.avgQuality ? parseFloat(row.avgQuality) : null,
       avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
       avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
+      avgGradePoints: avgGradeByCourse.get(row.id) ?? null,
       reviewCount: row.reviewCount ?? 0,
       classScore: classScoreByCourse.get(row.id) ?? null,
       avgEnrollmentPercent: avgEnrollmentByCourse.get(row.id) ?? null,

@@ -17,6 +17,14 @@ import { asc, and, desc, eq, ilike, sql } from "drizzle-orm";
 
 const router = Router();
 
+function normalizeInstructorQueryLoose(value: string): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // GET /api/instructors?q=...&limit=...
 router.get("/", validate(instructorQuerySchema, "query"), async (req, res) => {
   const { q, limit } = (req as any).validatedQuery as {
@@ -33,8 +41,13 @@ router.get("/", validate(instructorQuerySchema, "query"), async (req, res) => {
     })
     .from(instructors);
 
-  const filtered = q
-    ? base.where(ilike(instructors.name, `%${q}%`))
+  const rawQuery = String(q ?? "").trim();
+  const looseQuery = normalizeInstructorQueryLoose(rawQuery);
+  const filtered = rawQuery
+    ? base.where(
+        sql`lower(${instructors.name}) like lower(${`%${rawQuery}%`})
+            or regexp_replace(lower(${instructors.name}), '[^a-z0-9 ]', ' ', 'g') like ${`%${looseQuery}%`}`
+      )
     : base;
 
   const rows = await filtered.orderBy(asc(instructors.name)).limit(limit);

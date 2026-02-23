@@ -1,8 +1,9 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import CourseCard from "./CourseCard.js";
 import { formatRating, getDifficultyColor, getRatingColor } from "../../lib/utils.js";
 import type { CatalogCourseEntry } from "../../lib/courseTopics.js";
 import { buildCourseDetailSearch } from "../../lib/courseTopics.js";
+import { gradeColor, gradeLabelFromPoints } from "../../lib/grade.js";
 
 interface CourseGridProps {
   courses: CatalogCourseEntry[];
@@ -12,12 +13,10 @@ interface CourseGridProps {
 
 export default function CourseGrid({ courses, isLoading, view = "grid" }: CourseGridProps) {
   const isList = view === "list";
-  const location = useLocation();
-  const semester = new URLSearchParams(location.search).get("semester");
+  const listGridCols = "grid-cols-[120px_1.6fr_76px_96px_1.4fr_70px_70px_70px]";
 
   function detailPathForCourse(course: CatalogCourseEntry) {
     const detailSearch = buildCourseDetailSearch({
-      semester,
       topic: course.topic ?? null,
       sectionId: course.sectionId ?? null,
     });
@@ -28,18 +27,39 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
     return course.title;
   }
 
-  function ratingBlock(
+  function ratingCell(
     value: number | null | undefined,
     mode: "default" | "difficulty" = "default"
   ) {
     const normalized = typeof value === "number" && Number.isFinite(value) ? value : null;
     const color = mode === "difficulty" ? getDifficultyColor(normalized) : getRatingColor(normalized);
+    const hasRating = normalized !== null;
     return (
       <span
-        className="inline-flex min-w-11 items-center justify-center rounded-md px-2 py-0.5 text-xs font-semibold tabular-nums"
-        style={{ color, backgroundColor: `${color}1A`, border: `1px solid ${color}55` }}
+        className="flex h-full min-h-9 items-center justify-center px-1.5 py-1 text-xs font-semibold tabular-nums"
+        style={{
+          color: hasRating ? "#111827" : "#4b5563",
+          backgroundColor: hasRating ? `${color}4D` : "#f3f4f6",
+        }}
       >
         {formatRating(normalized)}
+      </span>
+    );
+  }
+
+  function gradeCell(points: number | null | undefined) {
+    const normalized = typeof points === "number" && Number.isFinite(points) ? points : null;
+    const label = gradeLabelFromPoints(normalized);
+    const color = gradeColor(normalized);
+    return (
+      <span
+        className="flex h-full min-h-9 items-center justify-center px-1.5 py-1 text-xs font-semibold tabular-nums"
+        style={{
+          color: normalized === null ? "#4b5563" : "#111827",
+          backgroundColor: normalized === null ? "#f3f4f6" : `${color}4D`,
+        }}
+      >
+        {label ?? "N/A"}
       </span>
     );
   }
@@ -96,33 +116,39 @@ export default function CourseGrid({ courses, isLoading, view = "grid" }: Course
     return (
       <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white">
         <div className="min-w-[980px]">
-          <div className="grid grid-cols-[120px_1.6fr_80px_100px_1.4fr_80px_80px_80px] items-center gap-3 border-b border-gray-200 bg-gray-50 px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-600">
-            <span>Code</span>
-            <span>Title</span>
-            <span>Credits</span>
-            <span>Enrolled</span>
-            <span>Instructor</span>
-            <span>Class</span>
-            <span>Diff</span>
-            <span>Reviews</span>
+          <div
+            className={`grid ${listGridCols} border-b border-gray-200 bg-gray-50 text-[11px] font-semibold uppercase tracking-wide text-gray-600`}
+          >
+            <span className="px-3 py-2">Code</span>
+            <span className="px-3 py-2">Title</span>
+            <span className="px-3 py-2">Credits</span>
+            <span className="px-3 py-2">Enrolled</span>
+            <span className="px-3 py-2">Instructor</span>
+            <span className="px-3 py-2 text-center">Class</span>
+            <span className="px-3 py-2 text-center">Diff</span>
+            <span className="px-3 py-2 text-center">Grade</span>
           </div>
 
           {courses.map((course) => (
             <Link
               key={course.virtualKey ?? String(course.id)}
               to={detailPathForCourse(course)}
-              className="grid grid-cols-[120px_1.6fr_80px_100px_1.4fr_80px_80px_80px] items-center gap-3 border-b border-gray-100 px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-primary-50/50 last:border-b-0"
+              className={`group grid ${listGridCols} border-b border-gray-100 text-sm text-gray-700 transition-colors hover:bg-primary-50/50 last:border-b-0`}
             >
-              <span className="font-semibold text-primary-700 truncate">{course.code}</span>
-              <span className="truncate font-medium text-gray-900">{displayTitle(course)}</span>
-              <span className="text-gray-600">{course.credits ?? "—"}</span>
-              <span className={`tabular-nums font-medium ${enrollmentTone(course.avgEnrollmentPercent)}`}>
+              <span className="truncate px-3 py-2 font-semibold text-primary-700">{course.code}</span>
+              <span className="truncate px-3 py-2 font-medium text-gray-900">{displayTitle(course)}</span>
+              <span className="px-3 py-2 text-gray-600">{course.credits ?? "—"}</span>
+              <span
+                className={`px-3 py-2 tabular-nums font-medium ${enrollmentTone(course.avgEnrollmentPercent)}`}
+              >
                 {formatEnrollment(course.avgEnrollmentPercent)}
               </span>
-              <span className="truncate text-gray-600">{formatInstructors(course.instructors)}</span>
-              <span>{ratingBlock(course.classScore ?? null)}</span>
-              <span>{ratingBlock(course.avgDifficulty, "difficulty")}</span>
-              <span className="tabular-nums text-gray-600">{course.reviewCount}</span>
+              <span className="truncate px-3 py-2 text-gray-600">
+                {formatInstructors(course.instructors)}
+              </span>
+              {ratingCell(course.classScore ?? null)}
+              {ratingCell(course.avgDifficulty, "difficulty")}
+              {gradeCell(course.avgGradePoints ?? null)}
             </Link>
           ))}
         </div>

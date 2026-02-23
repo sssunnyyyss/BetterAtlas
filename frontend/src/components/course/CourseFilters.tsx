@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useProgram, usePrograms } from "../../hooks/usePrograms.js";
 import { useInstructors } from "../../hooks/useInstructors.js";
 import {
@@ -27,11 +27,19 @@ export default function CourseFilters({
 }: CourseFiltersProps) {
   const programId = filters.programId ? parseInt(filters.programId, 10) : 0;
   const { data: program } = useProgram(programId);
+  const programBoxRef = useRef<HTMLDivElement | null>(null);
+  const instructorBoxRef = useRef<HTMLDivElement | null>(null);
 
   const [programInput, setProgramInput] = useState("");
   const [programOpen, setProgramOpen] = useState(false);
-  const { data: programResults, isLoading: programsLoading } = usePrograms(programInput);
-  const { data: instructors } = useInstructors();
+  const programQuery = programInput.trim();
+  const { data: programResults, isLoading: programsLoading } = usePrograms(programQuery);
+  const [instructorInput, setInstructorInput] = useState(filters.instructor || "");
+  const [instructorOpen, setInstructorOpen] = useState(false);
+  const instructorQuery = instructorInput.trim();
+  const { data: instructors, isLoading: instructorsLoading } = useInstructors(
+    instructorQuery ? { q: instructorQuery, limit: 12 } : { limit: 12 }
+  );
   const [showAdvanced, setShowAdvanced] = useState(
     () =>
       !!(
@@ -57,7 +65,13 @@ export default function CourseFilters({
     if (program) setProgramInput(programLabel(program));
   }, [program?.id]);
 
+  useEffect(() => {
+    setInstructorInput(filters.instructor || "");
+  }, [filters.instructor]);
+
   const programOptions = useMemo(() => {
+    if (!programQuery) return [];
+
     const majorsOnly = (programResults ?? []).filter(
       (p) => p.kind === "major" && (p.degree || "").toUpperCase() === "BA"
     );
@@ -70,14 +84,45 @@ export default function CourseFilters({
     }
 
     return [...byName.values()];
-  }, [programResults]);
+  }, [programResults, programQuery]);
+
+  const instructorOptions = useMemo(() => {
+    if (!instructorQuery) return [];
+
+    const seen = new Set<string>();
+    const out: Array<{ id: number; name: string }> = [];
+    for (const i of instructors ?? []) {
+      const name = String(i.name ?? "").trim();
+      if (!name) continue;
+      const key = name.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ id: i.id, name });
+    }
+    return out.slice(0, 10);
+  }, [instructors, instructorQuery]);
+
+  useEffect(() => {
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target as Node | null;
+      if (target && programBoxRef.current && !programBoxRef.current.contains(target)) {
+        setProgramOpen(false);
+      }
+      if (target && instructorBoxRef.current && !instructorBoxRef.current.contains(target)) {
+        setInstructorOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, []);
 
   return (
     <div className="space-y-4">
       <h3 className="font-semibold text-gray-900">Filters</h3>
 
       {/* Basic Filters */}
-      <div className="relative">
+      <div className="relative" ref={programBoxRef}>
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Program
         </label>
@@ -85,11 +130,23 @@ export default function CourseFilters({
           <input
             value={programInput}
             onChange={(e) => {
-              setProgramInput(e.target.value);
-              setProgramOpen(true);
+              const next = e.target.value;
+              setProgramInput(next);
+              if (programId > 0) {
+                onChange("programId", "");
+                onChange("programTab", "");
+              }
+              setProgramOpen(Boolean(next.trim()));
             }}
-            onFocus={() => setProgramOpen(true)}
-            placeholder="Search programs..."
+            onFocus={() => setProgramOpen(Boolean(programInput.trim()))}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                setProgramOpen(false);
+                (e.currentTarget as HTMLInputElement).blur();
+              }
+            }}
+            placeholder="Type to search programs..."
+            autoComplete="off"
             className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
           />
           {programId > 0 && (
@@ -110,7 +167,7 @@ export default function CourseFilters({
           )}
         </div>
 
-        {programOpen && (
+        {programOpen && programQuery && (
           <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-lg max-h-64 overflow-auto ba-dropdown-pop">
             {programsLoading && (
               <div className="px-3 py-2 text-sm text-gray-500">Loading...</div>
@@ -261,23 +318,55 @@ export default function CourseFilters({
       {showAdvanced && (
         <div className="space-y-4 pl-2 border-l-2 border-gray-100">
           {/* Instructor */}
-          <div>
+          <div className="relative" ref={instructorBoxRef}>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Instructor
             </label>
             <input
               type="text"
-              value={filters.instructor || ""}
-              onChange={(e) => onChange("instructor", e.target.value)}
-              placeholder="Search by name..."
-              list="betteratlas-instructor-list"
+              value={instructorInput}
+              onChange={(e) => {
+                const next = e.target.value;
+                setInstructorInput(next);
+                onChange("instructor", next);
+                setInstructorOpen(Boolean(next.trim()));
+              }}
+              onFocus={() => setInstructorOpen(Boolean(instructorInput.trim()))}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setInstructorOpen(false);
+                  (e.currentTarget as HTMLInputElement).blur();
+                }
+              }}
+              placeholder="Type to search instructors..."
+              autoComplete="off"
               className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
             />
-            <datalist id="betteratlas-instructor-list">
-              {(instructors ?? []).map((i) => (
-                <option key={i.id} value={i.name} />
-              ))}
-            </datalist>
+            {instructorOpen && instructorQuery && (
+              <div className="absolute z-20 mt-1 w-full rounded-xl border border-gray-200 bg-white shadow-lg max-h-64 overflow-auto ba-dropdown-pop">
+                {instructorsLoading && (
+                  <div className="px-3 py-2 text-sm text-gray-500">Loading...</div>
+                )}
+                {!instructorsLoading && instructorOptions.length === 0 && (
+                  <div className="px-3 py-2 text-sm text-gray-500">No instructors found</div>
+                )}
+                {!instructorsLoading &&
+                  instructorOptions.map((i) => (
+                    <button
+                      key={i.id}
+                      type="button"
+                      onClick={() => {
+                        setInstructorInput(i.name);
+                        onChange("instructor", i.name);
+                        setInstructorOpen(false);
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 first:rounded-t-xl last:rounded-b-xl"
+                    >
+                      {i.name}
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
 
           {/* Campus */}
@@ -341,6 +430,10 @@ export default function CourseFilters({
 
       <button
         onClick={() => {
+          setProgramInput("");
+          setProgramOpen(false);
+          setInstructorInput("");
+          setInstructorOpen(false);
           onChange("programId", "");
           onChange("programTab", "");
           onChange("semester", "");

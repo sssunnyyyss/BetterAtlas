@@ -22,6 +22,8 @@ import { useAddToSchedule } from "../hooks/useSchedule.js";
 import { layoutOverlaps } from "../lib/calendarLayout.js";
 import { useSubmitFeedback } from "../hooks/useFeedback.js";
 import { normalizeTopic } from "../lib/courseTopics.js";
+import { gradeColor, gradeLabelFromPoints } from "../lib/grade.js";
+import { formatRating, getDifficultyColor, getRatingColor } from "../lib/utils.js";
 
 const ENROLLMENT_STATUS_LABELS: Record<string, string> = {
   O: "Open",
@@ -75,29 +77,38 @@ function enrollmentTone(percent: number | null) {
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
-function gradeTone(points: number | null | undefined) {
-  if (typeof points !== "number" || !Number.isFinite(points)) {
-    return "border-gray-200 bg-gray-100 text-gray-700";
-  }
-  if (points >= 3.65) return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (points >= 2.65) return "border-yellow-200 bg-yellow-50 text-yellow-700";
-  return "border-red-200 bg-red-50 text-red-700";
-}
-
-function gradeLabelFromPoints(points: number | null | undefined): string | null {
-  if (typeof points !== "number" || !Number.isFinite(points)) return null;
-  if (points >= 3.85) return "A";
-  if (points >= 3.65) return "A-";
-  if (points >= 3.35) return "B+";
-  if (points >= 2.85) return "B";
-  if (points >= 2.65) return "B-";
-  if (points >= 2.35) return "C+";
-  if (points >= 1.85) return "C";
-  if (points >= 1.65) return "C-";
-  if (points >= 1.35) return "D+";
-  if (points >= 0.85) return "D";
-  if (points >= 0.65) return "D-";
-  return "F";
+function SchemeRatingBadge({
+  value,
+  label,
+  mode,
+  size = "md",
+}: {
+  value: number | null | undefined;
+  label: string;
+  mode: "class" | "difficulty";
+  size?: "sm" | "md";
+}) {
+  const normalized = typeof value === "number" && Number.isFinite(value) ? value : null;
+  const color = mode === "difficulty" ? getDifficultyColor(normalized) : getRatingColor(normalized);
+  const valueClass =
+    size === "sm"
+      ? "text-base font-bold rounded-md px-1.5 py-0.5"
+      : "text-lg font-bold rounded-md px-2 py-0.5";
+  const labelClass = size === "sm" ? "text-[11px] text-gray-500 mt-0.5" : "text-xs text-gray-500 mt-0.5";
+  return (
+    <div className="flex flex-col items-center">
+      <span
+        className={valueClass}
+        style={{
+          color: normalized === null ? "#4b5563" : color,
+          backgroundColor: normalized === null ? "#f3f4f6" : `${color}18`,
+        }}
+      >
+        {formatRating(normalized)}
+      </span>
+      <span className={labelClass}>{label}</span>
+    </div>
+  );
 }
 
 function schedulesForSection(section: Section): Schedule[] {
@@ -836,7 +847,7 @@ export default function CourseDetail() {
     <div className="max-w-4xl mx-auto p-6">
       {/* Breadcrumb */}
       <Link
-        to={selectedSemester ? `/catalog?semester=${encodeURIComponent(selectedSemester)}` : "/catalog"}
+        to="/catalog"
         className="text-sm text-primary-600 hover:text-primary-800"
       >
         &larr; Back to catalog
@@ -933,7 +944,10 @@ export default function CourseDetail() {
                     {p.name}
                   </Link>
                   {typeof p.avgGradePoints === "number" && Number.isFinite(p.avgGradePoints) && (
-                    <span className="text-xs text-gray-500">
+                    <span
+                      className="text-xs font-medium"
+                      style={{ color: gradeColor(p.avgGradePoints) }}
+                    >
                       Avg grade {gradeLabelFromPoints(p.avgGradePoints) ?? "—"} (
                       {p.avgGradePoints.toFixed(2)})
                     </span>
@@ -951,8 +965,8 @@ export default function CourseDetail() {
 
         {/* Ratings */}
         <div className="flex gap-6 mt-4">
-          <RatingBadge value={course.classScore ?? null} label="Class" />
-          <RatingBadge value={course.avgDifficulty} label="Difficulty" />
+          <SchemeRatingBadge value={course.classScore ?? null} label="Class" mode="class" />
+          <SchemeRatingBadge value={course.avgDifficulty} label="Difficulty" mode="difficulty" />
           <RatingBadge value={course.avgWorkload} label="Workload" />
           <div className="flex flex-col items-center">
             <span className="text-lg font-bold text-gray-700">{course.reviewCount}</span>
@@ -972,9 +986,12 @@ export default function CourseDetail() {
           )}
           {typeof course.avgGradePoints === "number" && Number.isFinite(course.avgGradePoints) && (
             <div
-              className={`flex flex-col items-center rounded-lg border px-3 py-1.5 ${gradeTone(
-                course.avgGradePoints
-              )}`}
+              className="flex flex-col items-center rounded-lg border px-3 py-1.5"
+              style={{
+                backgroundColor: `${gradeColor(course.avgGradePoints)}4D`,
+                borderColor: `${gradeColor(course.avgGradePoints)}80`,
+                color: "#111827",
+              }}
             >
               <span className="text-sm font-semibold">
                 Avg grade {gradeLabelFromPoints(course.avgGradePoints) ?? "—"}
@@ -1109,7 +1126,12 @@ export default function CourseDetail() {
                             )}
                             <div className="flex justify-end gap-3 mt-2">
                               <RatingBadge value={section.instructorAvgQuality ?? null} label="Prof" size="sm" />
-                              <RatingBadge value={section.avgDifficulty ?? null} label="D" size="sm" />
+                              <SchemeRatingBadge
+                                value={section.avgDifficulty ?? null}
+                                label="D"
+                                mode="difficulty"
+                                size="sm"
+                              />
                               <RatingBadge value={section.avgWorkload ?? null} label="W" size="sm" />
                             </div>
                             <div className="text-xs text-gray-500 mt-1">Click for details</div>
@@ -1161,7 +1183,11 @@ export default function CourseDetail() {
                 })()}
                 <div className="flex gap-4">
                   <RatingBadge value={activeSection.instructorAvgQuality ?? null} label="Prof" />
-                  <RatingBadge value={activeSection.avgDifficulty ?? null} label="Difficulty" />
+                  <SchemeRatingBadge
+                    value={activeSection.avgDifficulty ?? null}
+                    label="Difficulty"
+                    mode="difficulty"
+                  />
                   <RatingBadge value={activeSection.avgWorkload ?? null} label="Workload" />
                   <div className="flex flex-col items-center">
                     <span className="text-lg font-bold text-gray-700">{activeSection.reviewCount ?? 0}</span>
