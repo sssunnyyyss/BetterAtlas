@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { normalizeName, matchProfessor, matchCourse } from "./rmpMatching.js";
+import {
+  normalizeName,
+  matchProfessor,
+  matchCourse,
+  listProfessorDisambiguationCandidates,
+} from "./rmpMatching.js";
 
 describe("normalizeName", () => {
   it("lowercases and trims", () => {
@@ -152,5 +157,24 @@ describe("matchCourse", () => {
   it("returns null when no match", () => {
     const result = matchCourse("Organic Chemistry", 30, courses, deptCodeMap);
     expect(result).toBeNull();
+  });
+});
+
+describe("listProfessorDisambiguationCandidates", () => {
+  it("returns last-name compatible candidates ordered by dept and first-name confidence", () => {
+    const candidates = listProfessorDisambiguationCandidates(
+      "B.",
+      "Lee",
+      "Finance",
+      [
+        { id: 10, name: "Brian Lee", departmentId: 1 },
+        { id: 11, name: "Beatrice Lee", departmentId: 1 },
+        { id: 12, name: "Brandon Li", departmentId: 1 },
+      ],
+      new Map([[1, "FIN"]])
+    );
+
+    expect(candidates.map((c) => c.instructorId)).toEqual([10, 11]);
+    expect(candidates[0]?.firstScore).toBeGreaterThanOrEqual(candidates[1]?.firstScore ?? 0);
   });
 });

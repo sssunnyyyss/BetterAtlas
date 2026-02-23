@@ -39,7 +39,12 @@ import {
   rmpProfessors,
   rmpProfessorTags,
 } from "../db/schema.js";
-import { matchProfessor, matchCourse } from "../lib/rmpMatching.js";
+import {
+  matchProfessor,
+  matchCourse,
+  listProfessorDisambiguationCandidates,
+  type ProfessorDisambiguationCandidate,
+} from "../lib/rmpMatching.js";
 import {
   API_LINK,
   HEADERS,
@@ -510,6 +515,124 @@ function resolveCourseIdWithSectionContext(
   return bestCourseId;
 }
 
+type InstructorReviewEvidence = {
+  instructorId: number;
+  deptMatch: boolean;
+  score: number;
+  matchedReviews: number;
+  courseSignals: number;
+  totalReviews: number;
+};
+
+function pickInstructorFromReviewEvidence(input: {
+  candidates: ProfessorDisambiguationCandidate[];
+  ratings: RmpRatingNode[];
+  allCourses: Array<{ id: number; code: string; title: string; departmentId: number | null }>;
+  deptCodeMap: Map<number, string>;
+  instructorDeptMap: Map<number, number | null>;
+  sectionsByCourseId: Map<number, SectionCandidate[]>;
+  coursesByInstructorId: Map<number, Set<number>>;
+}): InstructorReviewEvidence | null {
+  if (input.candidates.length < 2 || input.ratings.length === 0) return null;
+
+  const coursesById = new Map(input.allCourses.map((course) => [course.id, course] as const));
+
+  const evidenceRows: InstructorReviewEvidence[] = input.candidates.map((candidate) => {
+    let score = candidate.deptMatch ? 1 : 0;
+    let matchedReviews = 0;
+    let courseSignals = 0;
+
+    const taughtCourses = input.coursesByInstructorId.get(candidate.instructorId) ?? new Set<number>();
+
+    for (const rating of input.ratings) {
+      const rmpClass = String(rating.class ?? "").trim();
+      const reviewDate = parseRmpDate(rating.date);
+      const matchedCourseId = matchCourse(
+        rmpClass,
+        input.instructorDeptMap.get(candidate.instructorId) ?? null,
+        input.allCourses,
+        input.deptCodeMap,
+        rating.comment
+      );
+      if (!matchedCourseId) continue;
+      courseSignals++;
+
+      const resolvedCourseId = resolveCourseIdWithSectionContext(
+        rmpClass,
+        matchedCourseId,
+        candidate.instructorId,
+        reviewDate,
+        input.allCourses,
+        input.sectionsByCourseId
+      );
+
+      if (taughtCourses.has(resolvedCourseId)) {
+        score += 4;
+        matchedReviews++;
+        continue;
+      }
+      if (taughtCourses.has(matchedCourseId)) {
+        score += 3;
+        matchedReviews++;
+        continue;
+      }
+
+      const codeSignal = parseCourseCodeToken(`${rmpClass} ${String(rating.comment ?? "")}`);
+      if (!codeSignal) continue;
+
+      for (const courseId of taughtCourses) {
+        const course = coursesById.get(courseId);
+        if (!course) continue;
+        const parsedCourse = parseCourseCodeToken(course.code);
+        if (!parsedCourse) continue;
+        if (
+          parsedCourse.deptCode === codeSignal.deptCode &&
+          parsedCourse.courseNumber === codeSignal.courseNumber
+        ) {
+          score += 1;
+          matchedReviews++;
+          break;
+        }
+      }
+    }
+
+    return {
+      instructorId: candidate.instructorId,
+      deptMatch: candidate.deptMatch,
+      score,
+      matchedReviews,
+      courseSignals,
+      totalReviews: input.ratings.length,
+    };
+  });
+
+  evidenceRows.sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    if (a.matchedReviews !== b.matchedReviews) return b.matchedReviews - a.matchedReviews;
+    if (a.courseSignals !== b.courseSignals) return b.courseSignals - a.courseSignals;
+    if (a.deptMatch !== b.deptMatch) return a.deptMatch ? -1 : 1;
+    return a.instructorId - b.instructorId;
+  });
+
+  const best = evidenceRows[0];
+  if (!best) return null;
+
+  const second = evidenceRows[1] ?? null;
+  const bestCoverage =
+    best.courseSignals > 0 ? best.matchedReviews / best.courseSignals : 0;
+
+  const clearWin =
+    best.score >= 6 &&
+    best.matchedReviews >= 2 &&
+    bestCoverage >= 0.4 &&
+    (!second ||
+      (best.score - second.score >= 2 &&
+        best.matchedReviews - second.matchedReviews >= 1));
+
+  if (!clearWin) return null;
+  return best;
+}
+
 // ---------------------------------------------------------------------------
 // Checkpoint persistence
 // ---------------------------------------------------------------------------
@@ -969,6 +1092,15 @@ async function main() {
     section.instructorIds.add(roster.instructorId);
   }
 
+  const coursesByInstructorId = new Map<number, Set<number>>();
+  for (const section of sectionsById.values()) {
+    for (const instructorId of section.instructorIds) {
+      const taught = coursesByInstructorId.get(instructorId) ?? new Set<number>();
+      taught.add(section.courseId);
+      coursesByInstructorId.set(instructorId, taught);
+    }
+  }
+
   console.log(
     `[rmpSeed] local data: ${allInstructors.length} instructors, ${allDepartments.length} departments, ${allCourses.length} courses, ${allSections.length} sections, ${allTerms.length} terms`
   );
@@ -995,51 +1127,100 @@ async function main() {
     confidence: "exact" | "fuzzy";
   }
   const matched: MatchedProfessor[] = [];
+  const prefetchedRatingsByTeacherId = new Map<string, RmpRatingNode[]>();
 
-  for (const rmpProf of rmpProfessorsList) {
-    const match = matchProfessor(
-      String(rmpProf.firstName),
-      String(rmpProf.lastName),
-      String(rmpProf.department),
-      allInstructors,
-      deptCodeMap
-    );
-
-    if (match) {
-      stats.matched++;
-      if (match.confidence === "exact") stats.matchedExact++;
-      else stats.matchedFuzzy++;
-
-      matched.push({
-        rmpTeacher: rmpProf,
-        instructorId: match.instructorId,
-        confidence: match.confidence,
-      });
-
-      // Store linkage in rmpProfessors
-      await db
-        .insert(rmpProfessors)
-        .values({
-          instructorId: match.instructorId,
+  async function upsertRmpProfessorLink(rmpProf: RmpTeacherNode, instructorId: number) {
+    await db
+      .insert(rmpProfessors)
+      .values({
+        instructorId,
+        rmpTeacherId: String(rmpProf.id),
+        rmpAvgRating: String(rmpProf.avgRating),
+        rmpAvgDifficulty: String(rmpProf.avgDifficulty),
+        rmpNumRatings: rmpProf.numRatings,
+        rmpWouldTakeAgain: String(rmpProf.wouldTakeAgainPercent),
+        rmpDepartment: String(rmpProf.department),
+      })
+      .onConflictDoUpdate({
+        target: rmpProfessors.instructorId,
+        set: {
           rmpTeacherId: String(rmpProf.id),
           rmpAvgRating: String(rmpProf.avgRating),
           rmpAvgDifficulty: String(rmpProf.avgDifficulty),
           rmpNumRatings: rmpProf.numRatings,
           rmpWouldTakeAgain: String(rmpProf.wouldTakeAgainPercent),
           rmpDepartment: String(rmpProf.department),
-        })
-        .onConflictDoUpdate({
-          target: rmpProfessors.instructorId,
-          set: {
-            rmpTeacherId: String(rmpProf.id),
-            rmpAvgRating: String(rmpProf.avgRating),
-            rmpAvgDifficulty: String(rmpProf.avgDifficulty),
-            rmpNumRatings: rmpProf.numRatings,
-            rmpWouldTakeAgain: String(rmpProf.wouldTakeAgainPercent),
-            rmpDepartment: String(rmpProf.department),
-            importedAt: new Date(),
-          },
-        });
+          importedAt: new Date(),
+        },
+      });
+  }
+
+  for (const rmpProf of rmpProfessorsList) {
+    const directMatch = matchProfessor(
+      String(rmpProf.firstName),
+      String(rmpProf.lastName),
+      String(rmpProf.department),
+      allInstructors,
+      deptCodeMap
+    );
+    let resolvedMatch: { instructorId: number; confidence: "exact" | "fuzzy" } | null =
+      directMatch;
+
+    if (!resolvedMatch) {
+      const candidates = listProfessorDisambiguationCandidates(
+        String(rmpProf.firstName),
+        String(rmpProf.lastName),
+        String(rmpProf.department),
+        allInstructors,
+        deptCodeMap
+      );
+
+      if (candidates.length >= 2) {
+        try {
+          const ratings = await fetchProfessorRatings(String(rmpProf.id));
+          prefetchedRatingsByTeacherId.set(String(rmpProf.id), ratings);
+
+          const bestEvidence = pickInstructorFromReviewEvidence({
+            candidates,
+            ratings,
+            allCourses,
+            deptCodeMap,
+            instructorDeptMap,
+            sectionsByCourseId,
+            coursesByInstructorId,
+          });
+
+          if (bestEvidence) {
+            resolvedMatch = {
+              instructorId: bestEvidence.instructorId,
+              confidence: "fuzzy",
+            };
+            console.log(
+              `[rmpSeed] disambiguated ${rmpProf.firstName} ${rmpProf.lastName} -> instructor=${bestEvidence.instructorId} score=${bestEvidence.score} matchedReviews=${bestEvidence.matchedReviews}/${bestEvidence.courseSignals}`
+            );
+          }
+        } catch (err) {
+          console.warn(
+            `[rmpSeed] review-based disambiguation failed for ${rmpProf.firstName} ${rmpProf.lastName}: ${String(
+              err
+            )}`
+          );
+        }
+      }
+    }
+
+    if (resolvedMatch) {
+      stats.matched++;
+      if (resolvedMatch.confidence === "exact") stats.matchedExact++;
+      else stats.matchedFuzzy++;
+
+      matched.push({
+        rmpTeacher: rmpProf,
+        instructorId: resolvedMatch.instructorId,
+        confidence: resolvedMatch.confidence,
+      });
+
+      await upsertRmpProfessorLink(rmpProf, resolvedMatch.instructorId);
     } else {
       stats.unmatched++;
     }
@@ -1084,15 +1265,20 @@ async function main() {
       `[rmpSeed] [${i + 1}/${matchedToProcess.length}] fetching reviews for ${profLabel} (instructorId=${instructorId})...`
     );
 
+    const prefetched = prefetchedRatingsByTeacherId.get(String(rmpTeacher.id));
     let rmpRatings: RmpRatingNode[];
-    try {
-      rmpRatings = await fetchProfessorRatings(String(rmpTeacher.id));
-    } catch (err) {
-      console.error(
-        `[rmpSeed] failed to fetch reviews for ${profLabel}:`,
-        err
-      );
-      continue;
+    if (prefetched) {
+      rmpRatings = prefetched;
+    } else {
+      try {
+        rmpRatings = await fetchProfessorRatings(String(rmpTeacher.id));
+      } catch (err) {
+        console.error(
+          `[rmpSeed] failed to fetch reviews for ${profLabel}:`,
+          err
+        );
+        continue;
+      }
     }
 
     console.log(

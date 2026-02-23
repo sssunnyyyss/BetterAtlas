@@ -127,6 +127,64 @@ interface MatchResult {
   confidence: "exact" | "fuzzy";
 }
 
+export interface ProfessorDisambiguationCandidate {
+  instructorId: number;
+  deptMatch: boolean;
+  firstScore: number;
+  similarity: number;
+}
+
+export function listProfessorDisambiguationCandidates(
+  firstName: string,
+  lastName: string,
+  rmpDepartment: string,
+  instructors: InstructorRow[],
+  deptCodeMap: Map<number, string>
+): ProfessorDisambiguationCandidate[] {
+  const rmpTokens = tokenizePersonName(`${firstName} ${lastName}`);
+  const rmpFirstTokens = tokenizePersonName(firstName);
+  const rmpLastTokens = tokenizePersonName(lastName);
+  const rmpFirst = rmpFirstTokens[0] ?? rmpTokens[0] ?? "";
+  const rmpLast = rmpLastTokens[rmpLastTokens.length - 1] ?? rmpTokens[rmpTokens.length - 1] ?? "";
+  if (!rmpLast) return [];
+
+  const out: ProfessorDisambiguationCandidate[] = [];
+  for (const inst of instructors) {
+    const tokens = tokenizePersonName(inst.name);
+    if (tokens.length === 0) continue;
+
+    const instFirst = tokens[0]!;
+    const instLast = tokens[tokens.length - 1]!;
+    if (instLast !== rmpLast) continue;
+
+    const firstExact = Boolean(rmpFirst) && instFirst === rmpFirst;
+    const firstNickname = Boolean(rmpFirst) && areLikelySameFirstName(instFirst, rmpFirst);
+    const sameInitial =
+      Boolean(rmpFirst) &&
+      instFirst.length > 0 &&
+      rmpFirst.length > 0 &&
+      instFirst[0] === rmpFirst[0];
+    const firstScore = firstExact ? 3 : firstNickname ? 2 : sameInitial ? 1 : 0;
+    if (firstScore === 0) continue;
+
+    out.push({
+      instructorId: inst.id,
+      deptMatch: hasDepartmentSignal(rmpDepartment, inst.departmentId, deptCodeMap),
+      firstScore,
+      similarity: firstNameSimilarity(instFirst, rmpFirst),
+    });
+  }
+
+  out.sort((a, b) => {
+    if (a.deptMatch !== b.deptMatch) return a.deptMatch ? -1 : 1;
+    if (a.firstScore !== b.firstScore) return b.firstScore - a.firstScore;
+    if (a.similarity !== b.similarity) return b.similarity - a.similarity;
+    return a.instructorId - b.instructorId;
+  });
+
+  return out;
+}
+
 export function matchProfessor(
   firstName: string,
   lastName: string,
