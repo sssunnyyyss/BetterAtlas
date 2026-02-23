@@ -59,7 +59,7 @@ function ThumbDownIcon({ className = "h-4 w-4" }: { className?: string }) {
 }
 
 const AI_PREFS_STORAGE_KEY = "betteratlas.ai.preferences.v1";
-const CATALOG_VIEW_STORAGE_KEY = "betteratlas.catalog.view.v1";
+const CATALOG_VIEW_STORAGE_KEY = "betteratlas.catalog.view.v2";
 const FILTER_LABELS: Partial<Record<keyof AiRecommendationFilters, string>> = {
   semester: "Semester",
   department: "Department",
