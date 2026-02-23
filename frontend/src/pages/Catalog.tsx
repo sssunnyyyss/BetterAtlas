@@ -137,9 +137,9 @@ export default function Catalog() {
   const [catalogView, setCatalogView] = useState<"grid" | "list">(() => {
     try {
       const saved = localStorage.getItem(CATALOG_VIEW_STORAGE_KEY);
-      return saved === "list" ? "list" : "grid";
+      return saved === "grid" ? "grid" : "list";
     } catch {
-      return "grid";
+      return "list";
     }
   });
 
