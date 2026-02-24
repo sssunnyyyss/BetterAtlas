@@ -257,6 +257,13 @@ export default function AiChat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Auto-focus textarea on desktop (avoid mobile keyboard popup)
+  useEffect(() => {
+    if (window.innerWidth >= 640) {
+      textareaRef.current?.focus();
+    }
+  }, []);
+
   // -----------------------------------------------------------------------
   // resetChat
   // -----------------------------------------------------------------------
@@ -340,14 +347,14 @@ export default function AiChat() {
                 />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold text-gray-900 mb-2">
+            <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-2">
               Atlas AI
             </h2>
             <p className="text-gray-500 text-sm max-w-sm mb-8">
               I can help you find the perfect classes. Tell me what you're
               looking for, or try one of the suggestions below.
             </p>
-            <div className="grid grid-cols-2 gap-2 max-w-sm w-full">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-sm w-full">
               {SUGGESTION_CHIPS.map((chip) => (
                 <button
                   key={chip}
@@ -365,17 +372,17 @@ export default function AiChat() {
             {messages.map((msg, idx) =>
               msg.role === "user" ? (
                 /* User message */
-                <div key={idx} className="flex justify-end">
-                  <div className="bg-primary-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[80%]">
+                <div key={idx} className="flex justify-end animate-[ba-fade-in-up_0.2s_ease-out]">
+                  <div className="bg-primary-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[90%] sm:max-w-[80%]">
                     <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
                   </div>
                 </div>
               ) : (
                 /* Assistant message */
-                <div key={idx} className="space-y-2">
+                <div key={idx} className="space-y-2 animate-[ba-fade-in-up_0.2s_ease-out]">
                   {/* Main text */}
                   <div className="flex items-start gap-2">
-                    <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[80%]">
+                    <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[95%] sm:max-w-[85%]">
                       <p className="text-sm text-gray-800 whitespace-pre-wrap">
                         {msg.content}
                       </p>
@@ -384,7 +391,7 @@ export default function AiChat() {
 
                   {/* Course cards */}
                   {msg.recommendations.length > 0 && (
-                    <div className="pl-0 grid gap-2 sm:grid-cols-2 max-w-[80%]">
+                    <div className="pl-0 grid gap-2 sm:grid-cols-2 max-w-[95%] sm:max-w-[85%]">
                       {msg.recommendations.map((rec) => (
                         <CourseCard key={rec.course.id} rec={rec} />
                       ))}
@@ -394,7 +401,7 @@ export default function AiChat() {
                   {/* Follow-up question */}
                   {msg.followUp && (
                     <div className="flex items-start gap-2">
-                      <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[80%]">
+                      <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[95%] sm:max-w-[85%]">
                         <p className="text-sm text-gray-600 italic">
                           {msg.followUp}
                         </p>
