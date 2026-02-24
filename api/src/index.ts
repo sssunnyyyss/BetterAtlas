@@ -19,6 +19,7 @@ import inviteCodeRoutes from "./routes/inviteCodes.js";
 import oauthRoutes from "./routes/oauth.js";
 import adminOAuthRoutes from "./routes/adminOAuth.js";
 import cannySsoRoutes from "./routes/cannySso.js";
+import wishlistRoutes from "./routes/wishlist.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 import { ensureJohnDoe } from "./bootstrap.js";
 
@@ -74,6 +75,7 @@ app.use("/api", feedbackRoutes);
 app.use("/api/feedback-hub", feedbackHubRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api", aiRoutes);
+app.use("/api", wishlistRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {

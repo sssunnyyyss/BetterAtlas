@@ -231,6 +231,10 @@ export const addListItemSchema = z.object({
     .optional(),
 });
 
+export const swapSectionSchema = z.object({
+  newSectionId: z.number().int().positive(),
+});
+
 // Pagination response
 export const paginationMeta = z.object({
   page: z.number(),
@@ -265,3 +269,4 @@ export type FeedbackHubCreateChangelogInput = z.infer<typeof feedbackHubCreateCh
 export type FriendRequestInput = z.infer<typeof friendRequestSchema>;
 export type CreateListInput = z.infer<typeof createListSchema>;
 export type AddListItemInput = z.infer<typeof addListItemSchema>;
+export type SwapSectionInput = z.infer<typeof swapSectionSchema>;

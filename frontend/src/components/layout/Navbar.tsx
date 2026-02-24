@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { label: "Home", path: "/" },
   { label: "Catalog", path: "/catalog" },
   { label: "My Schedule", path: "/schedule" },
+  { label: "Wishlist", path: "/wishlist" },
   { label: "Friends", path: "/friends" },
 ];
 
@@ -37,11 +38,10 @@ export default function Navbar() {
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                      isActive
+                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${isActive
                         ? "bg-gray-100 text-gray-900"
                         : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
+                      }`}
                   >
                     {item.label}
                   </Link>
@@ -54,9 +54,8 @@ export default function Navbar() {
               <>
                 <Link
                   to="/profile"
-                  className={`inline-flex h-9 w-9 overflow-hidden items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-sm font-semibold text-primary-700 transition-colors ${
-                    isProfileActive ? "ring-2 ring-primary-500/40 border-primary-300" : "hover:border-gray-300"
-                  }`}
+                  className={`inline-flex h-9 w-9 overflow-hidden items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-sm font-semibold text-primary-700 transition-colors ${isProfileActive ? "ring-2 ring-primary-500/40 border-primary-300" : "hover:border-gray-300"
+                    }`}
                   title="Profile"
                   aria-label="Open profile"
                 >
@@ -121,11 +120,10 @@ export default function Navbar() {
                   key={item.path}
                   to={item.path}
                   onClick={() => setMobileOpen(false)}
-                  className={`block px-3 py-2.5 rounded-md text-base font-medium transition-colors min-h-[44px] flex items-center ${
-                    isActive
+                  className={`block px-3 py-2.5 rounded-md text-base font-medium transition-colors min-h-[44px] flex items-center ${isActive
                       ? "bg-gray-100 text-gray-900"
                       : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                  }`}
+                    }`}
                 >
                   {item.label}
                 </Link>

@@ -19,6 +19,7 @@ import { formatTimeRange12h } from "../lib/time.js";
 import type { Schedule, Section, ReviewWithAuthor } from "@betteratlas/shared";
 import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
 import { useAddToSchedule } from "../hooks/useSchedule.js";
+import { useAddToWishlist } from "../hooks/useWishlist.js";
 import { layoutOverlaps } from "../lib/calendarLayout.js";
 import { useSubmitFeedback } from "../hooks/useFeedback.js";
 import { normalizeTopic } from "../lib/courseTopics.js";
@@ -361,31 +362,31 @@ function MiniWeeklyCalendar({
             ))}
 
             {layoutOverlaps(blocks.filter((b) => b.day === d.key)).map((b) => {
-                const top = (b.startMin - minMinute) * pxPerMin;
-                const blockHeight = Math.max(18, (b.endMin - b.startMin) * pxPerMin);
-                return (
-                  <button
-                    key={b.id}
-                    type="button"
-                    onClick={() => onSelectSection(b.sectionId)}
-                    className="absolute rounded-md border px-1.5 py-1 text-[11px] shadow-sm text-left hover:opacity-90"
-                    style={{
-                      top,
-                      height: blockHeight,
-                      left: `calc(100% * ${b.col} / ${b.colCount})`,
-                      right: `calc(100% * ${b.colCount - b.col - 1} / ${b.colCount})`,
-                      marginLeft: 4,
-                      marginRight: 4,
-                      backgroundColor: `${b.color}22`,
-                      borderLeft: `3px solid ${b.color}`,
-                      borderColor: "#e5e7eb",
-                    }}
-                    title={b.title}
-                  >
-                    <div className="font-semibold text-gray-900 truncate">{b.label}</div>
-                  </button>
-                );
-              })}
+              const top = (b.startMin - minMinute) * pxPerMin;
+              const blockHeight = Math.max(18, (b.endMin - b.startMin) * pxPerMin);
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => onSelectSection(b.sectionId)}
+                  className="absolute rounded-md border px-1.5 py-1 text-[11px] shadow-sm text-left hover:opacity-90"
+                  style={{
+                    top,
+                    height: blockHeight,
+                    left: `calc(100% * ${b.col} / ${b.colCount})`,
+                    right: `calc(100% * ${b.colCount - b.col - 1} / ${b.colCount})`,
+                    marginLeft: 4,
+                    marginRight: 4,
+                    backgroundColor: `${b.color}22`,
+                    borderLeft: `3px solid ${b.color}`,
+                    borderColor: "#e5e7eb",
+                  }}
+                  title={b.title}
+                >
+                  <div className="font-semibold text-gray-900 truncate">{b.label}</div>
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -424,6 +425,7 @@ export default function CourseDetail() {
   const updateReview = useUpdateReview(courseId);
   const deleteReview = useDeleteReview();
   const addToSchedule = useAddToSchedule();
+  const addToWishlist = useAddToWishlist();
   const submitFeedback = useSubmitFeedback();
   const [editingReview, setEditingReview] = useState<ReviewWithAuthor | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<number | null>(null);
@@ -436,6 +438,7 @@ export default function CourseDetail() {
   const closeSectionModal = useCallback(() => setActiveSectionId(null), []);
   const closeEditModal = useCallback(() => setEditingReview(null), []);
   const [scheduleMessage, setScheduleMessage] = useState<string>("");
+  const [wishlistMessage, setWishlistMessage] = useState<string>("");
 
   const closeReportModal = useCallback(() => {
     setIsReportModalOpen(false);
@@ -1012,138 +1015,138 @@ export default function CourseDetail() {
             </div>
           )}
           {visibleSections.length > 0 && (
-          <div className="space-y-3">
-            {groupedSections.map((group) => (
-              <details
-                key={group.key}
-                className="bg-white rounded-lg border border-gray-200 p-3"
-                open={visibleSections.length <= 8}
-              >
-                <summary className="cursor-pointer select-none list-none flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-gray-900 truncate">
-                      {groupedBySemester
-                        ? group.semester ?? "Semester TBD"
-                        : hasMultipleSectionTopics
-                          ? (group.topic ?? "Topic TBD")
-                          : group.instructorName}
-                      <span className="text-xs font-normal text-gray-500 ml-2">
-                        {group.sections.length} section{group.sections.length !== 1 ? "s" : ""}
-                      </span>
+            <div className="space-y-3">
+              {groupedSections.map((group) => (
+                <details
+                  key={group.key}
+                  className="bg-white rounded-lg border border-gray-200 p-3"
+                  open={visibleSections.length <= 8}
+                >
+                  <summary className="cursor-pointer select-none list-none flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-gray-900 truncate">
+                        {groupedBySemester
+                          ? group.semester ?? "Semester TBD"
+                          : hasMultipleSectionTopics
+                            ? (group.topic ?? "Topic TBD")
+                            : group.instructorName}
+                        <span className="text-xs font-normal text-gray-500 ml-2">
+                          {group.sections.length} section{group.sections.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      {hasMultipleSectionTopics && !groupedBySemester && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Professor: {group.instructorName}
+                        </div>
+                      )}
+                      {!groupedBySemester && group.instructorId !== null && (
+                        <div className="text-xs text-gray-500">
+                          <Link
+                            to={`/professors/${group.instructorId}`}
+                            className="text-primary-600 hover:text-primary-800"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            View professor
+                          </Link>
+                        </div>
+                      )}
                     </div>
-                    {hasMultipleSectionTopics && !groupedBySemester && (
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        Professor: {group.instructorName}
-                      </div>
-                    )}
-                    {!groupedBySemester && group.instructorId !== null && (
-                      <div className="text-xs text-gray-500">
-                        <Link
-                          to={`/professors/${group.instructorId}`}
-                          className="text-primary-600 hover:text-primary-800"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          View professor
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-xs text-gray-500">Toggle</span>
-                </summary>
+                    <span className="text-xs text-gray-500">Toggle</span>
+                  </summary>
 
-                <div className="mt-3 space-y-2">
-                  {group.sections.map((section) => {
-                    const scheds = schedulesForSection(section);
-                    const sectionEnrollment = enrollmentPercent(
-                      section.enrollmentCur ?? 0,
-                      section.enrollmentCap
-                    );
-                    return (
-                      <button
-                        key={section.id}
-                        type="button"
-                        onClick={() => setActiveSectionId(section.id)}
-                        className="w-full text-left bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:border-primary-300 transition-all"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-semibold text-gray-900">
-                                Section {section.sectionNumber ?? "—"}
-                              </span>
-                              <span className="text-sm text-gray-500">
-                                {section.semester}
-                              </span>
-                              {section.campus && (
-                                <span className="text-xs text-gray-400">
-                                  {section.campus}
+                  <div className="mt-3 space-y-2">
+                    {group.sections.map((section) => {
+                      const scheds = schedulesForSection(section);
+                      const sectionEnrollment = enrollmentPercent(
+                        section.enrollmentCur ?? 0,
+                        section.enrollmentCap
+                      );
+                      return (
+                        <button
+                          key={section.id}
+                          type="button"
+                          onClick={() => setActiveSectionId(section.id)}
+                          className="w-full text-left bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:border-primary-300 transition-all"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-semibold text-gray-900">
+                                  Section {section.sectionNumber ?? "—"}
                                 </span>
+                                <span className="text-sm text-gray-500">
+                                  {section.semester}
+                                </span>
+                                {section.campus && (
+                                  <span className="text-xs text-gray-400">
+                                    {section.campus}
+                                  </span>
+                                )}
+                              </div>
+                              {sectionInstructorNames(section).length > 0 ? (
+                                <div className="mt-1.5">
+                                  <div className="text-sm text-gray-700 truncate">
+                                    {sectionInstructorNames(section).join(", ")}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="mt-1.5 text-sm text-gray-500">
+                                  Instructor not listed by Atlas
+                                </div>
+                              )}
+                              {section.registrationRestrictions && (
+                                <div className="mt-1 text-xs text-gray-500 line-clamp-2">
+                                  <span className="font-medium text-gray-600">Requirements:</span>{" "}
+                                  {section.registrationRestrictions}
+                                </div>
+                              )}
+                              {sectionTopic(section) && (
+                                <div className="mt-1 text-xs text-gray-600 line-clamp-2">
+                                  <span className="font-medium text-gray-700">Description:</span>{" "}
+                                  {sectionTopic(section)}
+                                </div>
                               )}
                             </div>
-                            {sectionInstructorNames(section).length > 0 ? (
-                              <div className="mt-1.5">
-                                <div className="text-sm text-gray-700 truncate">
-                                  {sectionInstructorNames(section).join(", ")}
+                            <div className="text-right text-sm shrink-0">
+                              {scheds.length > 0 && (
+                                <div className="font-medium text-gray-700 space-y-0.5">
+                                  {scheds.map((sched, idx) => (
+                                    <div key={`${section.id}:${sched.days.join("/")}:${sched.start}:${idx}`}>
+                                      {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
+                                      {sched.location ? ` • ${sched.location}` : ""}
+                                    </div>
+                                  ))}
                                 </div>
+                              )}
+                              {sectionEnrollment !== null && (
+                                <div
+                                  className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${enrollmentTone(
+                                    sectionEnrollment
+                                  )}`}
+                                >
+                                  {sectionEnrollment}% enrolled
+                                </div>
+                              )}
+                              <div className="flex justify-end gap-3 mt-2">
+                                <RatingBadge value={section.instructorAvgQuality ?? null} label="Prof" size="sm" />
+                                <SchemeRatingBadge
+                                  value={section.avgDifficulty ?? null}
+                                  label="D"
+                                  mode="difficulty"
+                                  size="sm"
+                                />
+                                <RatingBadge value={section.avgWorkload ?? null} label="W" size="sm" />
                               </div>
-                            ) : (
-                              <div className="mt-1.5 text-sm text-gray-500">
-                                Instructor not listed by Atlas
-                              </div>
-                            )}
-                            {section.registrationRestrictions && (
-                              <div className="mt-1 text-xs text-gray-500 line-clamp-2">
-                                <span className="font-medium text-gray-600">Requirements:</span>{" "}
-                                {section.registrationRestrictions}
-                              </div>
-                            )}
-                            {sectionTopic(section) && (
-                              <div className="mt-1 text-xs text-gray-600 line-clamp-2">
-                                <span className="font-medium text-gray-700">Description:</span>{" "}
-                                {sectionTopic(section)}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-right text-sm shrink-0">
-                            {scheds.length > 0 && (
-                              <div className="font-medium text-gray-700 space-y-0.5">
-                                {scheds.map((sched, idx) => (
-                                  <div key={`${section.id}:${sched.days.join("/")}:${sched.start}:${idx}`}>
-                                    {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
-                                    {sched.location ? ` • ${sched.location}` : ""}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {sectionEnrollment !== null && (
-                              <div
-                                className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${enrollmentTone(
-                                  sectionEnrollment
-                                )}`}
-                              >
-                                {sectionEnrollment}% enrolled
-                              </div>
-                            )}
-                            <div className="flex justify-end gap-3 mt-2">
-                              <RatingBadge value={section.instructorAvgQuality ?? null} label="Prof" size="sm" />
-                              <SchemeRatingBadge
-                                value={section.avgDifficulty ?? null}
-                                label="D"
-                                mode="difficulty"
-                                size="sm"
-                              />
-                              <RatingBadge value={section.avgWorkload ?? null} label="W" size="sm" />
+                              <div className="text-xs text-gray-500 mt-1">Click for details</div>
                             </div>
-                            <div className="text-xs text-gray-500 mt-1">Click for details</div>
                           </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </details>
-            ))}
-          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </details>
+              ))}
+            </div>
           )}
 
           {miniCalendarBlocks.length > 0 && (
@@ -1219,53 +1222,82 @@ export default function CourseDetail() {
                 <SectionDetails section={activeSection} />
 
                 <div className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setScheduleMessage("");
-                      try {
-                        await addToSchedule.mutateAsync({ sectionId: activeSection.id });
-                        setScheduleMessage("Added to My Schedule");
-                      } catch (e: any) {
-                        setScheduleMessage(e?.message || "Failed to add to schedule");
-                      }
-                    }}
-                    disabled={addToSchedule.isPending}
-                    className="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
-                  >
-                    {addToSchedule.isPending ? "Adding..." : "Add to My Schedule"}
-                  </button>
-                  {scheduleMessage && (
-                    <div
-                      className={`text-sm ${
-                        scheduleMessage.toLowerCase().includes("fail")
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setScheduleMessage("");
+                        try {
+                          await addToSchedule.mutateAsync({ sectionId: activeSection.id });
+                          setScheduleMessage("Added to My Schedule");
+                        } catch (e: any) {
+                          setScheduleMessage(e?.message || "Failed to add to schedule");
+                        }
+                      }}
+                      disabled={addToSchedule.isPending}
+                      className="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                    >
+                      {addToSchedule.isPending ? "Adding..." : "Add to My Schedule"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setWishlistMessage("");
+                        try {
+                          await addToWishlist.mutateAsync({ sectionId: activeSection.id });
+                          setWishlistMessage("Added to Wishlist");
+                        } catch (e: any) {
+                          setWishlistMessage(e?.message || "Failed to add to wishlist");
+                        }
+                      }}
+                      disabled={addToWishlist.isPending}
+                      className="border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {addToWishlist.isPending ? "Adding..." : "Add to Wishlist"}
+                    </button>
+                  </div>
+                  <div>
+                    {scheduleMessage && (
+                      <div
+                        className={`text-sm ${scheduleMessage.toLowerCase().includes("fail")
                           ? "text-red-600"
                           : "text-gray-600"
-                      }`}
-                    >
-                      {scheduleMessage}
-                    </div>
-                  )}
+                          }`}
+                      >
+                        {scheduleMessage}
+                      </div>
+                    )}
+                    {wishlistMessage && (
+                      <div
+                        className={`text-sm ${wishlistMessage.toLowerCase().includes("fail")
+                          ? "text-red-600"
+                          : "text-gray-600"
+                          }`}
+                      >
+                        {wishlistMessage}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">Section Reviews</h3>
-	                  <div className="space-y-3 mt-2">
-	                    {(sectionReviews ?? []).map((review) => (
-	                      <ReviewCard
-	                        key={review.id}
-	                        review={review}
-	                        onEdit={(r) => setEditingReview(r)}
-	                        onDelete={(id) =>
-	                          deleteReview.mutate({ reviewId: id, courseId, sectionId: review.sectionId })
-	                        }
-	                      />
-	                    ))}
-	                    {sectionReviews?.length === 0 && (
-	                      <p className="text-sm text-gray-500">No reviews for this section yet.</p>
-	                    )}
-	                  </div>
-	                </div>
+                  <div className="space-y-3 mt-2">
+                    {(sectionReviews ?? []).map((review) => (
+                      <ReviewCard
+                        key={review.id}
+                        review={review}
+                        onEdit={(r) => setEditingReview(r)}
+                        onDelete={(id) =>
+                          deleteReview.mutate({ reviewId: id, courseId, sectionId: review.sectionId })
+                        }
+                      />
+                    ))}
+                    {sectionReviews?.length === 0 && (
+                      <p className="text-sm text-gray-500">No reviews for this section yet.</p>
+                    )}
+                  </div>
+                </div>
               </div>
             ) : null}
           </Modal>
@@ -1300,11 +1332,10 @@ export default function CourseDetail() {
               onClick={() =>
                 setSourceFilter(option.value as ReviewSourceFilter | undefined)
               }
-              className={`rounded-full px-2 py-1 text-xs ${
-                sourceFilter === option.value
-                  ? "bg-primary-100 text-primary-700"
-                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-              }`}
+              className={`rounded-full px-2 py-1 text-xs ${sourceFilter === option.value
+                ? "bg-primary-100 text-primary-700"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
             >
               {option.label}
             </button>
@@ -1476,9 +1507,9 @@ export default function CourseDetail() {
         onSubmit={(data, prevSectionId) =>
           editingReview
             ? updateReview.mutate(
-                { reviewId: editingReview.id, data, prevSectionId },
-                { onSuccess: () => closeEditModal() }
-              )
+              { reviewId: editingReview.id, data, prevSectionId },
+              { onSuccess: () => closeEditModal() }
+            )
             : undefined
         }
       />

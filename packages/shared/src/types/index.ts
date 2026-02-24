@@ -7,3 +7,4 @@ export * from "./social.js";
 export * from "./professor.js";
 export * from "./schedule.js";
 export * from "./program.js";
+export * from "./wishlist.js";

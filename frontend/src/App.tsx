@@ -9,6 +9,7 @@ import ProfessorDetail from "./pages/ProfessorDetail.js";
 import Profile from "./pages/Profile.js";
 import Friends from "./pages/Friends.js";
 import Schedule from "./pages/Schedule.js";
+import Wishlist from "./pages/Wishlist.js";
 import PrivacyPolicy from "./pages/PrivacyPolicy.js";
 import FAQ from "./pages/FAQ.js";
 import AboutUs from "./pages/AboutUs.js";
@@ -118,6 +119,14 @@ function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
           element={
             <ProtectedRoute>
               <Schedule />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/wishlist"
+          element={
+            <ProtectedRoute>
+              <Wishlist />
             </ProtectedRoute>
           }
         />
