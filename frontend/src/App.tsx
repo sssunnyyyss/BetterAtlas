@@ -12,6 +12,7 @@ import Schedule from "./pages/Schedule.js";
 import PrivacyPolicy from "./pages/PrivacyPolicy.js";
 import FAQ from "./pages/FAQ.js";
 import AboutUs from "./pages/AboutUs.js";
+import AiChat from "./pages/AiChat.js";
 import AdminLayout from "./pages/admin/AdminLayout.js";
 import AdminSync from "./pages/admin/AdminSync.js";
 import AdminAiTrainer from "./pages/admin/AdminAiTrainer.js";
@@ -77,6 +78,14 @@ function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
           element={
             <ProtectedRoute>
               <CourseDetail />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ai"
+          element={
+            <ProtectedRoute>
+              <AiChat />
             </ProtectedRoute>
           }
         />
