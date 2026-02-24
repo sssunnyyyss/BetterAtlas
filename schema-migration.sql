@@ -941,3 +941,12 @@ ALTER TABLE reviews
     );
 
 COMMIT;
+
+-- Course review summaries (LLM-generated)
+CREATE TABLE IF NOT EXISTS course_review_summaries (
+  course_id INTEGER PRIMARY KEY REFERENCES courses(id),
+  summary TEXT NOT NULL,
+  review_count INTEGER NOT NULL,
+  review_hash VARCHAR(64) NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

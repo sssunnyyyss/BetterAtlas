@@ -701,6 +701,17 @@ export const aiTrainerScores = pgTable("ai_trainer_scores", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
+// Course Review Summaries (LLM-generated summaries of student reviews)
+export const courseReviewSummaries = pgTable("course_review_summaries", {
+  courseId: integer("course_id")
+    .primaryKey()
+    .references(() => courses.id),
+  summary: text("summary").notNull(),
+  reviewCount: integer("review_count").notNull(),
+  reviewHash: varchar("review_hash", { length: 64 }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 // OAuth Clients — registered third-party apps (admin-managed)
 export const oauthClients = pgTable("oauth_clients", {
   id: varchar("id", { length: 36 }).primaryKey(), // UUID, used as public client_id
