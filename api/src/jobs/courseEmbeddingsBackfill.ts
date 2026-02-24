@@ -193,8 +193,14 @@ async function loadExistingHashes(): Promise<Map<number, string>> {
 async function upsertEmbeddingBatch(batch: Array<{ courseId: number; hash: string; vec: string }>) {
   if (batch.length === 0) return;
 
+  // Avoid duplicate course_id rows in one INSERT ... ON CONFLICT statement.
+  const deduped = Array.from(
+    new Map(batch.map((b) => [b.courseId, b] as const)).values()
+  );
+  if (deduped.length === 0) return;
+
   const values = sql.join(
-    batch.map((b) => sql`(${b.courseId}, ${b.hash}, ${b.vec}::vector, now())`),
+    deduped.map((b) => sql`(${b.courseId}, ${b.hash}, ${b.vec}::vector, now())`),
     sql`, `
   );
 
@@ -261,12 +267,21 @@ async function main() {
     toEmbed.push({ courseId: c.id, hash, text });
   }
 
-  console.log(`[embeddings] pending embeddings: ${toEmbed.length}`);
-  if (toEmbed.length === 0) return;
+  const uniqueToEmbed = Array.from(
+    new Map(toEmbed.map((item) => [item.courseId, item] as const)).values()
+  );
+  const duplicateCount = toEmbed.length - uniqueToEmbed.length;
+
+  console.log(
+    `[embeddings] pending embeddings: ${uniqueToEmbed.length}${
+      duplicateCount > 0 ? ` (deduped ${duplicateCount} duplicate rows)` : ""
+    }`
+  );
+  if (uniqueToEmbed.length === 0) return;
 
   let done = 0;
-  for (let i = 0; i < toEmbed.length; i += batchSize) {
-    const chunk = toEmbed.slice(i, i + batchSize);
+  for (let i = 0; i < uniqueToEmbed.length; i += batchSize) {
+    const chunk = uniqueToEmbed.slice(i, i + batchSize);
     const inputs = chunk.map((x) => x.text);
 
     const embeddings = (await openAiEmbedText({ input: inputs })) as number[][];
@@ -283,7 +298,7 @@ async function main() {
     await upsertEmbeddingBatch(upsertBatch);
     done += chunk.length;
 
-    console.log(`[embeddings] upserted ${done}/${toEmbed.length}`);
+    console.log(`[embeddings] upserted ${done}/${uniqueToEmbed.length}`);
     if (delayMs > 0) await sleep(delayMs);
   }
 

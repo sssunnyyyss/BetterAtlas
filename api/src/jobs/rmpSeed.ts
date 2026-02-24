@@ -22,7 +22,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db, dbClient } from "../db/index.js";
 import {
   users,
@@ -58,6 +58,11 @@ const CHECKPOINT_PATH = resolve(
 const RATE_DELAY_MS = 300;
 const ONLY_INSTRUCTOR_IDS = parseCsvIntSet(process.env.RMP_ONLY_INSTRUCTOR_IDS);
 const ONLY_RMP_TEACHER_IDS = parseCsvSet(process.env.RMP_ONLY_TEACHER_IDS);
+// Manual catalog renumbering map: legacy course code -> canonical course code.
+// Keep this intentionally narrow and explicit.
+const LEGACY_COURSE_CODE_ALIAS: Record<string, string> = {
+  "OAM 499R": "OAM 464",
+};
 const API_LINK = "https://www.ratemyprofessors.com/graphql";
 const HEADERS: Record<string, string> = {
   "User-Agent":
@@ -491,6 +496,81 @@ function parseCourseCodeToken(value: string): ParsedCourseCode | null {
   return { deptCode, courseNumber, courseSuffix };
 }
 
+function normalizeCourseCodeKey(value: string): string {
+  return String(value ?? "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildPreferredCourseIdByCode(
+  allCourses: Array<{ id: number; code: string }>
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const course of allCourses) {
+    const key = normalizeCourseCodeKey(course.code);
+    if (!key) continue;
+    const prev = map.get(key);
+    if (typeof prev !== "number" || course.id < prev) {
+      map.set(key, course.id);
+    }
+  }
+  return map;
+}
+
+function remapLegacyCourseId(input: {
+  courseId: number;
+  coursesById: Map<number, { id: number; code: string }>;
+  preferredCourseIdByCode: Map<string, number>;
+}): number {
+  const sourceCourse = input.coursesById.get(input.courseId);
+  if (!sourceCourse) return input.courseId;
+  const sourceCode = normalizeCourseCodeKey(sourceCourse.code);
+  const aliasCode = LEGACY_COURSE_CODE_ALIAS[sourceCode];
+  if (!aliasCode) return input.courseId;
+  const canonicalId = input.preferredCourseIdByCode.get(normalizeCourseCodeKey(aliasCode));
+  return typeof canonicalId === "number" ? canonicalId : input.courseId;
+}
+
+function extractCourseNumbers(value: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const re = /\b(\d{3})(?:[A-Za-z]{0,2})\b/g;
+  for (const m of value.matchAll(re)) {
+    const num = String(m[1] ?? "").trim();
+    if (!num || seen.has(num)) continue;
+    seen.add(num);
+    out.push(num);
+  }
+  return out;
+}
+
+function pickInstructorCourseFromNumberSignal(input: {
+  rmpClassLabel: string;
+  reviewComment: string | null;
+  taughtCourseIds: Set<number>;
+  coursesById: Map<number, { id: number; code: string }>;
+}): number | null {
+  if (input.taughtCourseIds.size === 0) return null;
+  const signal = `${input.rmpClassLabel} ${String(input.reviewComment ?? "")}`.trim();
+  const numbers = extractCourseNumbers(signal);
+  if (numbers.length === 0) return null;
+
+  const matches = new Set<number>();
+  for (const courseId of input.taughtCourseIds) {
+    const course = input.coursesById.get(courseId);
+    if (!course) continue;
+    const parsed = parseCourseCodeToken(course.code);
+    if (!parsed) continue;
+    if (numbers.includes(parsed.courseNumber)) {
+      matches.add(courseId);
+    }
+  }
+
+  if (matches.size === 1) return Array.from(matches)[0]!;
+  return null;
+}
+
 function priorAcademicTermRankForReviewDate(reviewDate: Date | null): number | null {
   const reviewMs = reviewDate?.getTime();
   if (typeof reviewMs !== "number" || !Number.isFinite(reviewMs)) return null;
@@ -592,7 +672,13 @@ function assignClosestSectionForReview(
   const taughtByInstructor = courseSections.filter((section) =>
     section.instructorIds.has(instructorId)
   );
-  const pool = taughtByInstructor.length > 0 ? taughtByInstructor : courseSections;
+  if (taughtByInstructor.length === 0) {
+    // Never attach a review to another instructor's section.
+    // If we can't find an instructor-owned section in our local term window,
+    // keep section_id null and only assign a fallback term label.
+    return { sectionId: null, termCode: fallbackTermCode };
+  }
+  const pool = taughtByInstructor;
 
   if (typeof priorTermRank === "number" && Number.isFinite(priorTermRank)) {
     const priorPool = pool.filter((section) => section.termRank <= priorTermRank);
@@ -1180,6 +1266,7 @@ async function main() {
     reviewsUpdatedExisting: 0,
     reviewsSkippedNoCourse: 0,
     reviewsSkippedDuplicate: 0,
+    reviewsRemovedStale: 0,
     tagsImported: 0,
   };
 
@@ -1220,6 +1307,8 @@ async function main() {
       departmentId: courses.departmentId,
     })
     .from(courses);
+  const coursesById = new Map(allCourses.map((course) => [course.id, course] as const));
+  const preferredCourseIdByCode = buildPreferredCourseIdByCode(allCourses);
 
   const allTerms = await db
     .select({
@@ -1540,10 +1629,15 @@ async function main() {
         rating.comment
       );
       if (!courseId) {
+        const removed = await db
+          .delete(reviews)
+          .where(and(eq(reviews.externalId, externalId), eq(reviews.source, "rmp")))
+          .returning({ id: reviews.id });
+        if (removed.length > 0) stats.reviewsRemovedStale += removed.length;
         stats.reviewsSkippedNoCourse++;
         continue;
       }
-      const resolvedCourseId = resolveCourseIdWithSectionContext(
+      let resolvedCourseId = resolveCourseIdWithSectionContext(
         rmpClass,
         courseId,
         instructorId,
@@ -1552,6 +1646,43 @@ async function main() {
         sectionsByCourseId,
         availableTerms
       );
+      resolvedCourseId = remapLegacyCourseId({
+        courseId: resolvedCourseId,
+        coursesById,
+        preferredCourseIdByCode,
+      });
+
+      const taughtCourseIds = coursesByInstructorId.get(instructorId) ?? new Set<number>();
+      const explicitCourseToken = parseCourseCodeToken(
+        `${rmpClass} ${String(rating.comment ?? "")}`
+      );
+
+      // For weak class labels (no explicit dept+course code),
+      // don't allow mapping to courses the instructor never taught in local data.
+      if (
+        taughtCourseIds.size > 0 &&
+        !taughtCourseIds.has(resolvedCourseId) &&
+        !explicitCourseToken
+      ) {
+        const instructorCourseFallback = pickInstructorCourseFromNumberSignal({
+          rmpClassLabel: rmpClass,
+          reviewComment: rating.comment,
+          taughtCourseIds,
+          coursesById,
+        });
+
+        if (instructorCourseFallback) {
+          resolvedCourseId = instructorCourseFallback;
+        } else {
+          const removed = await db
+            .delete(reviews)
+            .where(and(eq(reviews.externalId, externalId), eq(reviews.source, "rmp")))
+            .returning({ id: reviews.id });
+          if (removed.length > 0) stats.reviewsRemovedStale += removed.length;
+          stats.reviewsSkippedNoCourse++;
+          continue;
+        }
+      }
 
       // Map RMP quality rating: RMP uses helpfulRating + clarityRating averaged,
       // but the raw API gives helpfulRating and clarityRating separately.
@@ -1663,6 +1794,7 @@ async function main() {
   console.log(`Reviews updated existing: ${stats.reviewsUpdatedExisting}`);
   console.log(`Reviews skipped (no course match): ${stats.reviewsSkippedNoCourse}`);
   console.log(`Reviews skipped (duplicate):       ${stats.reviewsSkippedDuplicate}`);
+  console.log(`Reviews removed (stale mapping):  ${stats.reviewsRemovedStale}`);
   console.log(`Tags imported:            ${stats.tagsImported}`);
   console.log("======================================\n");
 }

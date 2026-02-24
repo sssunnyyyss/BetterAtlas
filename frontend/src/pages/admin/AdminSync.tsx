@@ -102,6 +102,7 @@ const STATUS_STYLE: Record<RunStatus, string> = {
   succeeded: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
 };
+const EMBEDDING_RUN_LOG_CAP = 1000;
 
 function formatTs(ts: string | null) {
   if (!ts) return "N/A";
@@ -954,6 +955,10 @@ export default function AdminSync() {
               <p className="text-sm text-gray-600">
                 Rebuilds vectors for new courses or courses whose content changed.
               </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Note: <code>course_review_summaries</code> only includes courses with reviews, while{" "}
+                <code>course_embeddings</code> includes all embedded courses.
+              </p>
             </div>
             <button
               onClick={handleStartEmbeddingRun}
@@ -1014,6 +1019,9 @@ export default function AdminSync() {
               {selectedEmbeddingRun.error && (
                 <p className="text-sm text-red-700">{selectedEmbeddingRun.error}</p>
               )}
+              <p className="text-xs text-gray-500">
+                Showing latest logs only (max {EMBEDDING_RUN_LOG_CAP} lines per run).
+              </p>
 
               <div className="bg-gray-950 text-gray-100 rounded-md p-3 h-[280px] overflow-auto font-mono text-xs space-y-1">
                 {embeddingLogs.length === 0 && (

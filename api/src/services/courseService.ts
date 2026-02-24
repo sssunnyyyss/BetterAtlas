@@ -19,6 +19,7 @@ import {
   buildCrossListSignatureMap,
   haveExactCrossListSignatures,
 } from "../lib/crossListSignatures.js";
+import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
 
 let sectionInstructorsTableAvailableCache: boolean | null = null;
 
@@ -53,6 +54,10 @@ type CourseFilterQuery = Partial<
     | "instructionMethod"
   >
 >;
+
+const HYBRID_SEMANTIC_MIN_QUERY_LEN = 4;
+const HYBRID_SEMANTIC_MIN_LEXICAL_RESULTS = 8;
+const HYBRID_SEMANTIC_MIN_TOP_RANK = 0.12;
 
 function classScoreExpr() {
   // "Class" score = average of professor-wide scores for instructors teaching the course.
@@ -503,6 +508,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
   const offset = (page - 1) * limit;
 
   const term = q.trim();
+  const hasTrigram = await arePgTrgmAvailable();
   const tsQuery = sql`plainto_tsquery('english', ${term})`;
 
   const courseVector = sql`(
@@ -515,6 +521,17 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
   // - course code/title/description via FTS + ILIKE
   // - department code/name via ILIKE
   // - instructor name via ILIKE (section-backed)
+  // - optional trigram similarity for typo tolerance when pg_trgm is available
+  const sameInitial = (value: any) => sql`left(lower(${value}), 1) = left(lower(${term}), 1)`;
+  const trigramSearchWhere = hasTrigram
+    ? sql`
+      OR similarity(lower(${courses.code}), lower(${term})) >= 0.32
+      OR (${sameInitial(courses.title)} AND similarity(lower(${courses.title}), lower(${term})) >= 0.33)
+      OR similarity(lower(${departments.code}), lower(${term})) >= 0.34
+      OR (${sameInitial(departments.name)} AND similarity(lower(${departments.name}), lower(${term})) >= 0.34)
+      OR (${sameInitial(instructors.name)} AND similarity(lower(${instructors.name}), lower(${term})) >= 0.34)
+    `
+    : sql``;
   const searchWhere = sql`(
     ${courseVector} @@ ${tsQuery}
     OR ${courses.code} ILIKE ${"%" + term + "%"}
@@ -522,6 +539,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     OR ${departments.code} ILIKE ${"%" + term + "%"}
     OR ${departments.name} ILIKE ${"%" + term + "%"}
     OR ${instructors.name} ILIKE ${"%" + term + "%"}
+    ${trigramSearchWhere}
   )`;
 
   const whereParts: any[] = [searchWhere];
@@ -562,6 +580,20 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     havingParts.push(sql`coalesce(${classScoreExpr()}, 0) >= ${minRating}`);
   }
 
+  const trigramRankExpr = hasTrigram
+    ? sql`
+      + (
+        greatest(
+          similarity(lower(${courses.code}), lower(${term})) * 1.3,
+          (case when ${sameInitial(courses.title)} then similarity(lower(${courses.title}), lower(${term})) else 0 end) * 1.0,
+          similarity(lower(${departments.code}), lower(${term})) * 0.85,
+          (case when ${sameInitial(departments.name)} then similarity(lower(${departments.name}), lower(${term})) else 0 end) * 0.7,
+          (case when ${sameInitial(instructors.name)} then similarity(lower(${instructors.name}), lower(${term})) else 0 end) * 1.1
+        ) * 0.22
+      )
+    `
+    : sql``;
+
   const rankExpr = sql<number>`max(
     ts_rank(${courseVector}, ${tsQuery})
     + (case when ${courses.code} ILIKE ${"%" + term + "%"} then 0.12 else 0 end)
@@ -569,6 +601,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     + (case when ${departments.code} ILIKE ${"%" + term + "%"} then 0.07 else 0 end)
     + (case when ${departments.name} ILIKE ${"%" + term + "%"} then 0.06 else 0 end)
     + (case when ${instructors.name} ILIKE ${"%" + term + "%"} then 0.18 else 0 end)
+    ${trigramRankExpr}
   )`;
 
   const buildGroupedBase = () => {
@@ -733,36 +766,87 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
   }
   const avgGradeByCourse = await avgGradeByCoursePromise;
 
+  type SearchResultCourse = CourseWithRatings & { avgGradePoints: number | null };
+  const lexicalMapped: SearchResultCourse[] = data.map((row) => ({
+    id: row.id,
+    code: row.code,
+    title: row.title,
+    description: normalizeText(row.description),
+    prerequisites: (row as any).prerequisites ?? null,
+    credits: row.credits,
+    departmentId: row.departmentId,
+    attributes: row.attributes ?? null,
+    instructors: instructorsByCourse.get(row.id) ?? [],
+    campuses: campusesByCourse.get(row.id) ?? [],
+    gers: gersByCourse.get(row.id) ?? [],
+    requirements: requirementsByCourse.get(row.id) ?? null,
+    department: row.departmentCode
+      ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
+      : null,
+    avgQuality: row.avgQuality ? parseFloat(row.avgQuality) : null,
+    avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
+    avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
+    avgGradePoints: avgGradeByCourse.get(row.id) ?? null,
+    reviewCount: row.reviewCount ?? 0,
+    classScore: classScoreByCourse.get(row.id) ?? null,
+    avgEnrollmentPercent: avgEnrollmentByCourse.get(row.id) ?? null,
+  }));
+
+  let mergedData = lexicalMapped;
+  let mergedTotal = Number(total);
+
+  const bestLexicalRank = data.length > 0 ? toNullableNumber((data[0] as any).rank) ?? 0 : 0;
+  const shouldTrySemanticFallback =
+    page === 1 &&
+    term.length >= HYBRID_SEMANTIC_MIN_QUERY_LEN &&
+    (data.length < Math.min(limit, HYBRID_SEMANTIC_MIN_LEXICAL_RESULTS) ||
+      bestLexicalRank < HYBRID_SEMANTIC_MIN_TOP_RANK);
+
+  if (shouldTrySemanticFallback && (await areCourseEmbeddingsAvailable())) {
+    try {
+      const embedding = (await openAiEmbedText({ input: term, timeoutMs: 5_000 })) as number[];
+      const semanticCandidates = await semanticSearchCoursesByEmbedding({
+        embedding,
+        limit: Math.max(24, limit * 2),
+        filters: {
+          department,
+          semester,
+          minRating,
+          credits,
+          attributes,
+          instructor,
+          campus,
+          componentType,
+          instructionMethod,
+        },
+      });
+
+      const semanticMapped: SearchResultCourse[] = semanticCandidates.map((course) => ({
+        ...course,
+        avgGradePoints: null,
+      }));
+
+      const seen = new Set<number>();
+      const combined = [...lexicalMapped, ...semanticMapped].filter((course) => {
+        if (seen.has(course.id)) return false;
+        seen.add(course.id);
+        return true;
+      });
+
+      mergedData = combined.slice(0, limit);
+      mergedTotal = Math.max(mergedTotal, mergedData.length);
+    } catch {
+      // Keep lexical results when semantic fallback fails (e.g. API timeout).
+    }
+  }
+
   return {
-    data: data.map((row) => ({
-      id: row.id,
-      code: row.code,
-      title: row.title,
-      description: normalizeText(row.description),
-      prerequisites: (row as any).prerequisites ?? null,
-      credits: row.credits,
-      departmentId: row.departmentId,
-      attributes: row.attributes ?? null,
-      instructors: instructorsByCourse.get(row.id) ?? [],
-      campuses: campusesByCourse.get(row.id) ?? [],
-      gers: gersByCourse.get(row.id) ?? [],
-      requirements: requirementsByCourse.get(row.id) ?? null,
-      department: row.departmentCode
-        ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
-        : null,
-      avgQuality: row.avgQuality ? parseFloat(row.avgQuality) : null,
-      avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
-      avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
-      avgGradePoints: avgGradeByCourse.get(row.id) ?? null,
-      reviewCount: row.reviewCount ?? 0,
-      classScore: classScoreByCourse.get(row.id) ?? null,
-      avgEnrollmentPercent: avgEnrollmentByCourse.get(row.id) ?? null,
-    })),
+    data: mergedData,
     meta: {
       page,
       limit,
-      total: Number(total),
-      totalPages: Math.ceil(Number(total) / limit) || 1,
+      total: mergedTotal,
+      totalPages: Math.ceil(mergedTotal / limit) || 1,
     },
   };
 }
@@ -1308,6 +1392,39 @@ export async function getCourseById(id: number) {
       };
     }),
   };
+}
+
+const PG_TRGM_AVAIL_TTL_MS = 5 * 60 * 1000; // 5m
+let pgTrgmAvailCache: { value: boolean; updatedAt: number } | null = null;
+let pgTrgmAvailInFlight: Promise<boolean> | null = null;
+
+async function arePgTrgmAvailable(): Promise<boolean> {
+  if (pgTrgmAvailCache && Date.now() - pgTrgmAvailCache.updatedAt < PG_TRGM_AVAIL_TTL_MS) {
+    return pgTrgmAvailCache.value;
+  }
+  if (pgTrgmAvailInFlight) return pgTrgmAvailInFlight;
+
+  pgTrgmAvailInFlight = (async () => {
+    try {
+      const rows = (await db.execute(sql`
+        select exists (
+          select 1
+          from pg_extension
+          where extname = 'pg_trgm'
+        ) as ok
+      `)) as any[];
+      const ok = Boolean(rows?.[0]?.ok);
+      pgTrgmAvailCache = { value: ok, updatedAt: Date.now() };
+      return ok;
+    } catch {
+      pgTrgmAvailCache = { value: false, updatedAt: Date.now() };
+      return false;
+    } finally {
+      pgTrgmAvailInFlight = null;
+    }
+  })();
+
+  return pgTrgmAvailInFlight;
 }
 
 const EMBEDDINGS_AVAIL_TTL_MS = 5 * 60 * 1000; // 5m

@@ -124,6 +124,7 @@ async function summarizeCourse(course: CourseWithReviews): Promise<string> {
     `Summarize student feedback for ${course.code} "${course.title}" in 2-4 sentences.`,
     "Cover teaching quality, difficulty, workload, and common praise or complaints.",
     "Be specific and factual based on the reviews below. Do not make up information.",
+    'Return strict JSON with this shape: {"summary":"..."}',
   ].join(" ");
 
   const userContent = formatReviewsForPrompt(course.reviews);

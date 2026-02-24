@@ -311,7 +311,18 @@ interface CourseRow {
 }
 
 function normalizeCourseText(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, " ").trim();
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeCourseText(value: string): string[] {
+  return normalizeCourseText(value)
+    .split(" ")
+    .map((token) => token.trim())
+    .filter(Boolean);
 }
 
 type DeptCourseToken = {
@@ -462,11 +473,18 @@ export function matchCourse(
     return sameDept?.id ?? exact[0].id;
   }
 
-  // Substring match
+  // Token-prefix fallback (conservative).
+  // Avoid raw substring matching (e.g. "ling" matching "storytelling").
+  const queryTokens = tokenizeCourseText(norm).filter((token) => token.length >= 4);
+  if (queryTokens.length === 0) return null;
+
   const substring = courses.filter(
-    (c) =>
-      normalizeCourseText(c.title).includes(norm) ||
-      norm.includes(normalizeCourseText(c.title))
+    (c) => {
+      const titleTokens = tokenizeCourseText(c.title);
+      return queryTokens.some((q) =>
+        titleTokens.some((t) => t.startsWith(q) || q.startsWith(t))
+      );
+    }
   );
   if (substring.length === 1) return substring[0].id;
   if (substring.length > 1) {

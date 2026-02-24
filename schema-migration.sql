@@ -490,6 +490,23 @@ CREATE INDEX IF NOT EXISTS idx_admin_course_sync_schedule_updated_at
 
 -- Supabase ships pgvector; this enables semantic (meaning-based) search.
 CREATE EXTENSION IF NOT EXISTS vector;
+-- Enable trigram similarity for typo-tolerant lexical search.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS idx_courses_code_trgm
+  ON courses USING gin (lower(code) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_courses_title_trgm
+  ON courses USING gin (lower(title) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_departments_code_trgm
+  ON departments USING gin (lower(code) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_departments_name_trgm
+  ON departments USING gin (lower(name) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_instructors_name_trgm
+  ON instructors USING gin (lower(name) gin_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS course_embeddings (
   course_id INTEGER PRIMARY KEY REFERENCES courses(id) ON DELETE CASCADE,
