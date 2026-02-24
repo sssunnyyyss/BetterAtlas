@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   useAiCourseRecommendations,
   type AiMessage,
@@ -242,6 +242,20 @@ export default function AiChat() {
     },
     [aiMessages, aiRec, likedCourses, dislikedCourses],
   );
+
+  // -----------------------------------------------------------------------
+  // Deep-link: auto-send ?prompt= query param as first message
+  // -----------------------------------------------------------------------
+
+  const [searchParams] = useSearchParams();
+
+  useEffect(() => {
+    const prompt = searchParams.get("prompt")?.trim();
+    if (prompt && messages.length === 0) {
+      sendMessage(prompt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // -----------------------------------------------------------------------
   // resetChat

@@ -42,7 +42,7 @@ export default function Home() {
       navigate("/catalog");
       return;
     }
-    if (mode === "ai") navigate(`/catalog?mode=ai&prompt=${encodeURIComponent(trimmed)}`);
+    if (mode === "ai") navigate(`/ai?prompt=${encodeURIComponent(trimmed)}`);
     else navigate(`/catalog?q=${encodeURIComponent(trimmed)}`);
   }
 
