@@ -8,6 +8,7 @@ import { useProgram, useProgramAiSummary, useProgramCourses, useProgramVariants 
 import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
+import AiChat from "./AiChat.js";
 import {
   isSpecialTopicsCourse,
   splitSpecialTopicCourses,
@@ -39,14 +40,11 @@ const CATALOG_VIEW_STORAGE_KEY = "betteratlas.catalog.view.v2";
 
 export default function Catalog() {
   const [searchParams, setSearchParams] = useSearchParams();
-
-  // Redirect old AI URLs to /ai for backwards compatibility
-  useEffect(() => {
-    if (searchParams.get("mode") === "ai" || searchParams.get("ai") === "1") {
-      const prompt = searchParams.get("prompt") || "";
-      window.location.replace(prompt ? `/ai?prompt=${encodeURIComponent(prompt)}` : "/ai");
-    }
-  }, [searchParams]);
+  const initialMode =
+    searchParams.get("mode") === "ai" || searchParams.get("ai") === "1"
+      ? "ai"
+      : "search";
+  const [mode, setMode] = useState<"search" | "ai">(initialMode);
 
   const [searchInput, setSearchInput] = useState(searchParams.get("q") || "");
   const [debouncedSearch, setDebouncedSearch] = useState(searchInput);
@@ -240,8 +238,44 @@ export default function Catalog() {
       </Sidebar>
 
       <main className="flex-1 p-4 sm:p-6">
-        {/* Search bar */}
-        <div className="mb-6">
+        <div className="mb-3 flex items-center justify-start">
+          <div
+            className="ba-segmented"
+            style={{
+              ["--ba-segment-index" as any]: mode === "ai" ? 1 : 0,
+              ["--ba-segments" as any]: 2,
+            }}
+          >
+            <span className="ba-segmented-glider" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => setMode("search")}
+              className={`ba-segmented-btn ba-segmented-btn-compact ${
+                mode === "search" ? "ba-segmented-btn-active" : ""
+              }`}
+            >
+              Catalog
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("ai")}
+              className={`ba-segmented-btn ba-segmented-btn-compact ${
+                mode === "ai" ? "ba-segmented-btn-active" : ""
+              }`}
+            >
+              AI
+            </button>
+          </div>
+        </div>
+
+        {mode === "ai" ? (
+          <div className="ba-ai-expand-in h-[calc(100vh-9rem)] w-full">
+            <AiChat embedded />
+          </div>
+        ) : (
+          <>
+            {/* Search bar */}
+            <div className="mb-6">
           <form
             className="flex w-full max-w-3xl gap-2 items-stretch"
             onSubmit={(e) => {
@@ -478,6 +512,8 @@ export default function Catalog() {
               Next
             </button>
           </div>
+            )}
+          </>
         )}
       </main>
     </div>

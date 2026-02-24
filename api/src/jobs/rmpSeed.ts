@@ -45,12 +45,6 @@ import {
   listProfessorDisambiguationCandidates,
   type ProfessorDisambiguationCandidate,
 } from "../lib/rmpMatching.js";
-import {
-  API_LINK,
-  HEADERS,
-  TEACHER_RATING_QUERY,
-  retrieve_school_id,
-} from "rate-my-professor-api-ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -64,6 +58,20 @@ const CHECKPOINT_PATH = resolve(
 const RATE_DELAY_MS = 300;
 const ONLY_INSTRUCTOR_IDS = parseCsvIntSet(process.env.RMP_ONLY_INSTRUCTOR_IDS);
 const ONLY_RMP_TEACHER_IDS = parseCsvSet(process.env.RMP_ONLY_TEACHER_IDS);
+const API_LINK = "https://www.ratemyprofessors.com/graphql";
+const HEADERS: Record<string, string> = {
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:129.0) Gecko/20100101 Firefox/129.0",
+  Accept: "*/*",
+  "Accept-Language": "en-US,en;q=0.5",
+  "Content-Type": "application/json",
+  Authorization: "Basic dGVzdDp0ZXN0",
+  "Sec-GPC": "1",
+  "Sec-Fetch-Dest": "empty",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Site": "same-origin",
+  Priority: "u=4",
+};
 const LETTER_GRADE_POINTS: Record<string, number> = {
   "A+": 4.0,
   A: 4.0,
@@ -122,6 +130,67 @@ const TEACHER_LIST_PAGINATED = `
   }
 `;
 
+const SCHOOL_SEARCH_QUERY = `
+  query NewSearchSchoolsQuery($query: SchoolSearchQuery!) {
+    newSearch {
+      schools(query: $query) {
+        edges {
+          node {
+            id
+            name
+          }
+        }
+      }
+    }
+  }
+`;
+
+const TEACHER_RATING_QUERY = `query RatingsListQuery(
+  $count: Int!
+  $id: ID!
+  $courseFilter: String
+  $cursor: String
+) {
+  node(id: $id) {
+    __typename
+    ... on Teacher {
+      firstName
+      lastName
+      department
+      school {
+        name
+        city
+        state
+      }
+      ratings(first: $count, after: $cursor, courseFilter: $courseFilter) {
+        edges {
+          node {
+            comment
+            class
+            date
+            helpfulRating
+            clarityRating
+            difficultyRating
+            grade
+            wouldTakeAgain
+            isForOnlineClass
+            isForCredit
+            attendanceMandatory
+            textbookUse
+            ratingTags
+            thumbsUpTotal
+            thumbsDownTotal
+          }
+        }
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+      }
+    }
+  }
+}`;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -158,6 +227,42 @@ function parseCsvIntSet(raw: string | undefined): Set<number> | null {
 
 async function rateLimitedPause() {
   await sleep(jitter(RATE_DELAY_MS));
+}
+
+async function retrieveSchoolId(schoolName: string): Promise<string> {
+  const response = await fetch(API_LINK, {
+    credentials: "include",
+    headers: HEADERS,
+    body: JSON.stringify({
+      query: SCHOOL_SEARCH_QUERY,
+      variables: {
+        query: {
+          text: schoolName,
+        },
+      },
+    }),
+    method: "POST",
+    mode: "cors",
+  });
+
+  if (!response.ok) {
+    throw new Error(`RMP school lookup failed: ${response.status} ${response.statusText}`);
+  }
+
+  const body: any = await response.json();
+  const edges: Array<{ node?: { id?: string; name?: string } }> =
+    body?.data?.newSearch?.schools?.edges ?? [];
+
+  const normalized = schoolName.trim().toLowerCase();
+  const exact = edges.find(
+    (edge) => String(edge?.node?.name ?? "").trim().toLowerCase() === normalized
+  );
+  const picked = exact ?? edges[0];
+  const schoolId = String(picked?.node?.id ?? "").trim();
+  if (!schoolId) {
+    throw new Error(`RMP school lookup returned no results for "${schoolName}"`);
+  }
+  return schoolId;
 }
 
 /** Clamp a number to [min, max] and round to nearest 0.5. */
@@ -363,6 +468,12 @@ type SectionCandidate = {
   instructorIds: Set<number>;
 };
 
+type TermSnapshot = {
+  code: string;
+  rank: number;
+  anchorMs: number;
+};
+
 type ParsedCourseCode = {
   deptCode: string;
   courseNumber: string;
@@ -380,15 +491,102 @@ function parseCourseCodeToken(value: string): ParsedCourseCode | null {
   return { deptCode, courseNumber, courseSuffix };
 }
 
+function priorAcademicTermRankForReviewDate(reviewDate: Date | null): number | null {
+  const reviewMs = reviewDate?.getTime();
+  if (typeof reviewMs !== "number" || !Number.isFinite(reviewMs)) return null;
+
+  const year = reviewDate!.getUTCFullYear();
+  const month = reviewDate!.getUTCMonth();
+
+  // Reviews are usually posted after the class ends:
+  // spring-date reviews belong to prior fall, fall-date reviews belong to spring.
+  if (month <= 4) {
+    // Jan-May => spring review window => prior fall
+    return (year - 1) * 10 + seasonSortOrder("fall");
+  }
+  if (month <= 7) {
+    // Jun-Aug => summer review window => prior spring
+    return year * 10 + seasonSortOrder("spring");
+  }
+  // Sep-Dec => fall review window => prior spring
+  return year * 10 + seasonSortOrder("spring");
+}
+
+function pickLatestCandidateByTermRank(
+  candidates: SectionCandidate[],
+  preferredAnchorMs: number | null
+): SectionCandidate {
+  let picked = candidates[0];
+
+  for (const candidate of candidates.slice(1)) {
+    if (candidate.termRank > picked.termRank) {
+      picked = candidate;
+      continue;
+    }
+    if (candidate.termRank < picked.termRank) {
+      continue;
+    }
+
+    if (
+      typeof preferredAnchorMs === "number" &&
+      Number.isFinite(preferredAnchorMs) &&
+      typeof candidate.anchorMs === "number" &&
+      typeof picked.anchorMs === "number"
+    ) {
+      const candidateDelta = Math.abs(preferredAnchorMs - candidate.anchorMs);
+      const pickedDelta = Math.abs(preferredAnchorMs - picked.anchorMs);
+      if (candidateDelta < pickedDelta) {
+        picked = candidate;
+        continue;
+      }
+      if (candidateDelta > pickedDelta) {
+        continue;
+      }
+    }
+
+    if (candidate.id < picked.id) {
+      picked = candidate;
+    }
+  }
+
+  return picked;
+}
+
+function pickFallbackTermCode(
+  priorTermRank: number | null,
+  availableTerms: TermSnapshot[]
+): string | null {
+  if (availableTerms.length === 0) return null;
+
+  if (typeof priorTermRank !== "number" || !Number.isFinite(priorTermRank)) {
+    return availableTerms[availableTerms.length - 1]?.code ?? null;
+  }
+
+  const eligible = availableTerms.filter((term) => term.rank <= priorTermRank);
+  if (eligible.length > 0) {
+    return eligible[eligible.length - 1]!.code;
+  }
+
+  // If historical data starts later than the review date, pin to the oldest term
+  // so the review still has a semester label.
+  return availableTerms[0]!.code;
+}
+
 function assignClosestSectionForReview(
   courseId: number,
   instructorId: number,
   reviewDate: Date | null,
-  sectionsByCourseId: Map<number, SectionCandidate[]>
+  sectionsByCourseId: Map<number, SectionCandidate[]>,
+  availableTerms: TermSnapshot[]
 ): { sectionId: number | null; termCode: string | null } {
   const courseSections = sectionsByCourseId.get(courseId) ?? [];
+  const reviewMs = reviewDate?.getTime();
+  const reviewMsFinite = typeof reviewMs === "number" && Number.isFinite(reviewMs);
+  const priorTermRank = priorAcademicTermRankForReviewDate(reviewDate);
+  const fallbackTermCode = pickFallbackTermCode(priorTermRank, availableTerms);
+
   if (courseSections.length === 0) {
-    return { sectionId: null, termCode: null };
+    return { sectionId: null, termCode: fallbackTermCode };
   }
 
   const taughtByInstructor = courseSections.filter((section) =>
@@ -396,10 +594,25 @@ function assignClosestSectionForReview(
   );
   const pool = taughtByInstructor.length > 0 ? taughtByInstructor : courseSections;
 
-  let picked = pool[0];
-  const reviewMs = reviewDate?.getTime();
+  if (typeof priorTermRank === "number" && Number.isFinite(priorTermRank)) {
+    const priorPool = pool.filter((section) => section.termRank <= priorTermRank);
+    if (priorPool.length > 0) {
+      const pickedPrior = pickLatestCandidateByTermRank(
+        priorPool,
+        reviewMsFinite ? reviewMs : null
+      );
+      return {
+        sectionId: pickedPrior.id,
+        termCode: pickedPrior.termCode,
+      };
+    }
 
-  if (typeof reviewMs === "number" && Number.isFinite(reviewMs)) {
+    return { sectionId: null, termCode: fallbackTermCode };
+  }
+
+  let picked = pool[0];
+
+  if (reviewMsFinite) {
     for (const candidate of pool.slice(1)) {
       const pickedDelta =
         typeof picked.anchorMs === "number"
@@ -448,7 +661,8 @@ function resolveCourseIdWithSectionContext(
   instructorId: number,
   reviewDate: Date | null,
   allCourses: Array<{ id: number; code: string }>,
-  sectionsByCourseId: Map<number, SectionCandidate[]>
+  sectionsByCourseId: Map<number, SectionCandidate[]>,
+  availableTerms: TermSnapshot[]
 ): number {
   const parsedTarget = parseCourseCodeToken(rmpClassLabel);
   if (!parsedTarget) return matchedCourseId;
@@ -483,7 +697,8 @@ function resolveCourseIdWithSectionContext(
       candidateId,
       instructorId,
       reviewDate,
-      sectionsByCourseId
+      sectionsByCourseId,
+      availableTerms
     );
     const sections = sectionsByCourseId.get(candidateId) ?? [];
     const chosenSection =
@@ -532,6 +747,7 @@ function pickInstructorFromReviewEvidence(input: {
   instructorDeptMap: Map<number, number | null>;
   sectionsByCourseId: Map<number, SectionCandidate[]>;
   coursesByInstructorId: Map<number, Set<number>>;
+  availableTerms: TermSnapshot[];
 }): InstructorReviewEvidence | null {
   if (input.candidates.length < 2 || input.ratings.length === 0) return null;
 
@@ -563,7 +779,8 @@ function pickInstructorFromReviewEvidence(input: {
         candidate.instructorId,
         reviewDate,
         input.allCourses,
-        input.sectionsByCourseId
+        input.sectionsByCourseId,
+        input.availableTerms
       );
 
       if (taughtCourses.has(resolvedCourseId)) {
@@ -1052,6 +1269,7 @@ async function main() {
     string,
     { anchorMs: number; termRank: number; name: string }
   >();
+  const availableTerms: TermSnapshot[] = [];
   for (const term of allTerms) {
     const anchorMs = termAnchorMs(term.year, term.season ?? null);
     const termRank = term.year * 10 + seasonSortOrder(term.season ?? null);
@@ -1060,7 +1278,13 @@ async function main() {
       termRank,
       name: term.name,
     });
+    availableTerms.push({
+      code: term.srcdb,
+      rank: termRank,
+      anchorMs,
+    });
   }
+  availableTerms.sort((a, b) => a.rank - b.rank || a.anchorMs - b.anchorMs || a.code.localeCompare(b.code));
 
   const sectionsById = new Map<number, SectionCandidate>();
   const sectionsByCourseId = new Map<number, SectionCandidate[]>();
@@ -1108,7 +1332,7 @@ async function main() {
   // ---- 3. RMP school lookup ---
   console.log(`[rmpSeed] looking up school "${SCHOOL_NAME}" on RMP...`);
   await rateLimitedPause();
-  const schoolId = await retrieve_school_id(SCHOOL_NAME);
+  const schoolId = await retrieveSchoolId(SCHOOL_NAME);
   console.log(`[rmpSeed] school ID: ${schoolId}`);
 
   // ---- 4. Fetch all professors from RMP ---
@@ -1188,6 +1412,7 @@ async function main() {
             instructorDeptMap,
             sectionsByCourseId,
             coursesByInstructorId,
+            availableTerms,
           });
 
           if (bestEvidence) {
@@ -1324,7 +1549,8 @@ async function main() {
         instructorId,
         reviewDate,
         allCourses,
-        sectionsByCourseId
+        sectionsByCourseId,
+        availableTerms
       );
 
       // Map RMP quality rating: RMP uses helpfulRating + clarityRating averaged,
@@ -1347,7 +1573,8 @@ async function main() {
         resolvedCourseId,
         instructorId,
         reviewDate,
-        sectionsByCourseId
+        sectionsByCourseId,
+        availableTerms
       );
       const reportedGrade = normalizeReportedGrade(rating.grade);
       const gradePoints = toGradePoints(reportedGrade);

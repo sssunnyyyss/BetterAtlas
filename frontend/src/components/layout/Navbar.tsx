@@ -5,7 +5,6 @@ import { useAuth } from "../../lib/auth.js";
 const NAV_ITEMS = [
   { label: "Home", path: "/" },
   { label: "Catalog", path: "/catalog" },
-  { label: "AI", path: "/ai" },
   { label: "My Schedule", path: "/schedule" },
   { label: "Friends", path: "/friends" },
 ];
@@ -29,38 +28,7 @@ export default function Navbar() {
               BetterAtlas
             </Link>
             <div className="hidden sm:flex gap-1 items-center">
-              {navItems.map((item, index) => {
-                // Skip "AI" — it's rendered as part of the Catalog/AI segmented pair
-                if (item.label === "AI") return null;
-
-                // Render Catalog + AI as a segmented toggle pair
-                if (item.label === "Catalog" && navItems[index + 1]?.label === "AI") {
-                  const catalogActive = location.pathname.startsWith("/catalog");
-                  const aiActive = location.pathname.startsWith("/ai");
-                  const segmentIndex = aiActive ? 1 : 0;
-                  return (
-                    <div
-                      key="catalog-ai-toggle"
-                      className="ba-segmented"
-                      style={{ "--ba-segment-index": segmentIndex, "--ba-segments": 2 } as React.CSSProperties}
-                    >
-                      <span className="ba-segmented-glider" aria-hidden="true" />
-                      <Link
-                        to="/catalog"
-                        className={`ba-segmented-btn ba-segmented-btn-compact${catalogActive ? " ba-segmented-btn-active" : ""}`}
-                      >
-                        Catalog
-                      </Link>
-                      <Link
-                        to="/ai"
-                        className={`ba-segmented-btn ba-segmented-btn-compact${aiActive ? " ba-segmented-btn-active" : ""}`}
-                      >
-                        AI
-                      </Link>
-                    </div>
-                  );
-                }
-
+              {navItems.map((item) => {
                 const isActive =
                   item.path === "/"
                     ? location.pathname === "/"

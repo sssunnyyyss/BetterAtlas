@@ -1344,6 +1344,30 @@ router.get("/system/metrics", async (_req, res) => {
   });
 });
 
+router.post("/system/test-email", async (req, res) => {
+  const email = String(req.body?.email || "")
+    .trim()
+    .toLowerCase();
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Invalid email address" });
+  }
+
+  const redirectTo = `${env.frontendUrl.replace(/\/+$/, "")}/login?emailReset=1`;
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) {
+    console.error("Admin test email failed:", error.message);
+    return res.status(500).json({ error: "Failed to send test email" });
+  }
+
+  return res.json({
+    message:
+      "If an account exists for this email, a password reset test email has been sent.",
+  });
+});
+
 router.get("/stats/overview", async (req, res) => {
   const windowDaysRaw = String(req.query.windowDays || "7");
   const parsedWindowDays = Number.parseInt(windowDaysRaw, 10);

@@ -7,6 +7,10 @@ import {
   type AiPreferenceCourse,
 } from "../hooks/useAi.js";
 
+type AiChatProps = {
+  embedded?: boolean;
+};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -144,7 +148,7 @@ function ErrorBubble() {
 // Main component
 // ---------------------------------------------------------------------------
 
-export default function AiChat() {
+export default function AiChat({ embedded = false }: AiChatProps) {
   // State
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -296,7 +300,13 @@ export default function AiChat() {
   const hasMessages = messages.length > 0;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] max-w-3xl mx-auto w-full">
+    <div
+      className={
+        embedded
+          ? "flex h-full w-full flex-col bg-white"
+          : "mx-auto flex h-[calc(100vh-4rem)] w-full max-w-3xl flex-col bg-white"
+      }
+    >
       {/* ---- Chat header ---- */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-2">
