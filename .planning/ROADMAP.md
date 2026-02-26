@@ -10,7 +10,7 @@ Improve the catalog program filtering journey so major/minor toggles are accurat
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Program and Major Toggle Accuracy** - Fix incorrect major/minor variant switching and stabilize behavior in catalog program mode.
+- [x] **Phase 1: Program and Major Toggle Accuracy** - Fix incorrect major/minor variant switching and stabilize behavior in catalog program mode.
 
 ## Phase Details
 
@@ -23,14 +23,14 @@ Improve the catalog program filtering journey so major/minor toggles are accurat
   2. Variant selection uses deterministic matching rules (including degree preference) instead of arbitrary first-result picks.
   3. Catalog URL state (`programId`, `programTab`) remains valid and produces consistent behavior after refresh.
   4. Automated tests cover toggle selection rules and regression-prone catalog interactions.
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
 - [x] 01-01: Define variant-selection contract and tighten API/frontend matching logic
-- [ ] 01-02: Wire toggle UI behavior to deterministic selectors and add regression tests
+- [x] 01-02: Wire toggle UI behavior to deterministic selectors and add regression tests
 
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Program and Major Toggle Accuracy | 1/2 | In Progress |  |
+| 1. Program and Major Toggle Accuracy | 2/2 | Complete | 2026-02-26 |
