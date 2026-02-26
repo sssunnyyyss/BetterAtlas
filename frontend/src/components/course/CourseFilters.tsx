@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProgram, usePrograms } from "../../hooks/usePrograms.js";
 import { useInstructors } from "../../hooks/useInstructors.js";
+import { buildProgramSearchOptions } from "../../lib/programVariantSelection.js";
 import {
   SEMESTERS,
   SORT_OPTIONS,
@@ -71,19 +72,7 @@ export default function CourseFilters({
 
   const programOptions = useMemo(() => {
     if (!programQuery) return [];
-
-    const majorsOnly = (programResults ?? []).filter(
-      (p) => p.kind === "major" && (p.degree || "").toUpperCase() === "BA"
-    );
-
-    // Keep one dropdown entry per program name.
-    const byName = new Map<string, (typeof majorsOnly)[number]>();
-    for (const p of majorsOnly) {
-      const key = p.name.trim().toLowerCase();
-      if (!byName.has(key)) byName.set(key, p);
-    }
-
-    return [...byName.values()];
+    return buildProgramSearchOptions(programResults);
   }, [programResults, programQuery]);
 
   const instructorOptions = useMemo(() => {

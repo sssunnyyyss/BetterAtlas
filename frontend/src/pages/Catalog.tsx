@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import type { ProgramTab } from "@betteratlas/shared";
+import type { ProgramAiRequirementsSummary, ProgramSummary, ProgramTab } from "@betteratlas/shared";
 import { api } from "../api/client.js";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
 import { useProgram, useProgramAiSummary, useProgramCourses, useProgramVariants } from "../hooks/usePrograms.js";
@@ -12,8 +12,13 @@ import AiChat from "./AiChat.js";
 import {
   isSpecialTopicsCourse,
   splitSpecialTopicCourses,
+  type CatalogCourseEntry,
   type CourseTopicDetail,
 } from "../lib/courseTopics.js";
+import {
+  canonicalizeProgramTab,
+  selectProgramVariant,
+} from "../lib/programVariantSelection.js";
 
 function Spinner({ className = "" }: { className?: string }) {
   return (
@@ -37,6 +42,95 @@ function Spinner({ className = "" }: { className?: string }) {
 }
 
 const CATALOG_VIEW_STORAGE_KEY = "betteratlas.catalog.view.v2";
+const AI_RELEVANCE_STOP_WORDS = new Set([
+  "about",
+  "after",
+  "among",
+  "and",
+  "are",
+  "but",
+  "for",
+  "from",
+  "have",
+  "into",
+  "its",
+  "that",
+  "the",
+  "their",
+  "there",
+  "these",
+  "this",
+  "those",
+  "through",
+  "with",
+]);
+
+function tokenizeRelevanceText(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 3 && !AI_RELEVANCE_STOP_WORDS.has(token));
+}
+
+function buildProgramRelevanceWeights(
+  aiSummary: ProgramAiRequirementsSummary | undefined
+): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!aiSummary) return out;
+
+  const addTokens = (tokens: string[], weight: number) => {
+    const unique = new Set(tokens);
+    for (const token of unique) {
+      out.set(token, (out.get(token) ?? 0) + weight);
+    }
+  };
+
+  addTokens(tokenizeRelevanceText(aiSummary.summary), 1);
+
+  for (const highlight of aiSummary.highlights ?? []) {
+    addTokens(tokenizeRelevanceText(highlight), 3);
+  }
+
+  return out;
+}
+
+function scoreCourseRelevance(course: CatalogCourseEntry, weights: Map<string, number>): number {
+  if (weights.size === 0) return 0;
+
+  const courseText = [
+    course.code,
+    course.title,
+    course.description ?? "",
+    course.requirements ?? "",
+  ].join(" ");
+  const tokens = new Set(tokenizeRelevanceText(courseText));
+
+  let score = 0;
+  for (const token of tokens) {
+    score += weights.get(token) ?? 0;
+  }
+  return score;
+}
+
+function applyProgramRelevanceOrder(
+  courses: CatalogCourseEntry[],
+  aiSummary: ProgramAiRequirementsSummary | undefined
+): CatalogCourseEntry[] {
+  const weights = buildProgramRelevanceWeights(aiSummary);
+  if (weights.size === 0 || courses.length <= 1) return courses;
+
+  const ranked = courses.map((course, index) => ({
+    course,
+    index,
+    score: scoreCourseRelevance(course, weights),
+  }));
+  if (!ranked.some((entry) => entry.score > 0)) return courses;
+
+  ranked.sort((a, b) => b.score - a.score || a.index - b.index || a.course.id - b.course.id);
+  return ranked.map((entry) => entry.course);
+}
 
 export default function Catalog() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -98,9 +192,11 @@ export default function Catalog() {
   }
 
   const programId = parseInt(searchParams.get("programId") || "0", 10) || 0;
-  const programTab = (searchParams.get("programTab") as ProgramTab | null) || "required";
+  const rawProgramTab = searchParams.get("programTab");
+  const programTab: ProgramTab = canonicalizeProgramTab(rawProgramTab);
   const isProgramMode = programId > 0;
   const programIdForQueries = isProgramMode ? programId : 0;
+  const [previousByKind, setPreviousByKind] = useState<Partial<Record<ProgramSummary["kind"], ProgramSummary>>>({});
 
   const programQuery = useProgram(programIdForQueries);
   const program = programQuery.data;
@@ -111,13 +207,36 @@ export default function Catalog() {
 
   useEffect(() => {
     if (!isProgramMode) return;
-    if (searchParams.get("programTab")) return;
+    if (rawProgramTab === programTab) return;
     setSearchParams((prev) => {
-      prev.set("programTab", "required");
+      prev.set("programTab", programTab);
       return prev;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isProgramMode]);
+  }, [isProgramMode, rawProgramTab, programTab]);
+
+  useEffect(() => {
+    if (!program) return;
+    const currentSelection: ProgramSummary = {
+      id: program.id,
+      name: program.name,
+      kind: program.kind,
+      degree: program.degree,
+    };
+
+    setPreviousByKind((prev) => {
+      const existing = prev[currentSelection.kind];
+      if (
+        existing &&
+        existing.id === currentSelection.id &&
+        existing.name === currentSelection.name &&
+        existing.degree === currentSelection.degree
+      ) {
+        return prev;
+      }
+      return { ...prev, [currentSelection.kind]: currentSelection };
+    });
+  }, [program?.id, program?.name, program?.kind, program?.degree]);
 
   const handleFilterChange = useCallback(
     (key: string, value: string) => {
@@ -133,6 +252,36 @@ export default function Catalog() {
       });
     },
     [setSearchParams]
+  );
+
+  const handleProgramKindToggle = useCallback(
+    (targetKind: ProgramSummary["kind"]) => {
+      if (!program || !variants) return;
+      if (program.kind === targetKind) return;
+
+      const currentSelection: ProgramSummary = {
+        id: program.id,
+        name: program.name,
+        kind: program.kind,
+        degree: program.degree,
+      };
+
+      const pick = selectProgramVariant({
+        variants,
+        targetKind,
+        current: currentSelection,
+        previousByKind,
+      });
+      if (!pick || pick.id === program.id) return;
+
+      setPreviousByKind((prev) => ({
+        ...prev,
+        [currentSelection.kind]: currentSelection,
+        [targetKind]: pick,
+      }));
+      handleFilterChange("programId", String(pick.id));
+    },
+    [program, variants, previousByKind, handleFilterChange]
   );
 
   // Use search or browse (or program mode)
@@ -211,11 +360,14 @@ export default function Catalog() {
   }, [specialTopicCourseIds, specialTopicDetailQueries]);
 
   const courses = useMemo(
-    () =>
-      splitSpecialTopicCourses(baseCourses, specialTopicDetailsByCourseId, {
+    () => {
+      const splitCourses = splitSpecialTopicCourses(baseCourses, specialTopicDetailsByCourseId, {
         semester: filters.semester,
-      }),
-    [baseCourses, specialTopicDetailsByCourseId, filters.semester]
+      });
+      if (!isProgramMode) return splitCourses;
+      return applyProgramRelevanceOrder(splitCourses, aiSummary);
+    },
+    [baseCourses, specialTopicDetailsByCourseId, filters.semester, isProgramMode, aiSummary]
   );
 
   return (
@@ -385,17 +537,7 @@ export default function Catalog() {
                 <span className="ba-segmented-glider" aria-hidden="true" />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (program?.kind === "major") return;
-                    const pick = [...variants.majors].sort((a, b) => {
-                      const ad = (a.degree || "").toUpperCase();
-                      const bd = (b.degree || "").toUpperCase();
-                      const rank = (d: string) =>
-                        d === "BA" ? 0 : d === "BS" ? 1 : d ? 2 : 3;
-                      return rank(ad) - rank(bd) || ad.localeCompare(bd) || a.id - b.id;
-                    })[0];
-                    if (pick) handleFilterChange("programId", String(pick.id));
-                  }}
+                  onClick={() => handleProgramKindToggle("major")}
                   className={`ba-segmented-btn ba-segmented-btn-compact ${
                     program?.kind === "major" ? "ba-segmented-btn-active" : ""
                   }`}
@@ -404,11 +546,7 @@ export default function Catalog() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (program?.kind === "minor") return;
-                    const pick = [...variants.minors].sort((a, b) => a.id - b.id)[0];
-                    if (pick) handleFilterChange("programId", String(pick.id));
-                  }}
+                  onClick={() => handleProgramKindToggle("minor")}
                   className={`ba-segmented-btn ba-segmented-btn-compact ${
                     program?.kind === "minor" ? "ba-segmented-btn-active" : ""
                   }`}
