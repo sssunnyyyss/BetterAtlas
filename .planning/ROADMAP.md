@@ -23,7 +23,7 @@ Improve the catalog program filtering journey so major/minor toggles are accurat
   2. Variant selection uses deterministic matching rules (including degree preference) instead of arbitrary first-result picks.
   3. Catalog URL state (`programId`, `programTab`) remains valid and produces consistent behavior after refresh.
   4. Automated tests cover toggle selection rules and regression-prone catalog interactions.
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 01-01: Define variant-selection contract and tighten API/frontend matching logic
@@ -33,4 +33,4 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Program and Major Toggle Accuracy | 2/2 | Complete | 2026-02-26 |
+| 1. Program and Major Toggle Accuracy | 2/2 | Complete    | 2026-02-26 |
