@@ -63,6 +63,14 @@ function normalizeProgramName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
+function normalizeStrictProgramName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+function hasProgramKind(rows: Array<{ kind: string }>, kind: "major" | "minor") {
+  return rows.some((r) => r.kind === kind);
+}
+
 function requirementsToText(nodes: { nodeType: string; text: string; listLevel: number | null }[]) {
   const lines: string[] = [];
   for (const n of nodes) {
@@ -400,9 +408,14 @@ export async function getProgramVariants(programId: number) {
     .where(and(eq(programs.isActive, true), sql`${normExpr} = ${norm}`))
     .orderBy(asc(programs.kind), asc(programs.degree), asc(programs.name));
 
+  const strictName = normalizeStrictProgramName(p.name);
+  const strictRows = rows.filter((r) => normalizeStrictProgramName(r.name) === strictName);
+  const candidateRows =
+    hasProgramKind(strictRows, "major") && hasProgramKind(strictRows, "minor") ? strictRows : rows;
+
   const majors: any[] = [];
   const minors: any[] = [];
-  for (const r of rows) {
+  for (const r of candidateRows) {
     const row = { id: r.id, name: r.name, kind: r.kind as any, degree: r.degree ?? null };
     if (r.kind === "minor") minors.push(row);
     else majors.push(row);
