@@ -71,6 +71,42 @@ function hasProgramKind(rows: Array<{ kind: string }>, kind: "major" | "minor") 
   return rows.some((r) => r.kind === kind);
 }
 
+type ProgramVariantRow = {
+  id: number;
+  name: string;
+  kind: string;
+  degree: string | null;
+};
+
+function normalizeDegree(degree: string | null | undefined) {
+  const value = (degree || "").trim().toUpperCase();
+  return value ? value : null;
+}
+
+function compareProgramVariants(
+  a: { id: number; name: string; degree: string | null },
+  b: { id: number; name: string; degree: string | null },
+  preferredDegree: string | null
+) {
+  const aExact = normalizeDegree(a.degree) === preferredDegree ? 0 : 1;
+  const bExact = normalizeDegree(b.degree) === preferredDegree ? 0 : 1;
+  if (aExact !== bExact) return aExact - bExact;
+
+  const nameCompare = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  if (nameCompare !== 0) return nameCompare;
+
+  const degreeCompare = (normalizeDegree(a.degree) || "").localeCompare(normalizeDegree(b.degree) || "");
+  if (degreeCompare !== 0) return degreeCompare;
+
+  return a.id - b.id;
+}
+
+function sortProgramVariants(rows: ProgramVariantRow[], preferredDegree: string | null) {
+  return [...rows]
+    .map((r) => ({ id: r.id, name: r.name, kind: r.kind as any, degree: r.degree ?? null }))
+    .sort((a, b) => compareProgramVariants(a, b, preferredDegree));
+}
+
 function requirementsToText(nodes: { nodeType: string; text: string; listLevel: number | null }[]) {
   const lines: string[] = [];
   for (const n of nodes) {
@@ -97,19 +133,31 @@ function requirementsToText(nodes: { nodeType: string; text: string; listLevel: 
 
 export async function listPrograms(query: ProgramsQuery) {
   const { q, limit } = query;
-  const base = db
+  const nameOrderExpr = sql<string>`lower(trim(${programs.name}))`;
+  const kindOrderExpr =
+    sql<number>`case when ${programs.kind} = 'major' then 0 when ${programs.kind} = 'minor' then 1 else 2 end`;
+  const degreeNullOrderExpr = sql<number>`case when ${programs.degree} is null then 1 else 0 end`;
+  const degreeOrderExpr = sql<string>`lower(coalesce(trim(${programs.degree}), ''))`;
+
+  const conditions = [eq(programs.isActive, true)];
+  if (q) conditions.push(ilike(programs.name, `%${q}%`));
+
+  const rows = await db
     .select({
       id: programs.id,
       name: programs.name,
       kind: programs.kind,
       degree: programs.degree,
     })
-    .from(programs);
-
-  const qy = q ? base.where(ilike(programs.name, `%${q}%`)) : base;
-
-  const rows = await qy
-    .orderBy(asc(programs.name), asc(programs.kind), asc(programs.degree))
+    .from(programs)
+    .where(and(...conditions))
+    .orderBy(
+      asc(nameOrderExpr),
+      asc(kindOrderExpr),
+      asc(degreeNullOrderExpr),
+      asc(degreeOrderExpr),
+      asc(programs.id)
+    )
     .limit(limit);
 
   return rows.map((r) => ({
@@ -387,7 +435,7 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
 
 export async function getProgramVariants(programId: number) {
   const [p] = await db
-    .select({ id: programs.id, name: programs.name })
+    .select({ id: programs.id, name: programs.name, degree: programs.degree })
     .from(programs)
     .where(eq(programs.id, programId))
     .limit(1);
@@ -413,15 +461,21 @@ export async function getProgramVariants(programId: number) {
   const candidateRows =
     hasProgramKind(strictRows, "major") && hasProgramKind(strictRows, "minor") ? strictRows : rows;
 
-  const majors: any[] = [];
-  const minors: any[] = [];
+  const preferredDegree = normalizeDegree(p.degree ?? null);
+  const majors: ProgramVariantRow[] = [];
+  const minors: ProgramVariantRow[] = [];
   for (const r of candidateRows) {
-    const row = { id: r.id, name: r.name, kind: r.kind as any, degree: r.degree ?? null };
+    const row = { id: r.id, name: r.name, kind: r.kind, degree: r.degree ?? null };
     if (r.kind === "minor") minors.push(row);
     else majors.push(row);
   }
 
-  return { programId, name: p.name, majors, minors };
+  return {
+    programId,
+    name: p.name,
+    majors: sortProgramVariants(majors, preferredDegree),
+    minors: sortProgramVariants(minors, preferredDegree),
+  };
 }
 
 // OpenAI Structured Output schema for program requirement summaries.
