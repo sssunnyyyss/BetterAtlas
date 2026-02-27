@@ -157,5 +157,5 @@ export function resetVisualViewport(): void {
     return;
   }
 
-  delete (window as Window & { visualViewport?: VisualViewport }).visualViewport;
+  Reflect.deleteProperty(window, "visualViewport");
 }

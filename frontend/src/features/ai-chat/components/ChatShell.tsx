@@ -5,6 +5,7 @@ type ChatShellProps = {
   header: ReactNode;
   feed: ReactNode;
   composer: ReactNode;
+  composerInset?: number;
 };
 
 export type ChatShellVariant = "standalone" | "embedded";
@@ -14,6 +15,7 @@ export function ChatShell({
   header,
   feed,
   composer,
+  composerInset = 0,
 }: ChatShellProps) {
   return (
     <div
@@ -30,7 +32,16 @@ export function ChatShell({
       <div className="min-h-0 flex-1" data-testid="chat-zone-feed">
         {feed}
       </div>
-      <div className="shrink-0" data-testid="chat-zone-composer">
+      <div
+        className="shrink-0 transition-[padding] duration-150"
+        data-testid="chat-zone-composer"
+        data-keyboard-inset={composerInset}
+        style={
+          composerInset > 0
+            ? { paddingBottom: `${composerInset}px` }
+            : undefined
+        }
+      >
         {composer}
       </div>
     </div>

@@ -34,12 +34,16 @@ export function ChatComposer({
   }, [textareaRef, value]);
 
   return (
-    <div className="shrink-0 border-t border-gray-200 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+    <div
+      className="shrink-0 border-t border-gray-200 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3"
+      data-testid="chat-composer-shell"
+    >
       <div
         className={`rounded-2xl border shadow-sm transition-all focus-within:ring-2 ${requestToneClassName}`}
       >
         <div className="flex items-end gap-2 p-2">
           <textarea
+            data-testid="chat-composer-textarea"
             ref={textareaRef}
             value={value}
             onChange={(event) => onValueChange(event.target.value)}
@@ -56,6 +60,7 @@ export function ChatComposer({
             className="ba-chat-composer-textarea max-h-[150px] flex-1 border-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400"
           />
           <button
+            data-testid="chat-composer-send"
             type="button"
             onClick={onSubmit}
             disabled={!value.trim() || isSending}
