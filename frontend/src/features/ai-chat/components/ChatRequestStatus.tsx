@@ -8,6 +8,7 @@ type ChatRequestStatusProps = {
   requestState: ChatRequestState;
   requestLifecycle?: ChatRequestLifecycle;
   prefersReducedMotion: boolean;
+  onRetry?: () => void;
 };
 
 function SendingIcon({ prefersReducedMotion }: { prefersReducedMotion: boolean }) {
@@ -78,6 +79,7 @@ export function ChatRequestStatus({
   requestState,
   requestLifecycle,
   prefersReducedMotion,
+  onRetry,
 }: ChatRequestStatusProps) {
   if (requestState === "idle") {
     return null;
@@ -90,6 +92,10 @@ export function ChatRequestStatus({
     requestLifecycle.lastErrorMessage.trim().length > 0
       ? requestLifecycle.lastErrorMessage
       : token.label;
+  const canRetry =
+    requestState === "error" &&
+    typeof onRetry === "function" &&
+    requestLifecycle?.lastFailedPromptPayload != null;
 
   return (
     <div
@@ -110,6 +116,16 @@ export function ChatRequestStatus({
           {label}
         </p>
       </div>
+      {canRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-2 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-50"
+          data-testid="chat-request-retry"
+        >
+          Retry last request
+        </button>
+      )}
     </div>
   );
 }

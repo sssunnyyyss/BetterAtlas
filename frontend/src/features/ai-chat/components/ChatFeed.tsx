@@ -16,13 +16,21 @@ import { ChatRequestStatus } from "./ChatRequestStatus.js";
 const AUTO_SCROLL_NEAR_BOTTOM_THRESHOLD_PX = 96;
 const SEND_INTENT_REASONS = new Set(["send", "retry", "deep-link"]);
 
+export type ChatStarterChip = {
+  id: string;
+  label: string;
+  prompt: string;
+  category?: string;
+};
+
 type ChatFeedProps = {
   turns: ChatTurn[];
   requestState: ChatRequestState;
   requestLifecycle?: ChatRequestLifecycle;
   prefersReducedMotion: boolean;
-  suggestionChips: readonly string[];
+  suggestionChips: readonly ChatStarterChip[];
   onSuggestionSelect: (prompt: string) => void;
+  onRetry?: () => void;
   endRef: MutableRefObject<HTMLDivElement | null>;
 };
 
@@ -33,6 +41,7 @@ export function ChatFeed({
   prefersReducedMotion,
   suggestionChips,
   onSuggestionSelect,
+  onRetry,
   endRef,
 }: ChatFeedProps) {
   const hasTurns = turns.length > 0;
@@ -122,12 +131,18 @@ export function ChatFeed({
           <div className="grid w-full max-w-sm grid-cols-1 gap-2 sm:grid-cols-2">
             {suggestionChips.map((chip) => (
               <button
-                key={chip}
+                key={chip.id}
                 type="button"
-                onClick={() => onSuggestionSelect(chip)}
+                onClick={() => onSuggestionSelect(chip.prompt)}
+                data-testid={`chat-starter-chip-${chip.id}`}
                 className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left text-sm text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
               >
-                {chip}
+                <span>{chip.label}</span>
+                {chip.category && (
+                  <span className="mt-0.5 block text-xs font-medium uppercase tracking-wide text-gray-400">
+                    {chip.category}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -161,6 +176,7 @@ export function ChatFeed({
             requestState={requestState}
             requestLifecycle={requestLifecycle}
             prefersReducedMotion={prefersReducedMotion}
+            onRetry={onRetry}
           />
 
           <div ref={endRef} />

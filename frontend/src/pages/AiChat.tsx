@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChatComposer } from "../features/ai-chat/components/ChatComposer.js";
+import type { ChatStarterChip } from "../features/ai-chat/components/ChatFeed.js";
 import { ChatFeed } from "../features/ai-chat/components/ChatFeed.js";
 import { ChatHeader } from "../features/ai-chat/components/ChatHeader.js";
 import { ChatShell } from "../features/ai-chat/components/ChatShell.js";
@@ -10,11 +11,31 @@ type AiChatProps = {
   embedded?: boolean;
 };
 
-const SUGGESTION_CHIPS = [
-  "Find easy GER classes",
-  "Help me plan next semester",
-  "Best CS classes",
-  "Low-workload electives",
+const SUGGESTION_CHIPS: readonly ChatStarterChip[] = [
+  {
+    id: "ger-easy",
+    label: "Easy GER Options",
+    prompt: "Find easy GER classes with lighter workload.",
+    category: "Onboarding",
+  },
+  {
+    id: "next-semester",
+    label: "Plan Next Semester",
+    prompt: "Help me plan a balanced schedule for next semester.",
+    category: "Planning",
+  },
+  {
+    id: "cs-picks",
+    label: "Top CS Classes",
+    prompt: "Recommend strong CS classes based on practical value.",
+    category: "Major",
+  },
+  {
+    id: "low-workload",
+    label: "Low-workload Electives",
+    prompt: "Suggest low-workload electives that still count for credit.",
+    category: "Elective",
+  },
 ] as const;
 
 function usePrefersReducedMotion() {
@@ -63,6 +84,7 @@ export default function AiChat({ embedded = false }: AiChatProps) {
     setDraft,
     sendPrompt,
     sendDraft,
+    retryLastPrompt,
     resetChat,
   } = useChatSession();
 
@@ -87,6 +109,7 @@ export default function AiChat({ embedded = false }: AiChatProps) {
             prefersReducedMotion={prefersReducedMotion}
             suggestionChips={SUGGESTION_CHIPS}
             onSuggestionSelect={sendPrompt}
+            onRetry={retryLastPrompt}
             endRef={messagesEndRef}
           />
         }
