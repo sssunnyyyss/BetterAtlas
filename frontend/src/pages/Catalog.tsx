@@ -371,7 +371,7 @@ export default function Catalog() {
   );
 
   return (
-    <div className="flex min-h-[calc(100vh-4rem)]" data-tour-id="catalog-search-filters">
+    <div className="flex min-h-[calc(100dvh-4rem)]" data-tour-id="catalog-search-filters">
       <Sidebar>
         <CourseFilters
           filters={filters}
@@ -389,7 +389,7 @@ export default function Catalog() {
         />
       </Sidebar>
 
-      <main className="flex-1 p-4 sm:p-6">
+      <main className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
         <div className="mb-3 flex items-center justify-start">
           <div
             className="ba-segmented"
@@ -421,7 +421,7 @@ export default function Catalog() {
         </div>
 
         {mode === "ai" ? (
-          <div className="ba-ai-expand-in h-[calc(100vh-9rem)] w-full">
+          <div className="ba-ai-expand-in flex min-h-[24rem] flex-1 overflow-hidden">
             <AiChat embedded />
           </div>
         ) : (

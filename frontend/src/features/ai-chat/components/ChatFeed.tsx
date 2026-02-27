@@ -22,9 +22,9 @@ export function ChatFeed({
   const hasTurns = turns.length > 0;
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-4">
+    <div className="h-full min-h-0 overflow-y-auto px-4 py-4">
       {!hasTurns ? (
-        <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+        <div className="flex min-h-full flex-col items-center justify-center px-4 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-100">
             <svg
               className="h-8 w-8 text-primary-600"

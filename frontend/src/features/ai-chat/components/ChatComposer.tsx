@@ -34,7 +34,7 @@ export function ChatComposer({
   }, [textareaRef, value]);
 
   return (
-    <div className="border-t border-gray-200 bg-white px-4 pb-4 pt-3">
+    <div className="shrink-0 border-t border-gray-200 bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
       <div
         className={`rounded-2xl border shadow-sm transition-all focus-within:ring-2 ${requestToneClassName}`}
       >

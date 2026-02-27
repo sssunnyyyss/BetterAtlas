@@ -31,28 +31,36 @@ export default function AiChat({ embedded = false }: AiChatProps) {
   } = useChatSession();
 
   return (
-    <ChatShell
-      mode={embedded ? "embedded" : "standalone"}
-      header={<ChatHeader hasTurns={hasTurns} onReset={resetChat} />}
-      feed={
-        <ChatFeed
-          turns={turns}
-          requestState={requestState}
-          suggestionChips={SUGGESTION_CHIPS}
-          onSuggestionSelect={sendPrompt}
-          endRef={messagesEndRef}
-        />
+    <div
+      className={
+        embedded
+          ? "flex h-full min-h-0 w-full"
+          : "flex min-h-[calc(100dvh-4rem)] w-full px-3 py-3 sm:px-6 sm:py-5"
       }
-      composer={
-        <ChatComposer
-          value={draft}
-          requestState={requestState}
-          isSending={isSending}
-          textareaRef={textareaRef}
-          onValueChange={setDraft}
-          onSubmit={sendDraft}
-        />
-      }
-    />
+    >
+      <ChatShell
+        variant={embedded ? "embedded" : "standalone"}
+        header={<ChatHeader hasTurns={hasTurns} onReset={resetChat} />}
+        feed={
+          <ChatFeed
+            turns={turns}
+            requestState={requestState}
+            suggestionChips={SUGGESTION_CHIPS}
+            onSuggestionSelect={sendPrompt}
+            endRef={messagesEndRef}
+          />
+        }
+        composer={
+          <ChatComposer
+            value={draft}
+            requestState={requestState}
+            isSending={isSending}
+            textareaRef={textareaRef}
+            onValueChange={setDraft}
+            onSubmit={sendDraft}
+          />
+        }
+      />
+    </div>
   );
 }

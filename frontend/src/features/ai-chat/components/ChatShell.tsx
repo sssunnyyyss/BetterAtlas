@@ -1,30 +1,38 @@
 import type { ReactNode } from "react";
-import type { ChatShellMode } from "../model/chatTypes.js";
 
 type ChatShellProps = {
-  mode?: ChatShellMode;
+  variant?: ChatShellVariant;
   header: ReactNode;
   feed: ReactNode;
   composer: ReactNode;
 };
 
+export type ChatShellVariant = "standalone" | "embedded";
+
 export function ChatShell({
-  mode = "standalone",
+  variant = "standalone",
   header,
   feed,
   composer,
 }: ChatShellProps) {
   return (
     <div
+      data-testid={`chat-shell-${variant}`}
       className={
-        mode === "embedded"
-          ? "flex h-full w-full flex-col bg-white"
-          : "mx-auto flex h-[calc(100vh-4rem)] w-full max-w-3xl flex-col bg-white"
+        variant === "embedded"
+          ? "flex h-full min-h-0 w-full flex-col overflow-hidden bg-white"
+          : "mx-auto flex h-full min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm"
       }
     >
-      <div className="shrink-0">{header}</div>
-      <div className="min-h-0 flex-1">{feed}</div>
-      <div className="shrink-0">{composer}</div>
+      <div className="shrink-0" data-testid="chat-zone-header">
+        {header}
+      </div>
+      <div className="min-h-0 flex-1" data-testid="chat-zone-feed">
+        {feed}
+      </div>
+      <div className="shrink-0" data-testid="chat-zone-composer">
+        {composer}
+      </div>
     </div>
   );
 }
