@@ -1,66 +1,18 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import {
-  useAiCourseRecommendations,
-  type AiMessage,
-  type AiCourseRecommendation,
-  type AiPreferenceCourse,
-} from "../hooks/useAi.js";
+import { useEffect } from "react";
+import { Link } from "react-router-dom";
+import type { AiCourseRecommendation } from "../hooks/useAi.js";
+import { useChatSession } from "../features/ai-chat/hooks/useChatSession.js";
 
 type AiChatProps = {
   embedded?: boolean;
 };
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type ChatMessage =
-  | { role: "user"; content: string }
-  | {
-      role: "assistant";
-      content: string;
-      recommendations: AiCourseRecommendation[];
-      followUp: string | null;
-    };
-
-const PREFERENCES_KEY = "betteratlas.ai.preferences.v1";
-
-type StoredPreferences = {
-  liked: AiPreferenceCourse[];
-  disliked: AiPreferenceCourse[];
-};
-
-// ---------------------------------------------------------------------------
-// Suggestion chips shown on the welcome screen
-// ---------------------------------------------------------------------------
 
 const SUGGESTION_CHIPS = [
   "Find easy GER classes",
   "Help me plan next semester",
   "Best CS classes",
   "Low-workload electives",
-];
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function loadPreferences(): StoredPreferences {
-  try {
-    const raw = localStorage.getItem(PREFERENCES_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as StoredPreferences;
-      return {
-        liked: Array.isArray(parsed.liked) ? parsed.liked : [],
-        disliked: Array.isArray(parsed.disliked) ? parsed.disliked : [],
-      };
-    }
-  } catch {
-    // ignore
-  }
-  return { liked: [], disliked: [] };
-}
+] as const;
 
 function fitScoreColor(score: number): string {
   if (score >= 8) return "bg-green-100 text-green-800";
@@ -73,46 +25,43 @@ function formatRating(value: number | null | undefined): string {
   return value.toFixed(1);
 }
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
 function TypingIndicator() {
   return (
-    <div className="flex items-start gap-2 mb-4">
-      <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[80%]">
+    <div className="mb-4 flex items-start gap-2">
+      <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-gray-200 bg-gray-50 px-4 py-3">
         <div className="flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce [animation-delay:0ms]" />
-          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce [animation-delay:150ms]" />
-          <span className="w-2 h-2 rounded-full bg-gray-400 animate-bounce [animation-delay:300ms]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:0ms]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
         </div>
       </div>
     </div>
   );
 }
 
-function CourseCard({ rec }: { rec: AiCourseRecommendation }) {
-  const { course, fitScore, why } = rec;
+function CourseCard({ recommendation }: { recommendation: AiCourseRecommendation }) {
+  const { course, fitScore, why } = recommendation;
+
   return (
     <Link
       to={`/catalog/${course.id}`}
-      className="block border border-gray-200 rounded-xl p-3 hover:border-primary-400 hover:shadow-sm transition-all bg-white"
+      className="block rounded-xl border border-gray-200 bg-white p-3 transition-all hover:border-primary-400 hover:shadow-sm"
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-gray-900 truncate">
+          <p className="truncate text-sm font-semibold text-gray-900">
             {course.code}
           </p>
-          <p className="text-sm text-gray-600 truncate">{course.title}</p>
+          <p className="truncate text-sm text-gray-600">{course.title}</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex shrink-0 items-center gap-2">
           {course.classScore != null && (
             <span className="text-xs text-gray-500">
               ★ {formatRating(course.classScore)}
             </span>
           )}
           <span
-            className={`text-xs font-medium px-2 py-0.5 rounded-full ${fitScoreColor(fitScore)}`}
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${fitScoreColor(fitScore)}`}
           >
             {fitScore}/10
           </span>
@@ -120,9 +69,12 @@ function CourseCard({ rec }: { rec: AiCourseRecommendation }) {
       </div>
       {why.length > 0 && (
         <ul className="mt-1.5 space-y-0.5">
-          {why.slice(0, 2).map((reason, i) => (
-            <li key={i} className="text-xs text-gray-500 flex items-start gap-1">
-              <span className="shrink-0 mt-0.5">•</span>
+          {why.slice(0, 2).map((reason, index) => (
+            <li
+              key={`${reason}-${index}`}
+              className="flex items-start gap-1 text-xs text-gray-500"
+            >
+              <span className="mt-0.5 shrink-0">•</span>
               <span>{reason}</span>
             </li>
           ))}
@@ -134,8 +86,8 @@ function CourseCard({ rec }: { rec: AiCourseRecommendation }) {
 
 function ErrorBubble() {
   return (
-    <div className="flex items-start gap-2 mb-4">
-      <div className="bg-red-50 border border-red-200 rounded-2xl rounded-tl-sm px-4 py-3 max-w-[80%]">
+    <div className="mb-4 flex items-start gap-2">
+      <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-red-200 bg-red-50 px-4 py-3">
         <p className="text-sm text-red-700">
           Something went wrong. Please try again.
         </p>
@@ -144,160 +96,28 @@ function ErrorBubble() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
-
 export default function AiChat({ embedded = false }: AiChatProps) {
-  // State
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
-  const [aiMessages, setAiMessages] = useState<AiMessage[]>([]);
-  const [showError, setShowError] = useState(false);
-
-  // Preferences from localStorage
-  const [likedCourses] = useState<AiPreferenceCourse[]>(
-    () => loadPreferences().liked,
-  );
-  const [dislikedCourses] = useState<AiPreferenceCourse[]>(
-    () => loadPreferences().disliked,
-  );
-
-  // Refs
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Mutation
-  const aiRec = useAiCourseRecommendations();
-
-  // Auto-scroll on new messages or when loading
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, aiRec.isPending]);
-
-  // Auto-resize textarea
-  const resizeTextarea = useCallback(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    ta.style.height = "auto";
-    ta.style.height = `${Math.min(ta.scrollHeight, 150)}px`;
-  }, []);
+  const {
+    turns,
+    draft,
+    requestState,
+    isSending,
+    hasTurns,
+    messagesEndRef,
+    textareaRef,
+    setDraft,
+    sendPrompt,
+    sendDraft,
+    resetChat,
+  } = useChatSession();
 
   useEffect(() => {
-    resizeTextarea();
-  }, [input, resizeTextarea]);
+    const textarea = textareaRef.current;
+    if (!textarea) return;
 
-  // -----------------------------------------------------------------------
-  // sendMessage
-  // -----------------------------------------------------------------------
-
-  const sendMessage = useCallback(
-    (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-
-      setShowError(false);
-
-      // Add user message to display
-      const userMsg: ChatMessage = { role: "user", content: trimmed };
-      setMessages((prev) => [...prev, userMsg]);
-
-      // Clear input & reset textarea
-      setInput("");
-      if (textareaRef.current) {
-        textareaRef.current.style.height = "auto";
-      }
-
-      // Build API messages (keep last 12)
-      const newAiMessages: AiMessage[] = [
-        ...aiMessages,
-        { role: "user" as const, content: trimmed },
-      ].slice(-12);
-      setAiMessages(newAiMessages);
-
-      // Call API
-      aiRec.mutate(
-        {
-          messages: newAiMessages,
-          preferences:
-            likedCourses.length > 0 || dislikedCourses.length > 0
-              ? { liked: likedCourses, disliked: dislikedCourses }
-              : undefined,
-        },
-        {
-          onSuccess: (data) => {
-            const assistantMsg: ChatMessage = {
-              role: "assistant",
-              content: data.assistantMessage,
-              recommendations: data.recommendations,
-              followUp: data.followUpQuestion,
-            };
-            setMessages((prev) => [...prev, assistantMsg]);
-            setAiMessages((prev) => [
-              ...prev,
-              { role: "assistant" as const, content: data.assistantMessage },
-            ]);
-          },
-          onError: () => {
-            setShowError(true);
-          },
-        },
-      );
-    },
-    [aiMessages, aiRec, likedCourses, dislikedCourses],
-  );
-
-  // -----------------------------------------------------------------------
-  // Deep-link: auto-send ?prompt= query param as first message
-  // -----------------------------------------------------------------------
-
-  const [searchParams] = useSearchParams();
-
-  useEffect(() => {
-    const prompt = searchParams.get("prompt")?.trim();
-    if (prompt && messages.length === 0) {
-      sendMessage(prompt);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-focus textarea on desktop (avoid mobile keyboard popup)
-  useEffect(() => {
-    if (window.innerWidth >= 640) {
-      textareaRef.current?.focus();
-    }
-  }, []);
-
-  // -----------------------------------------------------------------------
-  // resetChat
-  // -----------------------------------------------------------------------
-
-  const resetChat = useCallback(() => {
-    setMessages([]);
-    setAiMessages([]);
-    setInput("");
-    setShowError(false);
-    aiRec.mutate({ reset: true });
-  }, [aiRec]);
-
-  // -----------------------------------------------------------------------
-  // Input handlers
-  // -----------------------------------------------------------------------
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (!aiRec.isPending && input.trim()) {
-        sendMessage(input);
-      }
-    }
-  };
-
-  // -----------------------------------------------------------------------
-  // Render
-  // -----------------------------------------------------------------------
-
-  const hasMessages = messages.length > 0;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 150)}px`;
+  }, [draft, textareaRef]);
 
   return (
     <div
@@ -307,48 +127,17 @@ export default function AiChat({ embedded = false }: AiChatProps) {
           : "mx-auto flex h-[calc(100vh-4rem)] w-full max-w-3xl flex-col bg-white"
       }
     >
-      {/* ---- Chat header ---- */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-primary-100 flex items-center justify-center">
-            <svg
-              className="w-5 h-5 text-primary-600"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={1.5}
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"
-              />
-            </svg>
-          </div>
-          <h1 className="text-lg font-semibold text-gray-900">Atlas AI</h1>
-        </div>
-        {hasMessages && (
-          <button
-            onClick={resetChat}
-            className="text-sm text-gray-500 hover:text-gray-700 transition-colors"
-          >
-            New chat
-          </button>
-        )}
-      </div>
-
-      {/* ---- Message area ---- */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
-        {!hasMessages ? (
-          /* ---- Welcome screen ---- */
-          <div className="flex flex-col items-center justify-center h-full text-center px-4">
-            <div className="w-14 h-14 rounded-2xl bg-primary-100 flex items-center justify-center mb-4">
+      <div className="shrink-0 border-b border-gray-200 px-4 py-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-100">
               <svg
-                className="w-8 h-8 text-primary-600"
+                className="h-5 w-5 text-primary-600"
                 fill="none"
                 viewBox="0 0 24 24"
                 strokeWidth={1.5}
                 stroke="currentColor"
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -357,19 +146,53 @@ export default function AiChat({ embedded = false }: AiChatProps) {
                 />
               </svg>
             </div>
-            <h2 className="text-xl sm:text-2xl font-semibold text-gray-900 mb-2">
+            <h1 className="text-lg font-semibold text-gray-900">Atlas AI</h1>
+          </div>
+          {hasTurns && (
+            <button
+              type="button"
+              onClick={resetChat}
+              className="text-sm text-gray-500 transition-colors hover:text-gray-700"
+            >
+              New chat
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {!hasTurns ? (
+          <div className="flex h-full flex-col items-center justify-center px-4 text-center">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-100">
+              <svg
+                className="h-8 w-8 text-primary-600"
+                fill="none"
+                viewBox="0 0 24 24"
+                strokeWidth={1.5}
+                stroke="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z"
+                />
+              </svg>
+            </div>
+            <h2 className="mb-2 text-xl font-semibold text-gray-900 sm:text-2xl">
               Atlas AI
             </h2>
-            <p className="text-gray-500 text-sm max-w-sm mb-8">
-              I can help you find the perfect classes. Tell me what you're
+            <p className="mb-8 max-w-sm text-sm text-gray-500">
+              I can help you find the perfect classes. Tell me what you&apos;re
               looking for, or try one of the suggestions below.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-sm w-full">
+            <div className="grid w-full max-w-sm grid-cols-1 gap-2 sm:grid-cols-2">
               {SUGGESTION_CHIPS.map((chip) => (
                 <button
                   key={chip}
-                  onClick={() => sendMessage(chip)}
-                  className="text-sm text-left px-3 py-2.5 rounded-xl border border-gray-200 bg-white hover:border-primary-300 hover:bg-primary-50 transition-colors text-gray-700"
+                  type="button"
+                  onClick={() => sendPrompt(chip)}
+                  className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-left text-sm text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
                 >
                   {chip}
                 </button>
@@ -377,43 +200,46 @@ export default function AiChat({ embedded = false }: AiChatProps) {
             </div>
           </div>
         ) : (
-          /* ---- Message list ---- */
           <div className="space-y-4">
-            {messages.map((msg, idx) =>
-              msg.role === "user" ? (
-                /* User message */
-                <div key={idx} className="flex justify-end animate-[ba-fade-in-up_0.2s_ease-out]">
-                  <div className="bg-primary-600 text-white rounded-2xl rounded-br-sm px-4 py-2.5 max-w-[90%] sm:max-w-[80%]">
-                    <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+            {turns.map((turn) =>
+              turn.role === "user" ? (
+                <div
+                  key={turn.id}
+                  className="flex justify-end animate-[ba-fade-in-up_0.2s_ease-out]"
+                >
+                  <div className="max-w-[90%] rounded-2xl rounded-br-sm bg-primary-600 px-4 py-2.5 text-white sm:max-w-[80%]">
+                    <p className="whitespace-pre-wrap text-sm">{turn.content}</p>
                   </div>
                 </div>
               ) : (
-                /* Assistant message */
-                <div key={idx} className="space-y-2 animate-[ba-fade-in-up_0.2s_ease-out]">
-                  {/* Main text */}
+                <div
+                  key={turn.id}
+                  className="space-y-2 animate-[ba-fade-in-up_0.2s_ease-out]"
+                >
                   <div className="flex items-start gap-2">
-                    <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[95%] sm:max-w-[85%]">
-                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
-                        {msg.content}
+                    <div className="max-w-[95%] rounded-2xl rounded-tl-sm border border-gray-200 bg-gray-50 px-4 py-2.5 sm:max-w-[85%]">
+                      <p className="whitespace-pre-wrap text-sm text-gray-800">
+                        {turn.content}
                       </p>
                     </div>
                   </div>
 
-                  {/* Course cards */}
-                  {msg.recommendations.length > 0 && (
-                    <div className="pl-0 grid gap-2 sm:grid-cols-2 max-w-[95%] sm:max-w-[85%]">
-                      {msg.recommendations.map((rec) => (
-                        <CourseCard key={rec.course.id} rec={rec} />
+                  {turn.recommendations.length > 0 && (
+                    <div className="grid max-w-[95%] gap-2 sm:max-w-[85%] sm:grid-cols-2">
+                      {turn.recommendations.map((recommendation) => (
+                        <CourseCard
+                          key={recommendation.course.id}
+                          recommendation={recommendation}
+                        />
                       ))}
                     </div>
                   )}
 
-                  {/* Follow-up question */}
-                  {msg.followUp && (
+                  {turn.followUp && (
                     <div className="flex items-start gap-2">
-                      <div className="bg-gray-50 border border-gray-200 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-[95%] sm:max-w-[85%]">
-                        <p className="text-sm text-gray-600 italic">
-                          {msg.followUp}
+                      <div className="max-w-[95%] rounded-2xl rounded-tl-sm border border-gray-200 bg-gray-50 px-4 py-2.5 sm:max-w-[85%]">
+                        <p className="text-sm italic text-gray-600">
+                          {turn.followUp}
                         </p>
                       </div>
                     </div>
@@ -422,41 +248,47 @@ export default function AiChat({ embedded = false }: AiChatProps) {
               ),
             )}
 
-            {/* Typing indicator */}
-            {aiRec.isPending && <TypingIndicator />}
-
-            {/* Error state */}
-            {showError && <ErrorBubble />}
+            {isSending && <TypingIndicator />}
+            {requestState === "error" && <ErrorBubble />}
 
             <div ref={messagesEndRef} />
           </div>
         )}
       </div>
 
-      {/* ---- Input area ---- */}
       <div className="shrink-0 px-4 pb-4 pt-2">
-        <div className="bg-gray-50 border border-gray-200 rounded-2xl focus-within:border-primary-400 focus-within:ring-2 focus-within:ring-primary-100 transition-all">
+        <div className="rounded-2xl border border-gray-200 bg-gray-50 transition-all focus-within:border-primary-400 focus-within:ring-2 focus-within:ring-primary-100">
           <div className="flex items-end gap-2 p-2">
             <textarea
               ref={textareaRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  if (!isSending && draft.trim()) {
+                    sendDraft();
+                  }
+                }
+              }}
               placeholder="Ask about classes..."
               rows={1}
-              className="flex-1 resize-none bg-transparent border-none outline-none text-sm text-gray-900 placeholder:text-gray-400 px-2 py-1.5 max-h-[150px]"
+              className="max-h-[150px] flex-1 resize-none border-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400"
             />
             <button
-              onClick={() => sendMessage(input)}
-              disabled={!input.trim() || aiRec.isPending}
-              className="shrink-0 w-8 h-8 rounded-lg bg-primary-600 text-white flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary-700 transition-colors"
+              type="button"
+              onClick={sendDraft}
+              disabled={!draft.trim() || isSending}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Send message"
             >
               <svg
-                className="w-4 h-4"
+                className="h-4 w-4"
                 fill="none"
                 viewBox="0 0 24 24"
                 strokeWidth={2}
                 stroke="currentColor"
+                aria-hidden="true"
               >
                 <path
                   strokeLinecap="round"
@@ -467,7 +299,7 @@ export default function AiChat({ embedded = false }: AiChatProps) {
             </button>
           </div>
         </div>
-        <p className="text-xs text-gray-400 text-center mt-2">
+        <p className="mt-2 text-center text-xs text-gray-400">
           AI results can be inaccurate. Always verify course details in the
           catalog.
         </p>
