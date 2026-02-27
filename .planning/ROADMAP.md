@@ -40,7 +40,7 @@
 4. Core layout works at target mobile and desktop breakpoints without overlap/clipping.
 
 Plans:
-- [ ] 02-01: Refactor AI chat route into composable layout/message/composer primitives
+- [x] 02-01: Refactor AI chat route into composable layout/message/composer primitives (completed 2026-02-27)
 - [ ] 02-02: Implement redesigned visual hierarchy and state presentation
 - [ ] 02-03: Validate responsive foundations across primary breakpoints
 
@@ -84,11 +84,11 @@ Plans:
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
 | v1.0 Program Toggle Accuracy | 1 | 2/2 | Complete | 2026-02-26 |
-| v1.1 AI Chat Experience Redesign | 3 | 0/9 | In Progress | — |
+| v1.1 AI Chat Experience Redesign | 3 | 1/9 | In Progress | — |
 
 ## Next Up
 
-Run `$gsd-discuss-phase 2` to gather context and sharpen implementation details before planning.
+Run `02-02-PLAN.md` to apply the redesigned visual hierarchy and explicit state presentation on top of the new foundation primitives.
 
 ---
-*Last updated: 2026-02-27 after creating roadmap for milestone v1.1*
+*Last updated: 2026-02-27 after completing plan 02-01 for milestone v1.1*

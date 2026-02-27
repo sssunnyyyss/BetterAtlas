@@ -9,7 +9,7 @@ Requirements for the AI chat redesign milestone. Each requirement maps to exactl
 
 ### Chat Surface & Visual System
 
-- [ ] **AIUI-01**: User can immediately identify the AI chat page's primary zones (context/header, conversation feed, composer) without ambiguity.
+- [x] **AIUI-01**: User can immediately identify the AI chat page's primary zones (context/header, conversation feed, composer) without ambiguity.
 - [ ] **AIUI-02**: User can clearly distinguish user messages from assistant messages through consistent visual hierarchy.
 - [ ] **AIUI-03**: User can see explicit status feedback for waiting, success, and failure states during AI interactions.
 - [ ] **AIUI-04**: User can use the redesigned AI chat layout across mobile and desktop breakpoints without clipping/overlap.
@@ -57,7 +57,7 @@ Deferred to future milestones.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AIUI-01 | Phase 2 | Pending |
+| AIUI-01 | Phase 2 | Complete (02-01) |
 | AIUI-02 | Phase 2 | Pending |
 | AIUI-03 | Phase 2 | Pending |
 | AIUI-04 | Phase 2 | Pending |
@@ -80,4 +80,4 @@ Deferred to future milestones.
 
 ---
 *Requirements defined: 2026-02-27*
-*Last updated: 2026-02-27 after milestone v1.1 requirement definition*
+*Last updated: 2026-02-27 after completing plan 02-01 (AIUI-01)*
