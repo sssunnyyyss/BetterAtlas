@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: AI Chat Experience Redesign
-status: defining_requirements
+status: roadmap_ready
 last_updated: "2026-02-27T00:00:00.000Z"
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
-  total_plans: 0
+  total_plans: 9
   completed_plans: 0
 ---
 
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-02-27)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Defining v1.1 requirements for AI chat UI redesign
+**Current focus:** Phase 2 planning for AI chat UI foundation
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-02-27 - Milestone v1.1 started for AI chat UI redesign
+Phase: 2 of 4 (v1.1 starts at phase 2)
+Plan: Not started
+Status: Roadmap defined, ready for phase context and planning
+Last activity: 2026-02-27 - Created v1.1 roadmap with full requirement coverage
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -48,18 +48,20 @@ Progress: [░░░░░░░░░░] 0%
 - [Phase 01-program-and-major-toggle-accuracy]: Program-mode major/minor switching now prefers previous same-kind selections before degree-aware deterministic fallback.
 - [Phase 01-program-and-major-toggle-accuracy]: AI summary/highlights contribute bounded deterministic ranking boosts with stable fallback ordering.
 - [Milestone v1.1 kickoff]: Scope is a complete AI chat UI polish/redesign with API compatibility preserved.
+- [Milestone v1.1 roadmap]: Sequence work as foundation → interaction smoothness → cards + quality hardening.
 
 ### Pending Todos
 
-- Finalize milestone requirements and roadmap for v1.1.
+- Start phase 2 context discussion and planning.
 
 ### Blockers/Concerns
 
 - No active blockers.
 - Preserve current AI recommendation behavior while redesigning the UI.
+- Keep motion subtle and accessible to avoid performance regressions.
 
 ## Session Continuity
 
 Last session: 2026-02-27
-Stopped at: Milestone v1.1 initialized, requirements in progress
+Stopped at: Roadmap created; ready for `$gsd-discuss-phase 2`
 Resume file: None
