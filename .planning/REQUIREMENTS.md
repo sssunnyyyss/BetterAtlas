@@ -17,7 +17,7 @@ Requirements for the AI chat redesign milestone. Each requirement maps to exactl
 ### Conversation Interaction & Composer
 
 - [x] **AIXP-01**: User can compose and submit prompts using a stable input composer that remains usable when the mobile keyboard is open.
-- [ ] **AIXP-02**: User experiences smooth, deterministic transitions from prompt submission to assistant response rendering.
+- [x] **AIXP-02**: User experiences smooth, deterministic transitions from prompt submission to assistant response rendering.
 - [ ] **AIXP-03**: User can recover from failed AI requests via a visible retry path and non-destructive error feedback.
 - [ ] **AIXP-04**: User can start a conversation quickly using redesigned starter prompts/chips that seed useful first queries.
 
@@ -62,7 +62,7 @@ Deferred to future milestones.
 | AIUI-03 | Phase 2 | Complete (02-02) |
 | AIUI-04 | Phase 2 | Complete (02-03) |
 | AIXP-01 | Phase 3 | Complete (03-01) |
-| AIXP-02 | Phase 3 | Pending |
+| AIXP-02 | Phase 3 | Complete (03-02) |
 | AIXP-03 | Phase 3 | Pending |
 | AIXP-04 | Phase 3 | Pending |
 | AIRC-01 | Phase 4 | Pending |
@@ -80,4 +80,4 @@ Deferred to future milestones.
 
 ---
 *Requirements defined: 2026-02-27*
-*Last updated: 2026-02-27 after completing 03-01 (AIXP-01)*
+*Last updated: 2026-02-27 after completing 03-02 (AIXP-01, AIXP-02)*
