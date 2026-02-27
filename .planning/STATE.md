@@ -1,33 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
-milestone_name: Program Toggle Accuracy
-status: milestone_complete
-last_updated: "2026-02-26T17:12:00.000Z"
+milestone: v1.1
+milestone_name: AI Chat Experience Redesign
+status: defining_requirements
+last_updated: "2026-02-27T00:00:00.000Z"
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 2
-  completed_plans: 2
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-26)
+See: .planning/PROJECT.md (updated 2026-02-27)
 
-**Core value:** Students can coordinate course planning with friends and adjust schedules flexibly.
-**Current focus:** Planning next milestone
+**Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
+**Current focus:** Defining v1.1 requirements for AI chat UI redesign
 
 ## Current Position
 
-Phase: complete for v1.0
-Plan: complete for v1.0
-Status: Milestone complete
-Last activity: 2026-02-26 - Archived v1.0 milestone and prepared roadmap for next milestone planning
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-02-27 - Milestone v1.1 started for AI chat UI redesign
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -40,25 +40,26 @@ Progress: [██████████] 100%
 
 ### Decisions
 
-- Phase 1 will prioritize toggle correctness over broad UI redesign.
+- Phase 1 prioritized toggle correctness over broad UI redesign.
 - [Phase 01-program-and-major-toggle-accuracy]: Use trimmed/lowercased strict name matching first, with normalized fallback only when strict candidates cannot provide both kinds.
 - [Phase 01-program-and-major-toggle-accuracy]: Rank variant candidates by exact degree affinity before lexical/id tie-breakers.
 - [Phase 01-program-and-major-toggle-accuracy]: Filter listPrograms to active rows and deterministic ordering for stable catalog selection.
 - [Phase 01-program-and-major-toggle-accuracy]: Frontend selector logic is centralized in programVariantSelection utilities for options, toggles, and tab canonicalization.
 - [Phase 01-program-and-major-toggle-accuracy]: Program-mode major/minor switching now prefers previous same-kind selections before degree-aware deterministic fallback.
 - [Phase 01-program-and-major-toggle-accuracy]: AI summary/highlights contribute bounded deterministic ranking boosts with stable fallback ordering.
+- [Milestone v1.1 kickoff]: Scope is a complete AI chat UI polish/redesign with API compatibility preserved.
 
 ### Pending Todos
 
-Define and scope next milestone requirements via `$gsd-new-milestone`.
+- Finalize milestone requirements and roadmap for v1.1.
 
 ### Blockers/Concerns
 
 - No active blockers.
-- Milestone audit was skipped for v1.0; run audit-first for future milestones.
+- Preserve current AI recommendation behavior while redesigning the UI.
 
 ## Session Continuity
 
-Last session: 2026-02-26 17:12 UTC
-Stopped at: Completed v1.0 milestone archival
+Last session: 2026-02-27
+Stopped at: Milestone v1.1 initialized, requirements in progress
 Resume file: None
