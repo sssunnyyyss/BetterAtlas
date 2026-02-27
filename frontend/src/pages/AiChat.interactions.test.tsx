@@ -57,6 +57,7 @@ function createLifecycle(
     settleDeadlineAt: null,
     lastSubmittedPrompt: null,
     lastFailedPrompt: null,
+    lastFailedPromptPayload: null,
     lastErrorMessage: null,
     ...overrides,
   };
@@ -101,6 +102,7 @@ function buildSession(overrides: Partial<ChatSessionApi> = {}): ChatSessionApi {
     setDraft: overrides.setDraft ?? vi.fn(),
     sendPrompt: overrides.sendPrompt ?? vi.fn(),
     sendDraft: overrides.sendDraft ?? vi.fn(),
+    retryLastPrompt: overrides.retryLastPrompt ?? vi.fn(),
     resetChat: overrides.resetChat ?? vi.fn(),
   };
 }
@@ -402,6 +404,103 @@ describe("AiChat interactions", () => {
       expect(sendingDots.length).toBe(0);
     } finally {
       view.unmount();
+    }
+  });
+
+  it("shows retry CTA for error state and replays last failed prompt", () => {
+    const retryLastPrompt = vi.fn();
+    const view = renderAiChat({
+      sessionOverrides: {
+        requestState: "error",
+        requestLifecycle: createLifecycle({
+          transitionSequence: 12,
+          lastTransitionFrom: "sending",
+          lastTransitionTo: "error",
+          lastTransitionReason: "response-error",
+          lastFailedPrompt: "Find easy GER classes",
+          lastFailedPromptPayload: {
+            prompt: "Find easy GER classes",
+            messages: [
+              { role: "user", content: "Find easy GER classes" },
+            ],
+          },
+          lastErrorMessage: "Gateway timeout",
+        }),
+        retryLastPrompt,
+      },
+    });
+
+    try {
+      const retryButton = view.container.querySelector(
+        '[data-testid="chat-request-retry"]',
+      ) as HTMLButtonElement | null;
+      expect(retryButton).not.toBeNull();
+      expect(view.container.textContent).toContain("Gateway timeout");
+
+      act(() => {
+        retryButton?.click();
+      });
+
+      expect(retryLastPrompt).toHaveBeenCalledTimes(1);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it("shows starter chips only for zero-turn state and sends chip prompt immediately", () => {
+    const sendPrompt = vi.fn();
+    const emptyView = renderAiChat({
+      sessionOverrides: {
+        turns: [],
+        hasTurns: false,
+        requestState: "idle",
+        sendPrompt,
+      },
+    });
+
+    try {
+      const firstChip = emptyView.container.querySelector(
+        '[data-testid="chat-starter-chip-ger-easy"]',
+      ) as HTMLButtonElement | null;
+      expect(firstChip).not.toBeNull();
+
+      act(() => {
+        firstChip?.click();
+      });
+
+      expect(sendPrompt).toHaveBeenCalledWith(
+        "Find easy GER classes with lighter workload.",
+      );
+    } finally {
+      emptyView.unmount();
+    }
+
+    const conversationView = renderAiChat({
+      sessionOverrides: {
+        turns: createTurns(),
+        hasTurns: true,
+        requestState: "error",
+        requestLifecycle: createLifecycle({
+          transitionSequence: 20,
+          lastTransitionTo: "error",
+          lastTransitionReason: "response-error",
+          lastErrorMessage: "Network timeout",
+          lastFailedPromptPayload: {
+            prompt: "Find me easy GER options",
+            messages: [{ role: "user", content: "Find me easy GER options" }],
+          },
+        }),
+      },
+    });
+
+    try {
+      expect(
+        conversationView.container.querySelector(
+          '[data-testid="chat-starter-chip-ger-easy"]',
+        ),
+      ).toBeNull();
+    } finally {
+      conversationView.unmount();
     }
   });
 });

@@ -62,6 +62,7 @@ function buildSession(overrides: Partial<ChatSessionApi> = {}): ChatSessionApi {
     setDraft: overrides.setDraft ?? vi.fn(),
     sendPrompt: overrides.sendPrompt ?? vi.fn(),
     sendDraft: overrides.sendDraft ?? vi.fn(),
+    retryLastPrompt: overrides.retryLastPrompt ?? vi.fn(),
     resetChat: overrides.resetChat ?? vi.fn(),
   };
 }
