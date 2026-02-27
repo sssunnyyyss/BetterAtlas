@@ -88,7 +88,7 @@ Plans:
 
 ## Next Up
 
-Run phase 03 verification to confirm must-haves and transition readiness.
+Plan and execute phase 04 recommendation cards and quality hardening work.
 
 ---
-*Last updated: 2026-02-27 after completing 03-03 for milestone v1.1*
+*Last updated: 2026-02-27 after completing and approving phase 03 for milestone v1.1*
