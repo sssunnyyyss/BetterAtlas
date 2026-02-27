@@ -57,9 +57,9 @@ Plans:
 4. Starter prompt chips provide low-friction first-query onboarding.
 
 Plans:
-- [ ] 03-01: Rework composer behavior for keyboard-safe responsive interaction
-- [ ] 03-02: Add purposeful motion and transition choreography with reduced-motion support
-- [ ] 03-03: Redesign error/retry and starter-prompt interactions
+- [ ] 03-01-PLAN.md — Rework composer behavior for keyboard-safe responsive interaction
+- [ ] 03-02-PLAN.md — Add deterministic transition choreography with reduced-motion support
+- [ ] 03-03-PLAN.md — Redesign error/retry and starter-prompt interactions
 
 ### Phase 4: Recommendation Cards & Quality Hardening
 
