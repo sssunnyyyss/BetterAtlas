@@ -11,6 +11,7 @@ import {
   type AiMessage,
 } from "../../../hooks/useAi.js";
 import type {
+  ChatFailedPromptPayload,
   ChatLifecycleTransitionReason,
   ChatRequestLifecycle,
   ChatRequestState,
@@ -60,6 +61,7 @@ function createInitialLifecycle(): ChatRequestLifecycle {
     settleDeadlineAt: null,
     lastSubmittedPrompt: null,
     lastFailedPrompt: null,
+    lastFailedPromptPayload: null,
     lastErrorMessage: null,
   };
 }
@@ -83,7 +85,7 @@ export type ChatSessionApi = {
   setDraft: (value: string) => void;
   sendPrompt: (prompt: string) => void;
   sendDraft: () => void;
-  retryLastPrompt?: () => void;
+  retryLastPrompt: () => void;
   resetChat: () => void;
 };
 
@@ -182,7 +184,11 @@ export function useChatSession(): ChatSessionApi {
   }, []);
 
   const sendPromptWithSource = useCallback(
-    (text: string, source: PromptSendSource) => {
+    (
+      text: string,
+      source: PromptSendSource,
+      retryPayload?: ChatFailedPromptPayload,
+    ) => {
       const trimmed = text.trim();
       if (!trimmed || aiRec.isPending) return;
 
@@ -195,23 +201,46 @@ export function useChatSession(): ChatSessionApi {
         settleDeadlineAt: null,
         lastSubmittedPrompt: trimmed,
         lastErrorMessage: null,
-        ...(source === "retry" ? {} : { lastFailedPrompt: null }),
+        ...(source === "retry"
+          ? {}
+          : { lastFailedPrompt: null, lastFailedPromptPayload: null }),
       });
 
-      const nextUserTurn: ChatTurn = {
-        id: createTurnId(),
-        role: "user",
-        content: trimmed,
-      };
-      setTurns((previousTurns) => [...previousTurns, nextUserTurn]);
-      setDraft("");
+      const isPayloadRetry =
+        source === "retry" &&
+        retryPayload != null &&
+        Array.isArray(retryPayload.messages) &&
+        retryPayload.messages.length > 0;
 
-      const nextMessages: AiMessage[] = [
-        ...aiMessagesRef.current,
-        { role: "user" as const, content: trimmed },
-      ].slice(-12);
+      if (!isPayloadRetry) {
+        const nextUserTurn: ChatTurn = {
+          id: createTurnId(),
+          role: "user",
+          content: trimmed,
+        };
+        setTurns((previousTurns) => [...previousTurns, nextUserTurn]);
+        setDraft("");
+      }
+
+      const nextMessages: AiMessage[] = isPayloadRetry
+        ? retryPayload.messages.map((message) => ({
+            role: message.role as AiMessage["role"],
+            content: message.content,
+          }))
+        : [
+            ...aiMessagesRef.current,
+            { role: "user" as const, content: trimmed },
+          ].slice(-12);
       aiMessagesRef.current = nextMessages;
       setAiMessages(nextMessages);
+
+      const failedPromptPayload: ChatFailedPromptPayload = {
+        prompt: trimmed,
+        messages: nextMessages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      };
 
       aiRec.mutate(
         {
@@ -254,6 +283,7 @@ export function useChatSession(): ChatSessionApi {
             applyRequestTransition("success", "response-success", {
               requestToken,
               lastFailedPrompt: null,
+              lastFailedPromptPayload: null,
               lastErrorMessage: null,
             });
             scheduleSettleToIdle(requestToken);
@@ -266,8 +296,12 @@ export function useChatSession(): ChatSessionApi {
             applyRequestTransition("error", "response-error", {
               requestToken,
               lastFailedPrompt: trimmed,
+              lastFailedPromptPayload: failedPromptPayload,
               lastErrorMessage: readErrorMessage(error),
             });
+            setDraft((previousDraft) =>
+              previousDraft.trim().length > 0 ? previousDraft : trimmed,
+            );
             scheduleSettleToIdle(requestToken);
           },
         },
@@ -295,9 +329,10 @@ export function useChatSession(): ChatSessionApi {
   }, [draft, sendPrompt]);
 
   const retryLastPrompt = useCallback(() => {
-    if (!requestLifecycle.lastFailedPrompt) return;
-    sendPromptWithSource(requestLifecycle.lastFailedPrompt, "retry");
-  }, [requestLifecycle.lastFailedPrompt, sendPromptWithSource]);
+    const payload = requestLifecycle.lastFailedPromptPayload;
+    if (!payload) return;
+    sendPromptWithSource(payload.prompt, "retry", payload);
+  }, [requestLifecycle.lastFailedPromptPayload, sendPromptWithSource]);
 
   const resetChat = useCallback(() => {
     clearSettleTimer();
@@ -322,6 +357,7 @@ export function useChatSession(): ChatSessionApi {
       settleDeadlineAt: null,
       lastSubmittedPrompt: null,
       lastFailedPrompt: null,
+      lastFailedPromptPayload: null,
       lastErrorMessage: null,
     }));
     aiRec.mutate({ reset: true });

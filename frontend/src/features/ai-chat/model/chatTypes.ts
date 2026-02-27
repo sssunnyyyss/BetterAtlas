@@ -7,6 +7,16 @@ export type ChatMessageRole = "user" | "assistant";
 
 export type ChatRequestState = "idle" | "sending" | "success" | "error";
 
+export type ChatPromptPayloadMessage = {
+  role: ChatMessageRole;
+  content: string;
+};
+
+export type ChatFailedPromptPayload = {
+  prompt: string;
+  messages: ChatPromptPayloadMessage[];
+};
+
 export type ChatLifecycleTransitionReason =
   | "send"
   | "retry"
@@ -27,6 +37,7 @@ export type ChatRequestLifecycle = {
   settleDeadlineAt: number | null;
   lastSubmittedPrompt: string | null;
   lastFailedPrompt: string | null;
+  lastFailedPromptPayload: ChatFailedPromptPayload | null;
   lastErrorMessage: string | null;
 };
 
