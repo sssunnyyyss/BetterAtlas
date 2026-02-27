@@ -4,7 +4,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ChatSessionApi } from "../features/ai-chat/hooks/useChatSession.js";
-import type { ChatTurn } from "../features/ai-chat/model/chatTypes.js";
+import type {
+  ChatRequestLifecycle,
+  ChatTurn,
+} from "../features/ai-chat/model/chatTypes.js";
 import {
   resetVisualViewport,
   setViewportSize,
@@ -39,6 +42,39 @@ function createTurns(): ChatTurn[] {
   ];
 }
 
+function createLifecycle(
+  overrides: Partial<ChatRequestLifecycle> = {},
+): ChatRequestLifecycle {
+  const now = Date.now();
+  return {
+    requestToken: 0,
+    transitionSequence: 0,
+    lastTransitionAt: now,
+    lastTransitionFrom: "idle",
+    lastTransitionTo: "idle",
+    lastTransitionReason: "reset",
+    settleDelayMs: 1200,
+    settleDeadlineAt: null,
+    lastSubmittedPrompt: null,
+    lastFailedPrompt: null,
+    lastErrorMessage: null,
+    ...overrides,
+  };
+}
+
+function setReducedMotionPreference(enabled: boolean) {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: query === "(prefers-reduced-motion: reduce)" ? enabled : false,
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    onchange: null,
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 function buildSession(overrides: Partial<ChatSessionApi> = {}): ChatSessionApi {
   const turns = overrides.turns ?? createTurns();
   const requestState = overrides.requestState ?? "idle";
@@ -47,6 +83,11 @@ function buildSession(overrides: Partial<ChatSessionApi> = {}): ChatSessionApi {
     turns,
     draft: overrides.draft ?? "",
     requestState,
+    requestLifecycle:
+      overrides.requestLifecycle ??
+      createLifecycle({
+        lastTransitionTo: requestState,
+      }),
     isSending: overrides.isSending ?? requestState === "sending",
     hasTurns: overrides.hasTurns ?? turns.length > 0,
     messagesEndRef:
@@ -97,6 +138,7 @@ function renderAiChat({
 describe("AiChat interactions", () => {
   beforeEach(() => {
     hooks.useChatSession.mockReset();
+    setReducedMotionPreference(false);
     setViewportSize(390, 844);
     setVisualViewport({
       width: 390,
@@ -230,6 +272,136 @@ describe("AiChat interactions", () => {
       } finally {
         view.unmount();
       }
+    }
+  });
+
+  it("renders deterministic lifecycle status progression", () => {
+    const lifecycleSteps: Array<{
+      requestState: ChatSessionApi["requestState"];
+      lifecycle: ChatRequestLifecycle;
+      expectedReason?: string;
+      expectedLabel?: string;
+      expectedRole?: "status" | "alert";
+    }> = [
+      {
+        requestState: "idle",
+        lifecycle: createLifecycle({
+          transitionSequence: 1,
+          lastTransitionTo: "idle",
+          lastTransitionReason: "reset",
+        }),
+      },
+      {
+        requestState: "sending",
+        lifecycle: createLifecycle({
+          transitionSequence: 2,
+          lastTransitionFrom: "idle",
+          lastTransitionTo: "sending",
+          lastTransitionReason: "send",
+        }),
+        expectedReason: "send",
+        expectedLabel: "Atlas AI is thinking...",
+        expectedRole: "status",
+      },
+      {
+        requestState: "success",
+        lifecycle: createLifecycle({
+          transitionSequence: 3,
+          lastTransitionFrom: "sending",
+          lastTransitionTo: "success",
+          lastTransitionReason: "response-success",
+        }),
+        expectedReason: "response-success",
+        expectedLabel: "Response received.",
+        expectedRole: "status",
+      },
+      {
+        requestState: "error",
+        lifecycle: createLifecycle({
+          transitionSequence: 4,
+          lastTransitionFrom: "sending",
+          lastTransitionTo: "error",
+          lastTransitionReason: "response-error",
+          lastErrorMessage: "Network timeout",
+        }),
+        expectedReason: "response-error",
+        expectedLabel: "Network timeout",
+        expectedRole: "alert",
+      },
+      {
+        requestState: "idle",
+        lifecycle: createLifecycle({
+          transitionSequence: 5,
+          lastTransitionFrom: "error",
+          lastTransitionTo: "idle",
+          lastTransitionReason: "settle-idle",
+        }),
+      },
+    ];
+
+    for (const step of lifecycleSteps) {
+      const view = renderAiChat({
+        sessionOverrides: {
+          requestState: step.requestState,
+          requestLifecycle: step.lifecycle,
+        },
+      });
+
+      try {
+        const statusRegion = view.container.querySelector(
+          '[data-testid="chat-request-status"]',
+        );
+        if (!step.expectedReason) {
+          expect(statusRegion).toBeNull();
+          continue;
+        }
+
+        expect(statusRegion).not.toBeNull();
+        expect(statusRegion?.getAttribute("data-transition-reason")).toBe(
+          step.expectedReason,
+        );
+        expect(statusRegion?.getAttribute("data-request-state")).toBe(
+          step.requestState,
+        );
+        expect(view.container.textContent).toContain(step.expectedLabel);
+        expect(
+          view.container.querySelector(`[role="${step.expectedRole}"]`),
+        ).not.toBeNull();
+      } finally {
+        view.unmount();
+      }
+    }
+  });
+
+  it("disables non-essential motion when reduced-motion is enabled", () => {
+    setReducedMotionPreference(true);
+    const view = renderAiChat({
+      sessionOverrides: {
+        requestState: "sending",
+        requestLifecycle: createLifecycle({
+          transitionSequence: 8,
+          lastTransitionFrom: "idle",
+          lastTransitionTo: "sending",
+          lastTransitionReason: "send",
+        }),
+      },
+    });
+
+    try {
+      const animatedTurn = view.container.querySelector(".ba-chat-turn-enter");
+      expect(animatedTurn).toBeNull();
+
+      const statusRegion = view.container.querySelector(
+        '[data-testid="chat-request-status"]',
+      );
+      expect(statusRegion).not.toBeNull();
+      expect(statusRegion?.className.includes("ba-chat-status-transition")).toBe(
+        false,
+      );
+      const sendingDots = view.container.querySelectorAll(".animate-bounce");
+      expect(sendingDots.length).toBe(0);
+    } finally {
+      view.unmount();
     }
   });
 });
