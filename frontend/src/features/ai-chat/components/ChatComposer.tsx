@@ -1,7 +1,10 @@
 import { useEffect, type MutableRefObject } from "react";
+import type { ChatRequestState } from "../model/chatTypes.js";
+import { chatStatusTokens } from "../styles/chatTokens.js";
 
 type ChatComposerProps = {
   value: string;
+  requestState: ChatRequestState;
   isSending: boolean;
   textareaRef: MutableRefObject<HTMLTextAreaElement | null>;
   onValueChange: (value: string) => void;
@@ -10,11 +13,15 @@ type ChatComposerProps = {
 
 export function ChatComposer({
   value,
+  requestState,
   isSending,
   textareaRef,
   onValueChange,
   onSubmit,
 }: ChatComposerProps) {
+  const statusToken =
+    requestState === "idle" ? null : chatStatusTokens[requestState];
+
   useEffect(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -41,7 +48,7 @@ export function ChatComposer({
             }}
             placeholder="Ask about classes..."
             rows={1}
-            className="max-h-[150px] flex-1 resize-none border-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400"
+            className="ba-chat-composer-textarea max-h-[150px] flex-1 border-none bg-transparent px-2 py-1.5 text-sm text-gray-900 outline-none placeholder:text-gray-400"
           />
           <button
             type="button"
@@ -67,6 +74,11 @@ export function ChatComposer({
           </button>
         </div>
       </div>
+      {statusToken && (
+        <p className={`mt-2 text-center text-xs font-semibold ${statusToken.textClassName}`}>
+          {statusToken.label}
+        </p>
+      )}
       <p className="mt-2 text-center text-xs text-gray-400">
         AI results can be inaccurate. Always verify course details in the
         catalog.

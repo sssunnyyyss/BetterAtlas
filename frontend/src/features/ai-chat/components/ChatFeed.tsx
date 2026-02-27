@@ -2,6 +2,7 @@ import type { MutableRefObject } from "react";
 import type { ChatRequestState, ChatTurn } from "../model/chatTypes.js";
 import { ChatAssistantBlock } from "./ChatAssistantBlock.js";
 import { ChatMessageBubble } from "./ChatMessageBubble.js";
+import { ChatRequestStatus } from "./ChatRequestStatus.js";
 
 type ChatFeedProps = {
   turns: ChatTurn[];
@@ -10,37 +11,6 @@ type ChatFeedProps = {
   onSuggestionSelect: (prompt: string) => void;
   endRef: MutableRefObject<HTMLDivElement | null>;
 };
-
-function TypingIndicator() {
-  return (
-    <div className="flex justify-start">
-      <div className="max-w-[96%] sm:max-w-[88%]">
-        <ChatMessageBubble role="assistant">
-          <div className="flex items-center gap-1.5" aria-label="Atlas AI is typing">
-            <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:0ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
-            <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
-          </div>
-        </ChatMessageBubble>
-      </div>
-    </div>
-  );
-}
-
-function ErrorBubble() {
-  return (
-    <div className="flex justify-start">
-      <div className="max-w-[96%] sm:max-w-[88%]">
-        <ChatMessageBubble
-          role="assistant"
-          className="border-red-200 bg-red-50 text-red-800"
-        >
-          <p className="text-sm">Something went wrong. Please try again.</p>
-        </ChatMessageBubble>
-      </div>
-    </div>
-  );
-}
 
 export function ChatFeed({
   turns,
@@ -116,8 +86,7 @@ export function ChatFeed({
             ),
           )}
 
-          {requestState === "sending" && <TypingIndicator />}
-          {requestState === "error" && <ErrorBubble />}
+          <ChatRequestStatus requestState={requestState} />
 
           <div ref={endRef} />
         </div>

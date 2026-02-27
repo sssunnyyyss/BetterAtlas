@@ -46,6 +46,7 @@ export default function AiChat({ embedded = false }: AiChatProps) {
       composer={
         <ChatComposer
           value={draft}
+          requestState={requestState}
           isSending={isSending}
           textareaRef={textareaRef}
           onValueChange={setDraft}
