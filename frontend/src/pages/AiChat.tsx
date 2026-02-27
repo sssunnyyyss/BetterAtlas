@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { ChatComposer } from "../features/ai-chat/components/ChatComposer.js";
 import { ChatFeed } from "../features/ai-chat/components/ChatFeed.js";
 import { ChatHeader } from "../features/ai-chat/components/ChatHeader.js";
@@ -16,13 +17,45 @@ const SUGGESTION_CHIPS = [
   "Low-workload electives",
 ] as const;
 
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const applyPreference = () => {
+      setPrefersReducedMotion(mediaQuery.matches);
+    };
+
+    applyPreference();
+
+    if (typeof mediaQuery.addEventListener === "function") {
+      mediaQuery.addEventListener("change", applyPreference);
+      return () => {
+        mediaQuery.removeEventListener("change", applyPreference);
+      };
+    }
+
+    mediaQuery.addListener(applyPreference);
+    return () => {
+      mediaQuery.removeListener(applyPreference);
+    };
+  }, []);
+
+  return prefersReducedMotion;
+}
+
 export default function AiChat({ embedded = false }: AiChatProps) {
   const { keyboardInset, viewportHeight } = useComposerViewport();
+  const prefersReducedMotion = usePrefersReducedMotion();
 
   const {
     turns,
     draft,
     requestState,
+    requestLifecycle,
     isSending,
     hasTurns,
     messagesEndRef,
@@ -50,6 +83,8 @@ export default function AiChat({ embedded = false }: AiChatProps) {
           <ChatFeed
             turns={turns}
             requestState={requestState}
+            requestLifecycle={requestLifecycle}
+            prefersReducedMotion={prefersReducedMotion}
             suggestionChips={SUGGESTION_CHIPS}
             onSuggestionSelect={sendPrompt}
             endRef={messagesEndRef}

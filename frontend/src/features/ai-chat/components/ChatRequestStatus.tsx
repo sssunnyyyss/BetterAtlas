@@ -1,16 +1,25 @@
-import type { ChatRequestState } from "../model/chatTypes.js";
+import type {
+  ChatRequestLifecycle,
+  ChatRequestState,
+} from "../model/chatTypes.js";
 import { chatStatusTokens } from "../styles/chatTokens.js";
 
 type ChatRequestStatusProps = {
   requestState: ChatRequestState;
+  requestLifecycle?: ChatRequestLifecycle;
+  prefersReducedMotion: boolean;
 };
 
-function SendingIcon() {
+function SendingIcon({ prefersReducedMotion }: { prefersReducedMotion: boolean }) {
+  const dotClassName = prefersReducedMotion
+    ? "h-2 w-2 rounded-full bg-current"
+    : "h-2 w-2 animate-bounce rounded-full bg-current";
+
   return (
     <div className="flex items-center gap-1.5" aria-hidden="true">
-      <span className="h-2 w-2 animate-bounce rounded-full bg-current [animation-delay:0ms]" />
-      <span className="h-2 w-2 animate-bounce rounded-full bg-current [animation-delay:150ms]" />
-      <span className="h-2 w-2 animate-bounce rounded-full bg-current [animation-delay:300ms]" />
+      <span className={`${dotClassName} [animation-delay:0ms]`} />
+      <span className={`${dotClassName} [animation-delay:150ms]`} />
+      <span className={`${dotClassName} [animation-delay:300ms]`} />
     </div>
   );
 }
@@ -49,9 +58,15 @@ function ErrorIcon() {
   );
 }
 
-function StatusIcon({ requestState }: { requestState: Exclude<ChatRequestState, "idle"> }) {
+function StatusIcon({
+  requestState,
+  prefersReducedMotion,
+}: {
+  requestState: Exclude<ChatRequestState, "idle">;
+  prefersReducedMotion: boolean;
+}) {
   if (requestState === "sending") {
-    return <SendingIcon />;
+    return <SendingIcon prefersReducedMotion={prefersReducedMotion} />;
   }
   if (requestState === "success") {
     return <SuccessIcon />;
@@ -59,23 +74,40 @@ function StatusIcon({ requestState }: { requestState: Exclude<ChatRequestState, 
   return <ErrorIcon />;
 }
 
-export function ChatRequestStatus({ requestState }: ChatRequestStatusProps) {
+export function ChatRequestStatus({
+  requestState,
+  requestLifecycle,
+  prefersReducedMotion,
+}: ChatRequestStatusProps) {
   if (requestState === "idle") {
     return null;
   }
 
   const token = chatStatusTokens[requestState];
+  const label =
+    requestState === "error" &&
+    requestLifecycle?.lastErrorMessage &&
+    requestLifecycle.lastErrorMessage.trim().length > 0
+      ? requestLifecycle.lastErrorMessage
+      : token.label;
 
   return (
     <div
-      className={`rounded-xl border px-3 py-2 ${token.containerClassName}`}
+      className={`rounded-xl border px-3 py-2 ${token.containerClassName} ${prefersReducedMotion ? "" : "ba-chat-status-transition"}`.trim()}
       role={requestState === "error" ? "alert" : "status"}
       aria-live={requestState === "error" ? "assertive" : "polite"}
+      data-testid="chat-request-status"
+      data-request-state={requestState}
+      data-transition-sequence={requestLifecycle?.transitionSequence}
+      data-transition-reason={requestLifecycle?.lastTransitionReason}
     >
       <div className={`flex items-center gap-2 ${token.iconClassName}`}>
-        <StatusIcon requestState={requestState} />
+        <StatusIcon
+          requestState={requestState}
+          prefersReducedMotion={prefersReducedMotion}
+        />
         <p className={`text-xs font-semibold ${token.textClassName}`}>
-          {token.label}
+          {label}
         </p>
       </div>
     </div>

@@ -338,3 +338,25 @@ h6 {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.ba-chat-turn-enter {
+  animation: ba-fade-in-up 200ms ease-out both;
+}
+
+.ba-chat-status-transition {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ba-chat-turn-enter {
+    animation: none;
+  }
+
+  .ba-chat-status-transition {
+    transition: none;
+  }
+}

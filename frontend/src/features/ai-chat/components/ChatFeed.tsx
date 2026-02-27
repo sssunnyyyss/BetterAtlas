@@ -1,12 +1,26 @@
-import type { MutableRefObject } from "react";
-import type { ChatRequestState, ChatTurn } from "../model/chatTypes.js";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type MutableRefObject,
+} from "react";
+import type {
+  ChatRequestLifecycle,
+  ChatRequestState,
+  ChatTurn,
+} from "../model/chatTypes.js";
 import { ChatAssistantBlock } from "./ChatAssistantBlock.js";
 import { ChatMessageBubble } from "./ChatMessageBubble.js";
 import { ChatRequestStatus } from "./ChatRequestStatus.js";
 
+const AUTO_SCROLL_NEAR_BOTTOM_THRESHOLD_PX = 96;
+const SEND_INTENT_REASONS = new Set(["send", "retry", "deep-link"]);
+
 type ChatFeedProps = {
   turns: ChatTurn[];
   requestState: ChatRequestState;
+  requestLifecycle?: ChatRequestLifecycle;
+  prefersReducedMotion: boolean;
   suggestionChips: readonly string[];
   onSuggestionSelect: (prompt: string) => void;
   endRef: MutableRefObject<HTMLDivElement | null>;
@@ -15,14 +29,71 @@ type ChatFeedProps = {
 export function ChatFeed({
   turns,
   requestState,
+  requestLifecycle,
+  prefersReducedMotion,
   suggestionChips,
   onSuggestionSelect,
   endRef,
 }: ChatFeedProps) {
   const hasTurns = turns.length > 0;
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const nearBottomRef = useRef(true);
+  const previousTurnCountRef = useRef(turns.length);
+  const handledTransitionSequenceRef = useRef<number | null>(
+    requestLifecycle?.transitionSequence ?? null,
+  );
+
+  const updateNearBottom = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const distanceFromBottom =
+      scrollContainer.scrollHeight -
+      scrollContainer.scrollTop -
+      scrollContainer.clientHeight;
+    nearBottomRef.current =
+      distanceFromBottom <= AUTO_SCROLL_NEAR_BOTTOM_THRESHOLD_PX;
+  }, []);
+
+  useEffect(() => {
+    updateNearBottom();
+  }, [turns.length, updateNearBottom]);
+
+  useEffect(() => {
+    const endElement = endRef.current;
+    if (!endElement) return;
+
+    const transitionSequence = requestLifecycle?.transitionSequence ?? null;
+    const hasNewTurns = turns.length > previousTurnCountRef.current;
+    const hasUnhandledTransition =
+      transitionSequence !== handledTransitionSequenceRef.current;
+    const transitionToSending = requestLifecycle?.lastTransitionTo === "sending";
+    const shouldForceBottom =
+      hasUnhandledTransition &&
+      transitionToSending &&
+      SEND_INTENT_REASONS.has(requestLifecycle?.lastTransitionReason ?? "");
+    const shouldScrollForNewTurns = hasNewTurns && nearBottomRef.current;
+
+    if (shouldForceBottom || shouldScrollForNewTurns) {
+      endElement.scrollIntoView({
+        block: "end",
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    }
+
+    previousTurnCountRef.current = turns.length;
+    handledTransitionSequenceRef.current = transitionSequence;
+  }, [endRef, prefersReducedMotion, requestLifecycle, turns.length]);
+
+  const transitionClassName = prefersReducedMotion ? "" : "ba-chat-turn-enter";
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto px-4 py-4">
+    <div
+      ref={scrollContainerRef}
+      onScroll={updateNearBottom}
+      className="h-full min-h-0 overflow-y-auto px-4 py-4"
+      data-testid="chat-feed-scroll-container"
+    >
       {!hasTurns ? (
         <div className="flex min-h-full flex-col items-center justify-center px-4 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary-100">
@@ -65,7 +136,7 @@ export function ChatFeed({
         <div className="space-y-4">
           {turns.map((turn) =>
             turn.role === "user" ? (
-              <div key={turn.id} className="animate-[ba-fade-in-up_0.2s_ease-out]">
+              <div key={turn.id} className={transitionClassName}>
                 <ChatMessageBubble role="user">
                   <p className="whitespace-pre-wrap text-sm">{turn.content}</p>
                 </ChatMessageBubble>
@@ -73,7 +144,7 @@ export function ChatFeed({
             ) : (
               <div
                 key={turn.id}
-                className="flex justify-start animate-[ba-fade-in-up_0.2s_ease-out]"
+                className={`flex justify-start ${transitionClassName}`.trim()}
               >
                 <div className="max-w-[96%] sm:max-w-[88%]">
                   <ChatAssistantBlock
@@ -86,7 +157,11 @@ export function ChatFeed({
             ),
           )}
 
-          <ChatRequestStatus requestState={requestState} />
+          <ChatRequestStatus
+            requestState={requestState}
+            requestLifecycle={requestLifecycle}
+            prefersReducedMotion={prefersReducedMotion}
+          />
 
           <div ref={endRef} />
         </div>
