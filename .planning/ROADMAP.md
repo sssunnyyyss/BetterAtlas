@@ -57,7 +57,7 @@ Plans:
 4. Starter prompt chips provide low-friction first-query onboarding.
 
 Plans:
-- [ ] 03-01-PLAN.md — Rework composer behavior for keyboard-safe responsive interaction
+- [x] 03-01-PLAN.md — Rework composer behavior for keyboard-safe responsive interaction (completed 2026-02-27)
 - [ ] 03-02-PLAN.md — Add deterministic transition choreography with reduced-motion support
 - [ ] 03-03-PLAN.md — Redesign error/retry and starter-prompt interactions
 
@@ -84,11 +84,11 @@ Plans:
 | Milestone | Phases | Plans | Status | Shipped |
 |-----------|--------|-------|--------|---------|
 | v1.0 Program Toggle Accuracy | 1 | 2/2 | Complete | 2026-02-26 |
-| v1.1 AI Chat Experience Redesign | 3 | 3/9 | In Progress | — |
+| v1.1 AI Chat Experience Redesign | 3 | 4/9 | In Progress | — |
 
 ## Next Up
 
-Run `03-01-PLAN.md` to begin Phase 3 mobile composer and interaction smoothness work.
+Run `03-02-PLAN.md` to continue Phase 3 interaction smoothness work.
 
 ---
-*Last updated: 2026-02-27 after completing phase 02 for milestone v1.1*
+*Last updated: 2026-02-27 after completing 03-01 for milestone v1.1*
