@@ -1,7 +1,7 @@
 import type { MutableRefObject } from "react";
-import { Link } from "react-router-dom";
-import type { AiCourseRecommendation } from "../../../hooks/useAi.js";
 import type { ChatRequestState, ChatTurn } from "../model/chatTypes.js";
+import { ChatAssistantBlock } from "./ChatAssistantBlock.js";
+import { ChatMessageBubble } from "./ChatMessageBubble.js";
 
 type ChatFeedProps = {
   turns: ChatTurn[];
@@ -11,26 +11,17 @@ type ChatFeedProps = {
   endRef: MutableRefObject<HTMLDivElement | null>;
 };
 
-function fitScoreColor(score: number): string {
-  if (score >= 8) return "bg-green-100 text-green-800";
-  if (score >= 5) return "bg-yellow-100 text-yellow-800";
-  return "bg-red-100 text-red-800";
-}
-
-function formatRating(value: number | null | undefined): string {
-  if (value == null) return "—";
-  return value.toFixed(1);
-}
-
 function TypingIndicator() {
   return (
-    <div className="mb-4 flex items-start gap-2">
-      <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-gray-200 bg-gray-50 px-4 py-3">
-        <div className="flex items-center gap-1.5">
-          <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:0ms]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
-        </div>
+    <div className="flex justify-start">
+      <div className="max-w-[96%] sm:max-w-[88%]">
+        <ChatMessageBubble role="assistant">
+          <div className="flex items-center gap-1.5" aria-label="Atlas AI is typing">
+            <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:0ms]" />
+            <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:150ms]" />
+            <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:300ms]" />
+          </div>
+        </ChatMessageBubble>
       </div>
     </div>
   );
@@ -38,59 +29,16 @@ function TypingIndicator() {
 
 function ErrorBubble() {
   return (
-    <div className="mb-4 flex items-start gap-2">
-      <div className="max-w-[80%] rounded-2xl rounded-tl-sm border border-red-200 bg-red-50 px-4 py-3">
-        <p className="text-sm text-red-700">
-          Something went wrong. Please try again.
-        </p>
+    <div className="flex justify-start">
+      <div className="max-w-[96%] sm:max-w-[88%]">
+        <ChatMessageBubble
+          role="assistant"
+          className="border-red-200 bg-red-50 text-red-800"
+        >
+          <p className="text-sm">Something went wrong. Please try again.</p>
+        </ChatMessageBubble>
       </div>
     </div>
-  );
-}
-
-function CourseCard({ recommendation }: { recommendation: AiCourseRecommendation }) {
-  const { course, fitScore, why } = recommendation;
-
-  return (
-    <Link
-      to={`/catalog/${course.id}`}
-      className="block rounded-xl border border-gray-200 bg-white p-3 transition-all hover:border-primary-400 hover:shadow-sm"
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-gray-900">
-            {course.code}
-          </p>
-          <p className="truncate text-sm text-gray-600">{course.title}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {course.classScore != null && (
-            <span className="text-xs text-gray-500">
-              ★ {formatRating(course.classScore)}
-            </span>
-          )}
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${fitScoreColor(fitScore)}`}
-          >
-            {fitScore}/10
-          </span>
-        </div>
-      </div>
-
-      {why.length > 0 && (
-        <ul className="mt-1.5 space-y-0.5">
-          {why.slice(0, 2).map((reason, index) => (
-            <li
-              key={`${reason}-${index}`}
-              className="flex items-start gap-1 text-xs text-gray-500"
-            >
-              <span className="mt-0.5 shrink-0">•</span>
-              <span>{reason}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Link>
   );
 }
 
@@ -147,47 +95,23 @@ export function ChatFeed({
         <div className="space-y-4">
           {turns.map((turn) =>
             turn.role === "user" ? (
-              <div
-                key={turn.id}
-                className="flex justify-end animate-[ba-fade-in-up_0.2s_ease-out]"
-              >
-                <div className="max-w-[90%] rounded-2xl rounded-br-sm bg-primary-600 px-4 py-2.5 text-white sm:max-w-[80%]">
+              <div key={turn.id} className="animate-[ba-fade-in-up_0.2s_ease-out]">
+                <ChatMessageBubble role="user">
                   <p className="whitespace-pre-wrap text-sm">{turn.content}</p>
-                </div>
+                </ChatMessageBubble>
               </div>
             ) : (
               <div
                 key={turn.id}
-                className="space-y-2 animate-[ba-fade-in-up_0.2s_ease-out]"
+                className="flex justify-start animate-[ba-fade-in-up_0.2s_ease-out]"
               >
-                <div className="flex items-start gap-2">
-                  <div className="max-w-[95%] rounded-2xl rounded-tl-sm border border-gray-200 bg-gray-50 px-4 py-2.5 sm:max-w-[85%]">
-                    <p className="whitespace-pre-wrap text-sm text-gray-800">
-                      {turn.content}
-                    </p>
-                  </div>
+                <div className="max-w-[96%] sm:max-w-[88%]">
+                  <ChatAssistantBlock
+                    content={turn.content}
+                    recommendations={turn.recommendations}
+                    followUp={turn.followUp}
+                  />
                 </div>
-
-                {turn.recommendations.length > 0 && (
-                  <div className="grid max-w-[95%] gap-2 sm:max-w-[85%] sm:grid-cols-2">
-                    {turn.recommendations.map((recommendation) => (
-                      <CourseCard
-                        key={recommendation.course.id}
-                        recommendation={recommendation}
-                      />
-                    ))}
-                  </div>
-                )}
-
-                {turn.followUp && (
-                  <div className="flex items-start gap-2">
-                    <div className="max-w-[95%] rounded-2xl rounded-tl-sm border border-gray-200 bg-gray-50 px-4 py-2.5 sm:max-w-[85%]">
-                      <p className="text-sm italic text-gray-600">
-                        {turn.followUp}
-                      </p>
-                    </div>
-                  </div>
-                )}
               </div>
             ),
           )}
