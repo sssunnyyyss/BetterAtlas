@@ -80,6 +80,17 @@ body {
   }
 }
 
+/* Chat composer neutralizes global textarea sizing so chat keeps a compact input. */
+.ba-chat-composer-textarea,
+.ba-chat-composer-textarea:focus {
+  min-height: 0 !important;
+  resize: none !important;
+  border-radius: 0 !important;
+  border: none !important;
+  padding: 0.375rem 0.5rem !important;
+  box-shadow: none !important;
+}
+
 /* Crimson Pro for all headings — gives the Emory academic feel */
 h1,
 h2,

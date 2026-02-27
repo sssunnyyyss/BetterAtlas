@@ -1,6 +1,5 @@
 import { useEffect, type MutableRefObject } from "react";
 import type { ChatRequestState } from "../model/chatTypes.js";
-import { chatStatusTokens } from "../styles/chatTokens.js";
 
 type ChatComposerProps = {
   value: string;
@@ -19,8 +18,12 @@ export function ChatComposer({
   onValueChange,
   onSubmit,
 }: ChatComposerProps) {
-  const statusToken =
-    requestState === "idle" ? null : chatStatusTokens[requestState];
+  const requestToneClassName =
+    requestState === "error"
+      ? "border-red-200 bg-red-50/50 focus-within:border-red-300 focus-within:ring-red-100"
+      : requestState === "success"
+        ? "border-emerald-200 bg-emerald-50/40 focus-within:border-emerald-300 focus-within:ring-emerald-100"
+        : "border-gray-200 bg-white focus-within:border-primary-400 focus-within:ring-primary-100";
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -31,8 +34,10 @@ export function ChatComposer({
   }, [textareaRef, value]);
 
   return (
-    <div className="px-4 pb-4 pt-2">
-      <div className="rounded-2xl border border-gray-200 bg-gray-50 transition-all focus-within:border-primary-400 focus-within:ring-2 focus-within:ring-primary-100">
+    <div className="border-t border-gray-200 bg-white px-4 pb-4 pt-3">
+      <div
+        className={`rounded-2xl border shadow-sm transition-all focus-within:ring-2 ${requestToneClassName}`}
+      >
         <div className="flex items-end gap-2 p-2">
           <textarea
             ref={textareaRef}
@@ -74,11 +79,6 @@ export function ChatComposer({
           </button>
         </div>
       </div>
-      {statusToken && (
-        <p className={`mt-2 text-center text-xs font-semibold ${statusToken.textClassName}`}>
-          {statusToken.label}
-        </p>
-      )}
       <p className="mt-2 text-center text-xs text-gray-400">
         AI results can be inaccurate. Always verify course details in the
         catalog.
