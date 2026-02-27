@@ -79,9 +79,9 @@ function CourseCard({ recommendation }: { recommendation: AiCourseRecommendation
 
       {why.length > 0 && (
         <ul className="mt-1.5 space-y-0.5">
-          {why.slice(0, 2).map((reason) => (
+          {why.slice(0, 2).map((reason, index) => (
             <li
-              key={reason}
+              key={`${reason}-${index}`}
               className="flex items-start gap-1 text-xs text-gray-500"
             >
               <span className="mt-0.5 shrink-0">•</span>
