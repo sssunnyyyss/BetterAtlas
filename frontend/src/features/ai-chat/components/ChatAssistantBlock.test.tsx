@@ -52,6 +52,7 @@ function renderAssistantBlock(recommendations: AiCourseRecommendation[]) {
           content="Here are your best matches."
           recommendations={recommendations}
           followUp={null}
+          prefersReducedMotion={false}
         />
       </MemoryRouter>,
     );

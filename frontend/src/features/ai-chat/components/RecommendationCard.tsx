@@ -4,6 +4,7 @@ import { RecommendationDisclosure } from "./RecommendationDisclosure.js";
 
 type RecommendationCardProps = {
   recommendation: AiCourseRecommendation;
+  prefersReducedMotion?: boolean;
 };
 
 function fitScoreTone(score: number): string {
@@ -17,7 +18,10 @@ function formatRating(value: number | null | undefined): string {
   return value.toFixed(1);
 }
 
-export function RecommendationCard({ recommendation }: RecommendationCardProps) {
+export function RecommendationCard({
+  recommendation,
+  prefersReducedMotion = false,
+}: RecommendationCardProps) {
   const { course, fitScore, why, cautions } = recommendation;
   const visibleWhy = why.slice(0, 2);
   const hiddenWhy = why.slice(2);
@@ -81,6 +85,7 @@ export function RecommendationCard({ recommendation }: RecommendationCardProps) 
           label={`Show ${hiddenWhy.length} more reason${hiddenWhy.length === 1 ? "" : "s"}`}
           expandedLabel="Hide extra reasons"
           testId={`chat-recommendation-why-more-${course.id}`}
+          prefersReducedMotion={prefersReducedMotion}
         >
           <ul className="space-y-1 pl-1">
             {hiddenWhy.map((reason, index) => (
@@ -101,6 +106,7 @@ export function RecommendationCard({ recommendation }: RecommendationCardProps) 
           label={`Show cautions (${cautions.length})`}
           expandedLabel="Hide cautions"
           testId={`chat-recommendation-cautions-${course.id}`}
+          prefersReducedMotion={prefersReducedMotion}
         >
           <ul className="space-y-1 rounded-md border border-amber-200 bg-amber-50 p-2">
             {cautions.map((caution, index) => (
@@ -119,6 +125,7 @@ export function RecommendationCard({ recommendation }: RecommendationCardProps) 
       <div className="mt-3 flex justify-end">
         <Link
           to={`/catalog/${course.id}`}
+          aria-label={`View course details for ${course.code}`}
           className="ba-chat-focus-ring inline-flex items-center rounded-lg border border-primary-200 bg-primary-50 px-2.5 py-1.5 text-xs font-semibold text-primary-800 hover:border-primary-300 hover:bg-primary-100"
           data-testid={`chat-recommendation-detail-link-${course.id}`}
         >

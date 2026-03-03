@@ -6,6 +6,7 @@ type RecommendationDisclosureProps = {
   children: ReactNode;
   defaultExpanded?: boolean;
   testId?: string;
+  prefersReducedMotion?: boolean;
 };
 
 export function RecommendationDisclosure({
@@ -14,6 +15,7 @@ export function RecommendationDisclosure({
   children,
   defaultExpanded = false,
   testId,
+  prefersReducedMotion = false,
 }: RecommendationDisclosureProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const contentId = useId();
@@ -29,12 +31,13 @@ export function RecommendationDisclosure({
         data-testid={testId}
       >
         <svg
-          className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`.trim()}
+          className={`h-3.5 w-3.5 ${prefersReducedMotion ? "" : "transition-transform"} ${expanded ? "rotate-90" : ""}`.trim()}
           fill="none"
           viewBox="0 0 20 20"
           strokeWidth={2}
           stroke="currentColor"
           aria-hidden="true"
+          data-testid={testId ? `${testId}-icon` : undefined}
         >
           <path strokeLinecap="round" strokeLinejoin="round" d="M7 5l6 5-6 5" />
         </svg>
@@ -43,7 +46,7 @@ export function RecommendationDisclosure({
       {expanded && (
         <div
           id={contentId}
-          className="ba-chat-disclosure-content mt-1"
+          className={`mt-1 ${prefersReducedMotion ? "" : "ba-chat-disclosure-content"}`.trim()}
           data-testid={testId ? `${testId}-content` : undefined}
         >
           {children}

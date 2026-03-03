@@ -6,12 +6,14 @@ type ChatAssistantBlockProps = {
   content: string;
   recommendations: AiCourseRecommendation[];
   followUp: string | null;
+  prefersReducedMotion: boolean;
 };
 
 export function ChatAssistantBlock({
   content,
   recommendations,
   followUp,
+  prefersReducedMotion,
 }: ChatAssistantBlockProps) {
   return (
     <div className="space-y-2 rounded-2xl border border-gray-200/80 bg-gray-50/70 p-2">
@@ -25,6 +27,7 @@ export function ChatAssistantBlock({
             <RecommendationCard
               key={recommendation.course.id}
               recommendation={recommendation}
+              prefersReducedMotion={prefersReducedMotion}
             />
           ))}
         </div>

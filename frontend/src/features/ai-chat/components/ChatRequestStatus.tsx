@@ -120,7 +120,7 @@ export function ChatRequestStatus({
         <button
           type="button"
           onClick={onRetry}
-          className="mt-2 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-50"
+          className="ba-chat-focus-ring mt-2 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-50"
           data-testid="chat-request-retry"
         >
           Retry last request

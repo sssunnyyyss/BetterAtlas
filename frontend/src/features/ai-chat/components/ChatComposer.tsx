@@ -64,7 +64,7 @@ export function ChatComposer({
             type="button"
             onClick={onSubmit}
             disabled={!value.trim() || isSending}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="ba-chat-focus-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-600 text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Send message"
           >
             <svg

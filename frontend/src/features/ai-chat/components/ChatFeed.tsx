@@ -166,6 +166,7 @@ export function ChatFeed({
                     content={turn.content}
                     recommendations={turn.recommendations}
                     followUp={turn.followUp}
+                    prefersReducedMotion={prefersReducedMotion}
                   />
                 </div>
               </div>
