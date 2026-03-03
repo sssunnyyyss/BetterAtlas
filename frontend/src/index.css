@@ -351,12 +351,28 @@ h6 {
     transform 160ms ease;
 }
 
+.ba-chat-disclosure-content {
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.ba-chat-focus-ring {
+  outline: none;
+}
+
+.ba-chat-focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px rgb(14 165 233 / 0.35);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ba-chat-turn-enter {
     animation: none;
   }
 
   .ba-chat-status-transition {
+    transition: none;
+  }
+
+  .ba-chat-disclosure-content {
     transition: none;
   }
 }
