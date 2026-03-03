@@ -12,13 +12,13 @@ human_approved_on: 2026-03-02
 
 ## Verdict
 
-Phase 04 implementation is **complete in code and automated tests** for recommendation-card redesign, accessibility hardening, and render-performance protections. Remaining phase gates are manual UX checks for real-device motion/focus/perceived responsiveness.
+Phase 04 implementation is **complete in code and automated tests** for recommendation-card redesign, accessibility hardening, and render-performance protections, with manual UX/device approval recorded.
 
 ## Goal Achievement (Phase-level)
 
 Goal from roadmap: redesign recommendation cards for decision speed, then complete accessibility and performance hardening.
 
-Assessment: **Automated criteria passed; human UX/device sign-off pending**.
+Assessment: **Achieved**.
 
 Automated verification run:
 - `pnpm --filter frontend test -- src/features/ai-chat/components/ChatAssistantBlock.test.tsx` passed
@@ -55,14 +55,11 @@ Scoring model: each requirement scored out of 14.3 points (total ~100).
 - Request-state transitions do not rerender unchanged recommendation blocks: **pass**.
 - Recommendation turn changes still trigger expected rerender path: **pass**.
 
-## Human Verification Required
+## Human Verification Completed
 
-1. **Manual focus + reduced-motion UX check (roadmap criterion 4):**
-   - Use keyboard navigation in `/ai` (and embedded chat surface) to verify visible focus ring order is intuitive for disclosures, detail link, retry, and composer controls.
-   - Enable OS/browser reduced-motion and confirm interactions remain clear without disruptive animation.
-
-2. **Manual mobile responsiveness check (roadmap criterion 5):**
-   - On a representative mobile device/emulator, run a multi-turn recommendation conversation and confirm typing/send/scroll feel responsive without perceived lag.
+Approved on 2026-03-02:
+1. Focus + reduced-motion UX checks passed for recommendation disclosures/actions, retry, and composer controls.
+2. Mobile responsiveness checks passed for multi-turn recommendation chat interactions.
 
 ## Final Status
 

@@ -23,16 +23,16 @@ Requirements for the AI chat redesign milestone. Each requirement maps to exactl
 
 ### Recommendation Cards & Decision Support
 
-- [ ] **AIRC-01**: User can scan course code, title, and fit score at a glance from each recommendation card.
-- [ ] **AIRC-02**: User can understand recommendation rationale from concise, readable explanation bullets.
-- [ ] **AIRC-03**: User can navigate from a recommendation card to the course detail page through a clear primary action.
-- [ ] **AIRC-04**: User can view caution/constraint context without overwhelming the primary recommendation hierarchy.
+- [x] **AIRC-01**: User can scan course code, title, and fit score at a glance from each recommendation card.
+- [x] **AIRC-02**: User can understand recommendation rationale from concise, readable explanation bullets.
+- [x] **AIRC-03**: User can navigate from a recommendation card to the course detail page through a clear primary action.
+- [x] **AIRC-04**: User can view caution/constraint context without overwhelming the primary recommendation hierarchy.
 
 ### Accessibility & UX Quality
 
-- [ ] **AIQ-01**: User with reduced-motion preferences receives an equivalent experience without disruptive animation.
-- [ ] **AIQ-02**: User can operate the redesigned chat interface with keyboard navigation and visible focus states.
-- [ ] **AIQ-03**: User perceives responsive interactions on representative mobile devices during chat usage.
+- [x] **AIQ-01**: User with reduced-motion preferences receives an equivalent experience without disruptive animation.
+- [x] **AIQ-02**: User can operate the redesigned chat interface with keyboard navigation and visible focus states.
+- [x] **AIQ-03**: User perceives responsive interactions on representative mobile devices during chat usage.
 
 ## v2 Requirements
 
@@ -65,13 +65,13 @@ Deferred to future milestones.
 | AIXP-02 | Phase 3 | Complete (03-02) |
 | AIXP-03 | Phase 3 | Complete (03-03) |
 | AIXP-04 | Phase 3 | Complete (03-03) |
-| AIRC-01 | Phase 4 | Pending |
-| AIRC-02 | Phase 4 | Pending |
-| AIRC-03 | Phase 4 | Pending |
-| AIRC-04 | Phase 4 | Pending |
-| AIQ-01 | Phase 4 | Pending |
-| AIQ-02 | Phase 4 | Pending |
-| AIQ-03 | Phase 4 | Pending |
+| AIRC-01 | Phase 4 | Complete |
+| AIRC-02 | Phase 4 | Complete |
+| AIRC-03 | Phase 4 | Complete |
+| AIRC-04 | Phase 4 | Complete |
+| AIQ-01 | Phase 4 | Complete |
+| AIQ-02 | Phase 4 | Complete |
+| AIQ-03 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 15 total
@@ -80,4 +80,4 @@ Deferred to future milestones.
 
 ---
 *Requirements defined: 2026-02-27*
-*Last updated: 2026-02-27 after completing 03-03 (AIXP-01, AIXP-02, AIXP-03, AIXP-04)*
+*Last updated: 2026-03-03 after completing and verifying phase 04 (AIRC-01, AIRC-02, AIRC-03, AIRC-04, AIQ-01, AIQ-02, AIQ-03)*
