@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   type MutableRefObject,
 } from "react";
@@ -95,6 +96,33 @@ export function ChatFeed({
   }, [endRef, prefersReducedMotion, requestLifecycle, turns.length]);
 
   const transitionClassName = prefersReducedMotion ? "" : "ba-chat-turn-enter";
+  const renderedTurns = useMemo(
+    () =>
+      turns.map((turn) =>
+        turn.role === "user" ? (
+          <div key={turn.id} className={transitionClassName}>
+            <ChatMessageBubble role="user">
+              <p className="whitespace-pre-wrap text-sm">{turn.content}</p>
+            </ChatMessageBubble>
+          </div>
+        ) : (
+          <div
+            key={turn.id}
+            className={`flex justify-start ${transitionClassName}`.trim()}
+          >
+            <div className="max-w-[96%] sm:max-w-[88%]">
+              <ChatAssistantBlock
+                content={turn.content}
+                recommendations={turn.recommendations}
+                followUp={turn.followUp}
+                prefersReducedMotion={prefersReducedMotion}
+              />
+            </div>
+          </div>
+        ),
+      ),
+    [prefersReducedMotion, transitionClassName, turns],
+  );
 
   return (
     <div
@@ -149,29 +177,7 @@ export function ChatFeed({
         </div>
       ) : (
         <div className="space-y-4">
-          {turns.map((turn) =>
-            turn.role === "user" ? (
-              <div key={turn.id} className={transitionClassName}>
-                <ChatMessageBubble role="user">
-                  <p className="whitespace-pre-wrap text-sm">{turn.content}</p>
-                </ChatMessageBubble>
-              </div>
-            ) : (
-              <div
-                key={turn.id}
-                className={`flex justify-start ${transitionClassName}`.trim()}
-              >
-                <div className="max-w-[96%] sm:max-w-[88%]">
-                  <ChatAssistantBlock
-                    content={turn.content}
-                    recommendations={turn.recommendations}
-                    followUp={turn.followUp}
-                    prefersReducedMotion={prefersReducedMotion}
-                  />
-                </div>
-              </div>
-            ),
-          )}
+          {renderedTurns}
 
           <ChatRequestStatus
             requestState={requestState}

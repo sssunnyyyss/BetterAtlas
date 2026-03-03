@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Link } from "react-router-dom";
 import type { AiCourseRecommendation } from "../../../hooks/useAi.js";
 import { RecommendationDisclosure } from "./RecommendationDisclosure.js";
@@ -18,7 +19,7 @@ function formatRating(value: number | null | undefined): string {
   return value.toFixed(1);
 }
 
-export function RecommendationCard({
+function RecommendationCardImpl({
   recommendation,
   prefersReducedMotion = false,
 }: RecommendationCardProps) {
@@ -135,3 +136,18 @@ export function RecommendationCard({
     </article>
   );
 }
+
+function recommendationCardPropsEqual(
+  previous: RecommendationCardProps,
+  next: RecommendationCardProps,
+): boolean {
+  return (
+    previous.prefersReducedMotion === next.prefersReducedMotion &&
+    previous.recommendation === next.recommendation
+  );
+}
+
+export const RecommendationCard = memo(
+  RecommendationCardImpl,
+  recommendationCardPropsEqual,
+);

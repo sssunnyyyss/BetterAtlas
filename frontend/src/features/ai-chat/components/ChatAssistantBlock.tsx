@@ -1,3 +1,4 @@
+import { memo, useMemo } from "react";
 import type { AiCourseRecommendation } from "../../../hooks/useAi.js";
 import { ChatMessageBubble } from "./ChatMessageBubble.js";
 import { RecommendationCard } from "./RecommendationCard.js";
@@ -9,12 +10,24 @@ type ChatAssistantBlockProps = {
   prefersReducedMotion: boolean;
 };
 
-export function ChatAssistantBlock({
+function ChatAssistantBlockImpl({
   content,
   recommendations,
   followUp,
   prefersReducedMotion,
 }: ChatAssistantBlockProps) {
+  const recommendationCards = useMemo(
+    () =>
+      recommendations.map((recommendation) => (
+        <RecommendationCard
+          key={recommendation.course.id}
+          recommendation={recommendation}
+          prefersReducedMotion={prefersReducedMotion}
+        />
+      )),
+    [prefersReducedMotion, recommendations],
+  );
+
   return (
     <div className="space-y-2 rounded-2xl border border-gray-200/80 bg-gray-50/70 p-2">
       <ChatMessageBubble role="assistant" align="none">
@@ -22,15 +35,7 @@ export function ChatAssistantBlock({
       </ChatMessageBubble>
 
       {recommendations.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {recommendations.map((recommendation) => (
-            <RecommendationCard
-              key={recommendation.course.id}
-              recommendation={recommendation}
-              prefersReducedMotion={prefersReducedMotion}
-            />
-          ))}
-        </div>
+        <div className="grid gap-2 sm:grid-cols-2">{recommendationCards}</div>
       )}
 
       {followUp && (
@@ -46,3 +51,20 @@ export function ChatAssistantBlock({
     </div>
   );
 }
+
+function assistantBlockPropsEqual(
+  previous: ChatAssistantBlockProps,
+  next: ChatAssistantBlockProps,
+): boolean {
+  return (
+    previous.content === next.content &&
+    previous.followUp === next.followUp &&
+    previous.prefersReducedMotion === next.prefersReducedMotion &&
+    previous.recommendations === next.recommendations
+  );
+}
+
+export const ChatAssistantBlock = memo(
+  ChatAssistantBlockImpl,
+  assistantBlockPropsEqual,
+);
