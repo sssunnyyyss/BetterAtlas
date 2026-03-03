@@ -42,6 +42,41 @@ function createTurns(): ChatTurn[] {
   ];
 }
 
+function createRecommendationTurn(): ChatTurn {
+  return {
+    id: "turn-assistant-recommendations",
+    role: "assistant",
+    content: "Try these recommendations.",
+    recommendations: [
+      {
+        course: {
+          id: 731,
+          code: "CS 171",
+          title: "Intro to CS II",
+          description: "Follow-up introductory course",
+          credits: 4,
+          departmentId: 1,
+          attributes: null,
+          department: null,
+          avgQuality: 4,
+          avgDifficulty: 3,
+          avgWorkload: 3,
+          reviewCount: 80,
+          classScore: 4.1,
+        },
+        fitScore: 8,
+        why: [
+          "Strong continuation path from CS 170",
+          "Balanced workload relative to similar options",
+          "Frequent semester availability",
+        ],
+        cautions: ["Project deadlines cluster near finals week"],
+      },
+    ],
+    followUp: null,
+  };
+}
+
 function createLifecycle(
   overrides: Partial<ChatRequestLifecycle> = {},
 ): ChatRequestLifecycle {
@@ -412,6 +447,8 @@ describe("AiChat interactions", () => {
     const view = renderAiChat({
       sessionOverrides: {
         requestState: "error",
+        draft: "Keep this enabled",
+        isSending: false,
         requestLifecycle: createLifecycle({
           transitionSequence: 12,
           lastTransitionFrom: "sending",
@@ -501,6 +538,116 @@ describe("AiChat interactions", () => {
       ).toBeNull();
     } finally {
       conversationView.unmount();
+    }
+  });
+
+  it("exposes recommendation/status/composer controls with keyboard focus-ring affordances", () => {
+    const view = renderAiChat({
+      sessionOverrides: {
+        turns: [
+          {
+            id: "turn-user-keyboard",
+            role: "user",
+            content: "Recommend next CS class",
+          },
+          createRecommendationTurn(),
+        ],
+        hasTurns: true,
+        requestState: "error",
+        draft: "Keep this enabled",
+        isSending: false,
+        requestLifecycle: createLifecycle({
+          transitionSequence: 30,
+          lastTransitionFrom: "sending",
+          lastTransitionTo: "error",
+          lastTransitionReason: "response-error",
+          lastErrorMessage: "Timeout",
+          lastFailedPromptPayload: {
+            prompt: "Recommend next CS class",
+            messages: [{ role: "user", content: "Recommend next CS class" }],
+          },
+        }),
+      },
+    });
+
+    try {
+      const reasonToggle = view.container.querySelector(
+        '[data-testid="chat-recommendation-why-more-731"]',
+      ) as HTMLButtonElement | null;
+      const cautionToggle = view.container.querySelector(
+        '[data-testid="chat-recommendation-cautions-731"]',
+      ) as HTMLButtonElement | null;
+      const detailsLink = view.container.querySelector(
+        '[data-testid="chat-recommendation-detail-link-731"]',
+      ) as HTMLAnchorElement | null;
+      const retryButton = view.container.querySelector(
+        '[data-testid="chat-request-retry"]',
+      ) as HTMLButtonElement | null;
+      const sendButton = view.container.querySelector(
+        '[data-testid="chat-composer-send"]',
+      ) as HTMLButtonElement | null;
+
+      expect(reasonToggle?.className.includes("ba-chat-focus-ring")).toBe(true);
+      expect(cautionToggle?.className.includes("ba-chat-focus-ring")).toBe(true);
+      expect(detailsLink?.className.includes("ba-chat-focus-ring")).toBe(true);
+      expect(retryButton?.className.includes("ba-chat-focus-ring")).toBe(true);
+      expect(sendButton?.className.includes("ba-chat-focus-ring")).toBe(true);
+
+      reasonToggle?.focus();
+      expect(document.activeElement).toBe(reasonToggle);
+      detailsLink?.focus();
+      expect(document.activeElement).toBe(detailsLink);
+      retryButton?.focus();
+      expect(document.activeElement).toBe(retryButton);
+      sendButton?.focus();
+      expect(document.activeElement).toBe(sendButton);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it("removes disclosure transition classes when reduced-motion is enabled", () => {
+    setReducedMotionPreference(true);
+    const view = renderAiChat({
+      sessionOverrides: {
+        turns: [
+          {
+            id: "turn-user-reduced-motion",
+            role: "user",
+            content: "Need a CS recommendation",
+          },
+          createRecommendationTurn(),
+        ],
+        hasTurns: true,
+      },
+    });
+
+    try {
+      const reasonToggle = view.container.querySelector(
+        '[data-testid="chat-recommendation-why-more-731"]',
+      ) as HTMLButtonElement | null;
+      const icon = view.container.querySelector(
+        '[data-testid="chat-recommendation-why-more-731-icon"]',
+      );
+
+      expect(reasonToggle).not.toBeNull();
+      expect(icon?.getAttribute("class")?.includes("transition-transform")).toBe(
+        false,
+      );
+
+      act(() => {
+        reasonToggle?.click();
+      });
+
+      const disclosureContent = view.container.querySelector(
+        '[data-testid="chat-recommendation-why-more-731-content"]',
+      );
+      expect(disclosureContent).not.toBeNull();
+      expect(disclosureContent?.className.includes("ba-chat-disclosure-content")).toBe(
+        false,
+      );
+    } finally {
+      view.unmount();
     }
   });
 });
