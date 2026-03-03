@@ -25,3 +25,31 @@
 - Milestone audit file (`.planning/v1.0-MILESTONE-AUDIT.md`) was not present at completion time.
 
 ---
+
+## v1.1 AI Chat Experience Redesign (Shipped: 2026-03-03)
+
+**Delivered:** A full AI chat UX redesign with clearer layout hierarchy, deterministic interaction lifecycle behavior, recommendation-card decision support improvements, and accessibility/performance hardening.
+
+**Phases completed:** 3 phases (9 plans, 27 tasks)
+
+**Key accomplishments:**
+- Unified standalone `/ai` and embedded chat rendering under a shared shell/feed/composer contract.
+- Added deterministic `idle -> sending -> success/error -> idle` lifecycle behavior with intent-aware scrolling and retry recovery.
+- Implemented keyboard-safe mobile composer ergonomics with `VisualViewport`-driven inset behavior.
+- Shipped redesigned recommendation cards with scan-first hierarchy, progressive disclosure, and explicit course-detail actions.
+- Added accessibility and reduced-motion parity checks plus recommendation-render performance regression coverage.
+
+**Stats:**
+- 44 files changed
+- +5357 / -498 lines (net +4859)
+- Timeline: ~4 days (2026-02-26 19:05 -0800 -> 2026-03-02 22:13 -0800)
+- Codebase size at ship: ~105,967 JS/TS lines (`frontend`, `api`, `packages/shared`)
+
+**Git range:** `feat(02-01)` -> `docs(04-03)`
+
+### Known Gaps
+
+- Milestone audit file (`.planning/v1.1-MILESTONE-AUDIT.md`) was not present at completion time.
+- GSD utility closeout commands required manual metadata correction during archive prep.
+
+---
