@@ -375,4 +375,8 @@ h6 {
   .ba-chat-disclosure-content {
     transition: none;
   }
+
+  .ba-chat-focus-ring {
+    transition: none;
+  }
 }
