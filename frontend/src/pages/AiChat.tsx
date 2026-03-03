@@ -92,8 +92,8 @@ export default function AiChat({ embedded = false }: AiChatProps) {
     <div
       className={
         embedded
-          ? "flex h-full min-h-0 w-full"
-          : "flex min-h-[calc(100dvh-4rem)] w-full px-3 py-3 sm:px-6 sm:py-5"
+          ? "flex h-full min-h-0 w-full touch-pan-y"
+          : "flex min-h-[calc(100dvh-4rem)] w-full touch-pan-y px-3 py-3 sm:px-6 sm:py-5"
       }
       data-viewport-height={viewportHeight > 0 ? viewportHeight : undefined}
     >

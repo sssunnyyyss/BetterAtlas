@@ -128,7 +128,7 @@ export function ChatFeed({
     <div
       ref={scrollContainerRef}
       onScroll={updateNearBottom}
-      className="h-full min-h-0 overflow-y-auto px-4 py-4"
+      className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-4 py-4"
       data-testid="chat-feed-scroll-container"
     >
       {!hasTurns ? (
