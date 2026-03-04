@@ -15,6 +15,7 @@ import ReviewCard from "../components/review/ReviewCard.js";
 import ReviewForm from "../components/review/ReviewForm.js";
 import EditReviewModal from "../components/review/EditReviewModal.js";
 import Modal from "../components/ui/Modal.js";
+import AppDropdown from "../components/ui/AppDropdown.js";
 import { formatTimeRange12h } from "../lib/time.js";
 import type { Schedule, Section, ReviewWithAuthor } from "@betteratlas/shared";
 import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
@@ -788,6 +789,16 @@ export default function CourseDetail() {
       ...sectionOptions,
     ];
   }, [course, editingReview, sectionOptions]);
+  const reportSectionDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "Course page in general" },
+      ...sectionOptions.map((section) => ({
+        value: String(section.id),
+        label: `Section ${section.sectionNumber ?? "—"} · ${section.semester}${section.instructorName ? ` · ${section.instructorName}` : ""}`,
+      })),
+    ],
+    [sectionOptions]
+  );
 
   async function handleSubmitInaccurateReport(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -1434,20 +1445,13 @@ export default function CourseDetail() {
             <label className="block text-sm font-medium text-gray-700" htmlFor="report-section">
               Section (optional)
             </label>
-            <select
+            <AppDropdown
               id="report-section"
               value={reportSectionId === "" ? "" : String(reportSectionId)}
-              onChange={(e) => setReportSectionId(e.target.value ? Number(e.target.value) : "")}
-              className="mt-1 w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="">Course page in general</option>
-              {sectionOptions.map((section) => (
-                <option key={section.id} value={section.id}>
-                  Section {section.sectionNumber ?? "—"} · {section.semester}
-                  {section.instructorName ? ` · ${section.instructorName}` : ""}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setReportSectionId(value ? Number(value) : "")}
+              options={reportSectionDropdownOptions}
+              className="mt-1 w-full"
+            />
           </div>
 
           <div>

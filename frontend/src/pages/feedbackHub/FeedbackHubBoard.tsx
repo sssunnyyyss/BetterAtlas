@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import type { FeedbackHubPostStatus } from "@betteratlas/shared";
 import { useAuth } from "../../lib/auth.js";
+import AppDropdown from "../../components/ui/AppDropdown.js";
 import {
   useCreateFeedbackPost,
   useFeedbackBoardCategories,
@@ -60,6 +61,39 @@ export default function FeedbackHubBoard() {
     () => categoriesQuery.data?.categories ?? [],
     [categoriesQuery.data?.categories]
   );
+  const sortDropdownOptions = useMemo(
+    () => [
+      { value: "trending", label: "Trending" },
+      { value: "top", label: "Top" },
+      { value: "new", label: "New" },
+    ],
+    []
+  );
+  const statusDropdownOptions = useMemo(
+    () => STATUS_FILTERS.map((option) => ({ value: option.value, label: option.label })),
+    []
+  );
+  const categoryDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "All categories" },
+      ...categoryOptions.map((cat) => ({ value: cat.slug, label: cat.name })),
+    ],
+    [categoryOptions]
+  );
+  const createCategoryDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "No category" },
+      ...categoryOptions.map((cat) => ({ value: cat.slug, label: cat.name })),
+    ],
+    [categoryOptions]
+  );
+  const authorModeDropdownOptions = useMemo(
+    () => [
+      { value: "pseudonymous", label: "Post as pseudonymous" },
+      { value: "linked_profile", label: "Post with profile" },
+    ],
+    []
+  );
 
   function setParam(name: string, value: string) {
     const next = new URLSearchParams(searchParams);
@@ -99,40 +133,26 @@ export default function FeedbackHubBoard() {
 
       <section className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
         <div className="flex flex-wrap gap-3">
-          <select
+          <AppDropdown
             value={sort}
-            onChange={(e) => setParam("sort", e.target.value)}
-            className="rounded-md border-gray-300 text-sm"
-          >
-            <option value="trending">Trending</option>
-            <option value="top">Top</option>
-            <option value="new">New</option>
-          </select>
+            onChange={(value) => setParam("sort", value)}
+            options={sortDropdownOptions}
+            className="min-w-[140px]"
+          />
 
-          <select
+          <AppDropdown
             value={status}
-            onChange={(e) => setParam("status", e.target.value)}
-            className="rounded-md border-gray-300 text-sm"
-          >
-            {STATUS_FILTERS.map((option) => (
-              <option key={option.value || "all"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setParam("status", value)}
+            options={statusDropdownOptions}
+            className="min-w-[170px]"
+          />
 
-          <select
+          <AppDropdown
             value={category}
-            onChange={(e) => setParam("category", e.target.value)}
-            className="rounded-md border-gray-300 text-sm"
-          >
-            <option value="">All categories</option>
-            {categoryOptions.map((cat) => (
-              <option key={cat.id} value={cat.slug}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setParam("category", value)}
+            options={categoryDropdownOptions}
+            className="min-w-[190px]"
+          />
 
           <input
             value={q}
@@ -179,28 +199,20 @@ export default function FeedbackHubBoard() {
               className="w-full rounded-md border-gray-300 text-sm"
             />
             <div className="flex flex-wrap gap-3">
-              <select
+              <AppDropdown
                 value={categorySlug}
-                onChange={(e) => setCategorySlug(e.target.value)}
-                className="rounded-md border-gray-300 text-sm"
-              >
-                <option value="">No category</option>
-                {categoryOptions.map((cat) => (
-                  <option key={cat.id} value={cat.slug}>
-                    {cat.name}
-                  </option>
-                ))}
-              </select>
-              <select
+                onChange={(value) => setCategorySlug(value)}
+                options={createCategoryDropdownOptions}
+                className="min-w-[190px]"
+              />
+              <AppDropdown
                 value={authorMode}
-                onChange={(e) =>
-                  setAuthorMode(e.target.value as "pseudonymous" | "linked_profile")
+                onChange={(value) =>
+                  setAuthorMode(value as "pseudonymous" | "linked_profile")
                 }
-                className="rounded-md border-gray-300 text-sm"
-              >
-                <option value="pseudonymous">Post as pseudonymous</option>
-                <option value="linked_profile">Post with profile</option>
-              </select>
+                options={authorModeDropdownOptions}
+                className="min-w-[220px]"
+              />
               <button
                 type="submit"
                 disabled={createPost.isPending}

@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
-import type { ProgramAiRequirementsSummary, ProgramSummary, ProgramTab } from "@betteratlas/shared";
+import type { ProgramAiRequirementsSummary, ProgramTab } from "@betteratlas/shared";
 import { api } from "../api/client.js";
 import { useCourses, useCourseSearch } from "../hooks/useCourses.js";
-import { useProgram, useProgramAiSummary, useProgramCourses, useProgramVariants } from "../hooks/usePrograms.js";
+import { useProgram, useProgramAiSummary, useProgramCourses } from "../hooks/usePrograms.js";
 import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
@@ -15,10 +15,7 @@ import {
   type CatalogCourseEntry,
   type CourseTopicDetail,
 } from "../lib/courseTopics.js";
-import {
-  canonicalizeProgramTab,
-  selectProgramVariant,
-} from "../lib/programVariantSelection.js";
+import { canonicalizeProgramTab } from "../lib/programVariantSelection.js";
 
 function Spinner({ className = "" }: { className?: string }) {
   return (
@@ -196,12 +193,9 @@ export default function Catalog() {
   const programTab: ProgramTab = canonicalizeProgramTab(rawProgramTab);
   const isProgramMode = programId > 0;
   const programIdForQueries = isProgramMode ? programId : 0;
-  const [previousByKind, setPreviousByKind] = useState<Partial<Record<ProgramSummary["kind"], ProgramSummary>>>({});
 
   const programQuery = useProgram(programIdForQueries);
   const program = programQuery.data;
-  const variantsQuery = useProgramVariants(programIdForQueries);
-  const variants = variantsQuery.data;
   const aiSummaryQuery = useProgramAiSummary(programIdForQueries);
   const aiSummary = aiSummaryQuery.data;
 
@@ -214,29 +208,6 @@ export default function Catalog() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isProgramMode, rawProgramTab, programTab]);
-
-  useEffect(() => {
-    if (!program) return;
-    const currentSelection: ProgramSummary = {
-      id: program.id,
-      name: program.name,
-      kind: program.kind,
-      degree: program.degree,
-    };
-
-    setPreviousByKind((prev) => {
-      const existing = prev[currentSelection.kind];
-      if (
-        existing &&
-        existing.id === currentSelection.id &&
-        existing.name === currentSelection.name &&
-        existing.degree === currentSelection.degree
-      ) {
-        return prev;
-      }
-      return { ...prev, [currentSelection.kind]: currentSelection };
-    });
-  }, [program?.id, program?.name, program?.kind, program?.degree]);
 
   const handleFilterChange = useCallback(
     (key: string, value: string) => {
@@ -252,36 +223,6 @@ export default function Catalog() {
       });
     },
     [setSearchParams]
-  );
-
-  const handleProgramKindToggle = useCallback(
-    (targetKind: ProgramSummary["kind"]) => {
-      if (!program || !variants) return;
-      if (program.kind === targetKind) return;
-
-      const currentSelection: ProgramSummary = {
-        id: program.id,
-        name: program.name,
-        kind: program.kind,
-        degree: program.degree,
-      };
-
-      const pick = selectProgramVariant({
-        variants,
-        targetKind,
-        current: currentSelection,
-        previousByKind,
-      });
-      if (!pick || pick.id === program.id) return;
-
-      setPreviousByKind((prev) => ({
-        ...prev,
-        [currentSelection.kind]: currentSelection,
-        [targetKind]: pick,
-      }));
-      handleFilterChange("programId", String(pick.id));
-    },
-    [program, variants, previousByKind, handleFilterChange]
   );
 
   // Use search or browse (or program mode)
@@ -526,35 +467,6 @@ export default function Catalog() {
 
         {isProgramMode && (
           <div className="flex items-center gap-2 mb-4">
-            {variants && variants.majors.length > 0 && variants.minors.length > 0 && (
-              <div
-                className="ba-segmented mr-2"
-                style={{
-                  ["--ba-segment-index" as any]: program?.kind === "minor" ? 1 : 0,
-                  ["--ba-segments" as any]: 2,
-                }}
-              >
-                <span className="ba-segmented-glider" aria-hidden="true" />
-                <button
-                  type="button"
-                  onClick={() => handleProgramKindToggle("major")}
-                  className={`ba-segmented-btn ba-segmented-btn-compact ${
-                    program?.kind === "major" ? "ba-segmented-btn-active" : ""
-                  }`}
-                >
-                  Major
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleProgramKindToggle("minor")}
-                  className={`ba-segmented-btn ba-segmented-btn-compact ${
-                    program?.kind === "minor" ? "ba-segmented-btn-active" : ""
-                  }`}
-                >
-                  Minor
-                </button>
-              </div>
-            )}
             <div
               className="ba-segmented"
               style={{
@@ -570,7 +482,7 @@ export default function Catalog() {
                   programTab === "required" ? "ba-segmented-btn-active" : ""
                 }`}
               >
-                Required
+                Main
               </button>
               <button
                 type="button"
@@ -579,12 +491,12 @@ export default function Catalog() {
                   programTab === "electives" ? "ba-segmented-btn-active" : ""
                 }`}
               >
-                Electives
+                Elective
               </button>
             </div>
             {debouncedSearch.trim() && (
               <span className="text-xs text-gray-500 ml-2">
-                Filtering within {programTab} for "{debouncedSearch.trim()}"
+                Filtering within {programTab === "required" ? "main" : "elective"} for "{debouncedSearch.trim()}"
               </span>
             )}
           </div>

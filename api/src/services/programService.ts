@@ -131,6 +131,52 @@ function requirementsToText(nodes: { nodeType: string; text: string; listLevel: 
   return joined.length > 10_000 ? joined.slice(0, 10_000) : joined;
 }
 
+const AI_SUMMARY_STOP_WORDS = new Set([
+  "about",
+  "after",
+  "among",
+  "and",
+  "are",
+  "but",
+  "for",
+  "from",
+  "have",
+  "into",
+  "its",
+  "that",
+  "the",
+  "their",
+  "there",
+  "these",
+  "this",
+  "those",
+  "through",
+  "with",
+]);
+
+function extractAiSummaryTokens(value: string | null | undefined, maxTokens = 16): string[] {
+  if (!value) return [];
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const token of value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)) {
+    if (token.length < 3) continue;
+    if (AI_SUMMARY_STOP_WORDS.has(token)) continue;
+    if (!/[a-z]/.test(token)) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+    if (out.length >= maxTokens) break;
+  }
+
+  return out;
+}
+
 export async function listPrograms(query: ProgramsQuery) {
   const { q, limit } = query;
   const nameOrderExpr = sql<string>`lower(trim(${programs.name}))`;
@@ -257,6 +303,30 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
 
   const offset = (page - 1) * limit;
   const termCode = await getSingleActiveTermCode();
+  let aiSummaryTokens: string[] = [];
+  let hasProgramSubjectCodes = false;
+
+  if (tab === "required") {
+    const [programSummary] = await db
+      .select({
+        requirementsSummary: programs.requirementsSummary,
+        requirementsSummaryHighlights: programs.requirementsSummaryHighlights,
+      })
+      .from(programs)
+      .where(eq(programs.id, programId))
+      .limit(1);
+
+    aiSummaryTokens = extractAiSummaryTokens(
+      `${programSummary?.requirementsSummary ?? ""}\n${programSummary?.requirementsSummaryHighlights ?? ""}`
+    );
+
+    const subjectCodes = await db
+      .select({ subjectCode: programSubjectCodes.subjectCode })
+      .from(programSubjectCodes)
+      .where(eq(programSubjectCodes.programId, programId))
+      .limit(1);
+    hasProgramSubjectCodes = subjectCodes.length > 0;
+  }
 
   const baseConditions: any[] = [
     eq(sections.termCode, termCode),
@@ -293,7 +363,36 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
 
   // Program constraints
   if (tab === "required") {
-    baseConditions.push(eq(programCourseCodes.programId, programId));
+    const requiredCodeCondition = sql`EXISTS (
+      SELECT 1 FROM ${programCourseCodes} pcc
+      WHERE pcc.program_id = ${programId} AND pcc.course_code = ${courses.code}
+    )`;
+
+    if (aiSummaryTokens.length === 0) {
+      baseConditions.push(requiredCodeCondition);
+    } else {
+      const aiSummaryQuery = aiSummaryTokens.join(" | ");
+      const aiSummaryMatchCondition = sql`(
+        setweight(to_tsvector('english', coalesce(${courses.code}, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(${courses.title}, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(${courses.description}, '')), 'B')
+      ) @@ to_tsquery('english', ${aiSummaryQuery})`;
+
+      if (hasProgramSubjectCodes) {
+        baseConditions.push(sql`(
+          ${requiredCodeCondition}
+          OR (
+            EXISTS (
+              SELECT 1 FROM ${programSubjectCodes} psc
+              WHERE psc.program_id = ${programId} AND psc.subject_code = ${departments.code}
+            )
+            AND ${aiSummaryMatchCondition}
+          )
+        )`);
+      } else {
+        baseConditions.push(sql`(${requiredCodeCondition} OR ${aiSummaryMatchCondition})`);
+      }
+    }
   } else {
     // Electives: all subjects referenced by the program, plus optional level floor.
     baseConditions.push(eq(programSubjectCodes.programId, programId));
@@ -348,9 +447,7 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
     queryBase = queryBase.innerJoin(instructors, eq(sections.instructorId, instructors.id));
   }
 
-  if (tab === "required") {
-    queryBase = queryBase.innerJoin(programCourseCodes, eq(programCourseCodes.courseCode, courses.code));
-  } else {
+  if (tab !== "required") {
     queryBase = queryBase.innerJoin(programSubjectCodes, eq(programSubjectCodes.subjectCode, departments.code));
   }
 
@@ -367,12 +464,7 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
     countQuery = countQuery.innerJoin(instructors, eq(sections.instructorId, instructors.id));
   }
 
-  if (tab === "required") {
-    countQuery = countQuery.innerJoin(
-      programCourseCodes,
-      and(eq(programCourseCodes.programId, programId), eq(programCourseCodes.courseCode, courses.code))
-    );
-  } else {
+  if (tab !== "required") {
     countQuery = countQuery.innerJoin(
       programSubjectCodes,
       and(

@@ -6,6 +6,7 @@ import {
   searchCourses,
   getCourseById,
   listDepartments,
+  listTerms,
 } from "../services/courseService.js";
 
 const router = Router();
@@ -37,6 +38,13 @@ export const departmentsRouter = Router();
 departmentsRouter.get("/", async (_req, res) => {
   const deps = await listDepartments();
   res.json(deps);
+});
+
+// Terms endpoint (under /api/terms)
+export const termsRouter = Router();
+termsRouter.get("/", async (_req, res) => {
+  const allTerms = await listTerms();
+  res.json(allTerms);
 });
 
 export default router;

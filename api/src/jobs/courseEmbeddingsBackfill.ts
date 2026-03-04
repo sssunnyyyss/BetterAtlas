@@ -154,14 +154,19 @@ function embeddingTextFromCourse(c: CourseWithRatings, enrich: EnrichmentData) {
 /*  Course loading                                                     */
 /* ------------------------------------------------------------------ */
 
-async function loadAllCourses(): Promise<CourseWithRatings[]> {
+async function loadAllCourses(semester?: string | null): Promise<CourseWithRatings[]> {
   const out: CourseWithRatings[] = [];
   const limit = 100;
   let page = 1;
   let totalPages = 1;
 
   while (page <= totalPages) {
-    const resp = await listCourses({ page, limit, sort: "code" } as any);
+    const resp = await listCourses({
+      page,
+      limit,
+      sort: "code",
+      ...(semester ? { semester } : {}),
+    } as any);
     out.push(...(resp.data ?? []));
     totalPages = resp.meta?.totalPages ?? totalPages;
     page++;
@@ -234,7 +239,15 @@ async function main() {
     );
   }
 
+  const semesterFilter = String(process.env.EMBEDDINGS_SEMESTER ?? "").trim() || null;
+
   /* ---- Phase 1: Review summarization ---- */
+  if (semesterFilter) {
+    console.log(`[embeddings] Semester scope: ${semesterFilter}`);
+  } else {
+    console.log("[embeddings] Semester scope: all semesters");
+  }
+
   console.log("[embeddings] Phase 1 — generating review summaries...");
   await runReviewSummarization();
 
@@ -245,7 +258,7 @@ async function main() {
   const delayMs = Math.max(0, Number(process.env.EMBEDDINGS_DELAY_MS ?? "0"));
 
   console.log(`[embeddings] loading courses...`);
-  const courses = await loadAllCourses();
+  const courses = await loadAllCourses(semesterFilter);
   console.log(`[embeddings] courses loaded: ${courses.length}`);
 
   console.log(`[embeddings] loading enrichment data...`);

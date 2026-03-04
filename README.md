@@ -77,6 +77,13 @@ Set these when running the beta invite flow:
 - `BETA_REQUIRE_INVITE_CODE=true` (API enforcement for `POST /api/auth/register`)
 - `VITE_BETA_REQUIRE_INVITE_CODE=true` (frontend registration form behavior)
 
+### Footer Uptime Badge
+
+Set these to show a clickable Uptime Kuma indicator in the footer:
+
+- `VITE_UPTIME_STATUS_URL=https://status.betteratlas.net/status/main`
+- `VITE_UPTIME_LABEL=All systems operational` (optional; defaults to `All systems operational`)
+
 ### 5. Push the database schema
 
 ```bash

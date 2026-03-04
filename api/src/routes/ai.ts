@@ -1,7 +1,7 @@
 ﻿import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middleware/validate.js";
-import { requireAuth } from "../middleware/auth.js";
+import { optionalAuth } from "../middleware/optionalAuth.js";
 import { aiLimiter } from "../middleware/rateLimit.js";
 import { env } from "../config/env.js";
 import { openAiChatJson } from "../lib/openai.js";
@@ -794,7 +794,7 @@ function rankCandidatesByPreferenceSignals(
 
 router.post(
   "/ai/course-recommendations",
-  requireAuth,
+  optionalAuth,
   aiLimiter,
   validate(recommendSchema),
   async (req, res) => {
@@ -808,7 +808,8 @@ router.post(
       const { messages, prompt, reset, excludeCourseIds, filters, preferences } = req.body as z.infer<
         typeof recommendSchema
       >;
-      const user = await getUserById(req.user!.id);
+      const userId = req.user?.id ?? null;
+      const user = userId ? await getUserById(userId) : null;
       const activeFilters = normalizeAiFilters(filters);
       const likedCourses = normalizePreferenceCourses(preferences?.liked);
       const dislikedCourses = normalizePreferenceCourses(preferences?.disliked);
@@ -830,7 +831,7 @@ router.post(
       );
       const depsMs = Date.now() - tDepsStart;
 
-      if (reset) clearUserMemory(req.user!.id);
+      if (reset && userId) clearUserMemory(userId);
       if (reset && !messages && !prompt) {
         return res.json({
           assistantMessage: "AI memory cleared.",
@@ -841,8 +842,11 @@ router.post(
 
       const effectiveMessages: AiMessage[] = (() => {
         if (Array.isArray(messages)) return messages as AiMessage[];
-        const mem = getUserMemory(req.user!.id);
         const nextUser = (prompt ?? "").trim();
+        if (!userId) {
+          return nextUser ? [{ role: "user" as const, content: nextUser }] : [];
+        }
+        const mem = getUserMemory(userId);
         const merged = nextUser ? [...mem, { role: "user" as const, content: nextUser }] : mem;
         // Keep model context bounded.
         return merged.slice(-12);
@@ -853,14 +857,16 @@ router.post(
 
       // If someone just says "hello", don't burn an expensive LLM call.
       if (isTrivialGreeting(latestUser)) {
-        setUserMemory(req.user!.id, [
-          ...getUserMemory(req.user!.id),
-          {
-            role: "assistant" as const,
-            content:
-              "Hi. Tell me what you want in a class (interests, workload, credits, semester) and I'll recommend courses.",
-          },
-        ]);
+        if (userId) {
+          setUserMemory(userId, [
+            ...getUserMemory(userId),
+            {
+              role: "assistant" as const,
+              content:
+                "Hi. Tell me what you want in a class (interests, workload, credits, semester) and I'll recommend courses.",
+            },
+          ]);
+        }
         const totalMs = Date.now() - tStart;
         if (totalMs > 1500) {
           console.log("ai/course-recommendations timings", {
@@ -1243,10 +1249,12 @@ router.post(
       }
 
       // Persist per-user memory (isolated by user id).
-      setUserMemory(req.user!.id, [
-        ...effectiveMessages,
-        { role: "assistant" as const, content: modelResult.assistant_message },
-      ]);
+      if (userId) {
+        setUserMemory(userId, [
+          ...effectiveMessages,
+          { role: "assistant" as const, content: modelResult.assistant_message },
+        ]);
+      }
 
       const totalMs = Date.now() - tStart;
       if (totalMs > 1500) {
@@ -1309,4 +1317,3 @@ router.post(
 );
 
 export default router;
-

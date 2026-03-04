@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.js";
+import AppDropdown from "../../components/ui/AppDropdown.js";
 
 type StatsOverview = {
   windowDays: number;
@@ -73,15 +74,16 @@ export default function AdminStats() {
     <div className="space-y-4">
       <div className="flex items-center gap-2">
         <label className="text-sm text-gray-600">Window</label>
-        <select
-          value={windowDays}
-          onChange={(e) => setWindowDays(parseInt(e.target.value, 10))}
-          className="rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-        >
-          <option value={7}>7 days</option>
-          <option value={30}>30 days</option>
-          <option value={90}>90 days</option>
-        </select>
+        <AppDropdown
+          value={String(windowDays)}
+          onChange={(value) => setWindowDays(parseInt(value, 10))}
+          options={[
+            { value: "7", label: "7 days" },
+            { value: "30", label: "30 days" },
+            { value: "90", label: "90 days" },
+          ]}
+          className="w-32"
+        />
       </div>
 
       {error && (

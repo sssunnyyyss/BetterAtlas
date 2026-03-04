@@ -76,6 +76,39 @@ function areLikelySameFirstName(a: string, b: string): boolean {
   return leftGroup !== undefined && leftGroup === rightGroup;
 }
 
+function lastNameSimilarity(a: string, b: string): number {
+  const left = normalizePersonToken(a);
+  const right = normalizePersonToken(b);
+  if (!left || !right) return 0;
+  if (left === right) return 1;
+  const maxLen = Math.max(left.length, right.length);
+  if (maxLen === 0) return 0;
+  return 1 - distance(left, right) / maxLen;
+}
+
+function lastNameMatchSignal(
+  instructorLastName: string,
+  rmpLastName: string
+): { score: number; similarity: number } {
+  const instLast = normalizePersonToken(instructorLastName);
+  const rmpLast = normalizePersonToken(rmpLastName);
+  if (!instLast || !rmpLast) return { score: 0, similarity: 0 };
+  if (instLast === rmpLast) return { score: 3, similarity: 1 };
+
+  const similarity = lastNameSimilarity(instLast, rmpLast);
+  const sameInitial = instLast[0] === rmpLast[0];
+  const minLen = Math.min(instLast.length, rmpLast.length);
+  const prefixCompatible = instLast.startsWith(rmpLast) || rmpLast.startsWith(instLast);
+  const conservativeNearMatch =
+    sameInitial && minLen >= 5 && (similarity >= 0.84 || prefixCompatible);
+
+  if (conservativeNearMatch) {
+    return { score: 2, similarity };
+  }
+
+  return { score: 0, similarity };
+}
+
 function normalizeDepartmentText(value: string): string {
   return String(value ?? "")
     .toLowerCase()
@@ -134,13 +167,34 @@ export interface ProfessorDisambiguationCandidate {
   similarity: number;
 }
 
-export function listProfessorDisambiguationCandidates(
+type LastNameFallbackCandidate = {
+  id: number;
+  deptMatch: boolean;
+  firstScore: number;
+  firstSimilarity: number;
+  lastScore: number;
+  lastSimilarity: number;
+};
+
+function compareLastNameFallbackCandidates(
+  a: LastNameFallbackCandidate,
+  b: LastNameFallbackCandidate
+): number {
+  if (a.deptMatch !== b.deptMatch) return a.deptMatch ? -1 : 1;
+  if (a.lastScore !== b.lastScore) return b.lastScore - a.lastScore;
+  if (a.firstScore !== b.firstScore) return b.firstScore - a.firstScore;
+  if (a.lastSimilarity !== b.lastSimilarity) return b.lastSimilarity - a.lastSimilarity;
+  if (a.firstSimilarity !== b.firstSimilarity) return b.firstSimilarity - a.firstSimilarity;
+  return a.id - b.id;
+}
+
+function collectLastNameFallbackCandidates(
   firstName: string,
   lastName: string,
   rmpDepartment: string,
   instructors: InstructorRow[],
   deptCodeMap: Map<number, string>
-): ProfessorDisambiguationCandidate[] {
+): LastNameFallbackCandidate[] {
   const rmpTokens = tokenizePersonName(`${firstName} ${lastName}`);
   const rmpFirstTokens = tokenizePersonName(firstName);
   const rmpLastTokens = tokenizePersonName(lastName);
@@ -148,14 +202,16 @@ export function listProfessorDisambiguationCandidates(
   const rmpLast = rmpLastTokens[rmpLastTokens.length - 1] ?? rmpTokens[rmpTokens.length - 1] ?? "";
   if (!rmpLast) return [];
 
-  const out: ProfessorDisambiguationCandidate[] = [];
+  const out: LastNameFallbackCandidate[] = [];
   for (const inst of instructors) {
     const tokens = tokenizePersonName(inst.name);
     if (tokens.length === 0) continue;
 
     const instFirst = tokens[0]!;
     const instLast = tokens[tokens.length - 1]!;
-    if (instLast !== rmpLast) continue;
+
+    const { score: lastScore, similarity: lastSimilarity } = lastNameMatchSignal(instLast, rmpLast);
+    if (lastScore === 0) continue;
 
     const firstExact = Boolean(rmpFirst) && instFirst === rmpFirst;
     const firstNickname = Boolean(rmpFirst) && areLikelySameFirstName(instFirst, rmpFirst);
@@ -168,21 +224,38 @@ export function listProfessorDisambiguationCandidates(
     if (firstScore === 0) continue;
 
     out.push({
-      instructorId: inst.id,
+      id: inst.id,
       deptMatch: hasDepartmentSignal(rmpDepartment, inst.departmentId, deptCodeMap),
       firstScore,
-      similarity: firstNameSimilarity(instFirst, rmpFirst),
+      firstSimilarity: firstNameSimilarity(instFirst, rmpFirst),
+      lastScore,
+      lastSimilarity,
     });
   }
 
-  out.sort((a, b) => {
-    if (a.deptMatch !== b.deptMatch) return a.deptMatch ? -1 : 1;
-    if (a.firstScore !== b.firstScore) return b.firstScore - a.firstScore;
-    if (a.similarity !== b.similarity) return b.similarity - a.similarity;
-    return a.instructorId - b.instructorId;
-  });
-
+  out.sort(compareLastNameFallbackCandidates);
   return out;
+}
+
+export function listProfessorDisambiguationCandidates(
+  firstName: string,
+  lastName: string,
+  rmpDepartment: string,
+  instructors: InstructorRow[],
+  deptCodeMap: Map<number, string>
+): ProfessorDisambiguationCandidate[] {
+  return collectLastNameFallbackCandidates(
+    firstName,
+    lastName,
+    rmpDepartment,
+    instructors,
+    deptCodeMap
+  ).map((candidate) => ({
+    instructorId: candidate.id,
+    deptMatch: candidate.deptMatch,
+    firstScore: candidate.firstScore,
+    similarity: candidate.firstSimilarity,
+  }));
 }
 
 export function matchProfessor(
@@ -193,11 +266,6 @@ export function matchProfessor(
   deptCodeMap: Map<number, string>
 ): MatchResult | null {
   const rmpNorm = normalizeName(`${firstName} ${lastName}`);
-  const rmpTokens = tokenizePersonName(`${firstName} ${lastName}`);
-  const rmpFirstTokens = tokenizePersonName(firstName);
-  const rmpLastTokens = tokenizePersonName(lastName);
-  const rmpFirst = rmpFirstTokens[0] ?? rmpTokens[0] ?? "";
-  const rmpLast = rmpLastTokens[rmpLastTokens.length - 1] ?? rmpTokens[rmpTokens.length - 1] ?? "";
 
   // Pass 1: exact match
   for (const inst of instructors) {
@@ -238,55 +306,16 @@ export function matchProfessor(
     return { instructorId: candidates[0].id, confidence: "fuzzy" };
   }
 
-  // Pass 3: conservative fallback for nickname/short-name cases.
-  // Requires matching last name and a compatible first-name signal.
-  type LastNameCandidate = {
-    id: number;
-    deptMatch: boolean;
-    firstScore: number;
-    similarity: number;
-  };
-  const lastNameCandidates: LastNameCandidate[] = [];
-
-  for (const inst of instructors) {
-    const tokens = tokenizePersonName(inst.name);
-    if (tokens.length === 0) continue;
-
-    const instFirst = tokens[0]!;
-    const instLast = tokens[tokens.length - 1]!;
-    if (!rmpLast || instLast !== rmpLast) continue;
-
-    const deptMatch = hasDepartmentSignal(
-      rmpDepartment,
-      inst.departmentId,
-      deptCodeMap
-    );
-    const firstExact = Boolean(rmpFirst) && instFirst === rmpFirst;
-    const firstNickname = Boolean(rmpFirst) && areLikelySameFirstName(instFirst, rmpFirst);
-    const sameInitial =
-      Boolean(rmpFirst) &&
-      instFirst.length > 0 &&
-      rmpFirst.length > 0 &&
-      instFirst[0] === rmpFirst[0];
-
-    const firstScore = firstExact ? 3 : firstNickname ? 2 : sameInitial ? 1 : 0;
-    if (firstScore === 0) continue;
-
-    lastNameCandidates.push({
-      id: inst.id,
-      deptMatch,
-      firstScore,
-      similarity: firstNameSimilarity(instFirst, rmpFirst),
-    });
-  }
+  // Pass 3: conservative fallback for nickname/short-name + near-last-name cases.
+  const lastNameCandidates = collectLastNameFallbackCandidates(
+    firstName,
+    lastName,
+    rmpDepartment,
+    instructors,
+    deptCodeMap
+  );
 
   if (lastNameCandidates.length === 0) return null;
-
-  lastNameCandidates.sort((a, b) => {
-    if (a.deptMatch !== b.deptMatch) return a.deptMatch ? -1 : 1;
-    if (a.firstScore !== b.firstScore) return b.firstScore - a.firstScore;
-    return b.similarity - a.similarity;
-  });
 
   if (lastNameCandidates.length === 1) {
     return { instructorId: lastNameCandidates[0].id, confidence: "fuzzy" };
@@ -296,8 +325,10 @@ export function matchProfessor(
   const next = lastNameCandidates[1]!;
   const bestWinsClearly =
     (best.deptMatch && !next.deptMatch) ||
+    best.lastScore > next.lastScore ||
     best.firstScore > next.firstScore ||
-    best.similarity - next.similarity >= 0.15;
+    best.lastSimilarity - next.lastSimilarity >= 0.08 ||
+    best.firstSimilarity - next.firstSimilarity >= 0.15;
 
   if (!bestWinsClearly) return null;
   return { instructorId: best.id, confidence: "fuzzy" };

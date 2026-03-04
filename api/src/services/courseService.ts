@@ -122,6 +122,13 @@ function normalizeInstructionMethodFilter(value: string | undefined) {
   return value;
 }
 
+function excludeKnownTestCoursesExpr(codeExpr: any, titleExpr: any) {
+  return sql`not (
+    upper(coalesce(${codeExpr}, '')) like 'AAAA %'
+    or lower(coalesce(${titleExpr}, '')) like '%test course%'
+  )`;
+}
+
 function stripAtlasDescriptionLabels(value: string): string {
   let out = value.replace(/\s+/g, " ").trim();
   if (!out) return "";
@@ -199,7 +206,7 @@ export async function listCourses(query: CourseQuery) {
   // Course listing is section-backed: filters and instructor display require joins.
   // Do not force active-only sections here; callers expect all DB-matching courses
   // unless explicitly narrowed by other filters (e.g. semester).
-  const conditions: any[] = [];
+  const conditions: any[] = [excludeKnownTestCoursesExpr(courses.code, courses.title)];
 
   if (department) conditions.push(eq(departments.code, department));
   if (semester) conditions.push(eq(terms.name, semester));
@@ -542,7 +549,10 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     ${trigramSearchWhere}
   )`;
 
-  const whereParts: any[] = [searchWhere];
+  const whereParts: any[] = [
+    searchWhere,
+    excludeKnownTestCoursesExpr(courses.code, courses.title),
+  ];
   if (department) whereParts.push(eq(departments.code, department));
   if (semester) whereParts.push(eq(terms.name, semester));
   if (credits) whereParts.push(eq(courses.credits, credits));
@@ -1460,6 +1470,29 @@ export async function listDepartments() {
   return db.select().from(departments).orderBy(asc(departments.code));
 }
 
+export async function listTerms() {
+  const seasonRank = sql<number>`
+    case lower(${terms.season})
+      when 'spring' then 1
+      when 'summer' then 2
+      when 'fall' then 3
+      when 'winter' then 0
+      else -1
+    end
+  `;
+
+  return db
+    .select({
+      srcdb: terms.srcdb,
+      name: terms.name,
+      season: terms.season,
+      year: terms.year,
+      isActive: terms.isActive,
+    })
+    .from(terms)
+    .orderBy(desc(terms.year), desc(seasonRank), desc(terms.srcdb));
+}
+
 function embeddingToVectorLiteral(embedding: number[]) {
   const clean = embedding.map((v) => (Number.isFinite(v) ? v : 0));
   return `[${clean.join(",")}]`;
@@ -1478,6 +1511,7 @@ export async function semanticSearchCoursesByEmbedding(input: {
   const filterWhereParts: any[] = [
     sql`s.course_id = ce.course_id`,
     sql`s.is_active = true`,
+    excludeKnownTestCoursesExpr(sql`c.code`, sql`c.title`),
   ];
   if (filters?.department) filterWhereParts.push(sql`d.code = ${filters.department}`);
   if (filters?.semester) filterWhereParts.push(sql`t.name = ${filters.semester}`);

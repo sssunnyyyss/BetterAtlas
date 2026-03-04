@@ -93,6 +93,23 @@ describe("matchProfessor", () => {
     );
     expect(result).toEqual({ instructorId: 30, confidence: "fuzzy" });
   });
+
+  it("matches abbreviated local first name with conservative near-last-name fallback", () => {
+    const result = matchProfessor(
+      "Michelle",
+      "Andres",
+      "Marketing",
+      [
+        { id: 40, name: "M. Andrews", departmentId: 30 },
+        { id: 41, name: "Dwight D Andrews", departmentId: 60 },
+      ],
+      new Map([
+        [30, "MKT"],
+        [60, "MUS"],
+      ])
+    );
+    expect(result).toEqual({ instructorId: 40, confidence: "fuzzy" });
+  });
 });
 
 describe("matchCourse", () => {
@@ -176,5 +193,23 @@ describe("listProfessorDisambiguationCandidates", () => {
 
     expect(candidates.map((c) => c.instructorId)).toEqual([10, 11]);
     expect(candidates[0]?.firstScore).toBeGreaterThanOrEqual(candidates[1]?.firstScore ?? 0);
+  });
+
+  it("includes conservative near-last-name variants for disambiguation", () => {
+    const candidates = listProfessorDisambiguationCandidates(
+      "Michelle",
+      "Andres",
+      "Marketing",
+      [
+        { id: 20, name: "M. Andrews", departmentId: 30 },
+        { id: 21, name: "Dwight D Andrews", departmentId: 60 },
+      ],
+      new Map([
+        [30, "MKT"],
+        [60, "MUS"],
+      ])
+    );
+
+    expect(candidates.map((c) => c.instructorId)).toEqual([20]);
   });
 });

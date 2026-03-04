@@ -45,6 +45,17 @@ async function getTermInfo(termCode: string) {
   return { code: termCode, name: t?.name ?? null };
 }
 
+async function getAllTerms() {
+  return db
+    .select({ code: terms.srcdb, name: terms.name })
+    .from(terms)
+    .orderBy(
+      desc(terms.year),
+      sql`CASE lower(coalesce(${terms.season}, '')) WHEN 'fall' THEN 3 WHEN 'summer' THEN 2 WHEN 'spring' THEN 1 WHEN 'winter' THEN 0 ELSE -1 END DESC`,
+      desc(terms.srcdb)
+    );
+}
+
 async function getPreferredMyScheduleTerm(userId: string) {
   const [latest] = await db
     .select({ termCode: courseLists.termCode })
@@ -133,6 +144,7 @@ export async function getMySchedule(userId: string, term?: string) {
     ? await resolveTermCode(term)
     : (await getPreferredMyScheduleTerm(userId)) ?? (await getActiveTerm()).code;
   const termInfo = await getTermInfo(termCode);
+  const availableTerms = await getAllTerms();
 
   const [list] = await db
     .select({ id: courseLists.id })
@@ -148,11 +160,11 @@ export async function getMySchedule(userId: string, term?: string) {
     .limit(1);
 
   if (!list) {
-    return { term: termInfo, listId: null, items: [] };
+    return { term: termInfo, availableTerms, listId: null, items: [] };
   }
 
   const items = await getScheduleItemsForList(list.id);
-  return { term: termInfo, listId: list.id, items };
+  return { term: termInfo, availableTerms, listId: list.id, items };
 }
 
 export async function addToMySchedule(

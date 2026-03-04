@@ -31,8 +31,15 @@ import FeedbackHubPostDetail from "./pages/feedbackHub/FeedbackHubPostDetail.js"
 import FeedbackHubChangelog from "./pages/feedbackHub/FeedbackHubChangelog.js";
 import OnboardingProvider from "./components/onboarding/OnboardingProvider.js";
 
+function getSafeInternalNext(rawNext: string | null): string | null {
+  if (!rawNext) return null;
+  if (!rawNext.startsWith("/") || rawNext.startsWith("//")) return null;
+  return rawNext;
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -40,12 +47,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    const next = encodeURIComponent(`${location.pathname}${location.search}${location.hash}`);
+    return <Navigate to={`/login?next=${next}`} replace />;
+  }
   return <>{children}</>;
 }
 
 function AdminRoute({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
+  const location = useLocation();
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -53,9 +64,21 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
       </div>
     );
   }
-  if (!user) return <Navigate to="/login" replace />;
+  if (!user) {
+    const next = encodeURIComponent(`${location.pathname}${location.search}${location.hash}`);
+    return <Navigate to={`/login?next=${next}`} replace />;
+  }
   if (!user.isAdmin) return <Navigate to="/profile" replace />;
   return <>{children}</>;
+}
+
+function LoginRoute({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
+  const location = useLocation();
+  if (!user) return <Landing />;
+
+  const params = new URLSearchParams(location.search);
+  const safeNext = getSafeInternalNext(params.get("next"));
+  return <Navigate to={safeNext ?? "/"} replace />;
 }
 
 function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
@@ -65,39 +88,14 @@ function AppRoutes({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
     <div key={location.pathname} className="ba-page-fade">
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/login" element={user ? <Navigate to="/" replace /> : <Landing />} />
-        <Route
-          path="/catalog"
-          element={
-            <ProtectedRoute>
-              <Catalog />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/catalog/:id"
-          element={
-            <ProtectedRoute>
-              <CourseDetail />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/login" element={<LoginRoute user={user} />} />
+        <Route path="/catalog" element={<Catalog />} />
+        <Route path="/catalog/:id" element={<CourseDetail />} />
         <Route
           path="/ai"
-          element={
-            <ProtectedRoute>
-              <AiChat />
-            </ProtectedRoute>
-          }
+          element={<AiChat />}
         />
-        <Route
-          path="/professors/:id"
-          element={
-            <ProtectedRoute>
-              <ProfessorDetail />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/professors/:id" element={<ProfessorDetail />} />
         <Route
           path="/profile"
           element={
@@ -178,13 +176,23 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <OnboardingProvider>
-        <div className="flex flex-col min-h-screen">
-          <Navbar />
-          <AppRoutes user={user} />
-          <Footer />
-        </div>
-      </OnboardingProvider>
+      <AppShell user={user} />
     </BrowserRouter>
+  );
+}
+
+function AppShell({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
+  const location = useLocation();
+  const isLoginRoute =
+    location.pathname === "/login" || location.pathname.startsWith("/login/");
+
+  return (
+    <OnboardingProvider>
+      <div className="flex min-h-screen flex-col">
+        {!isLoginRoute && <Navbar />}
+        <AppRoutes user={user} />
+        {!isLoginRoute && <Footer />}
+      </div>
+    </OnboardingProvider>
   );
 }

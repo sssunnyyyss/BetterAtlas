@@ -4,6 +4,14 @@ export interface Department {
   name: string;
 }
 
+export interface Term {
+  srcdb: string;
+  name: string;
+  season: string;
+  year: number;
+  isActive: boolean | null;
+}
+
 export interface Instructor {
   id: number;
   name: string;

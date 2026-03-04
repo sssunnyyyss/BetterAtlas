@@ -222,6 +222,48 @@ function candidateNameFirstLast(value: string): { first: string; last: string } 
   return { first, last };
 }
 
+function canPromoteAbbreviatedInstructorName(
+  existingName: string,
+  incomingName: string
+): boolean {
+  if (!isLikelyAbbreviatedInstructorName(existingName)) return false;
+  if (isLikelyAbbreviatedInstructorName(incomingName)) return false;
+
+  const existingAbbrev = parseAbbreviatedInstructorName(existingName);
+  const incoming = candidateNameFirstLast(incomingName);
+  if (!existingAbbrev || !incoming) return false;
+
+  return (
+    incoming.first[0] === existingAbbrev.firstInitial &&
+    incoming.last === existingAbbrev.lastName
+  );
+}
+
+async function promoteInstructorNameIfMoreSpecific(
+  instructorId: number,
+  incomingName: string
+) {
+  const nextName = String(incomingName ?? "").trim().replace(/\s+/g, " ");
+  if (!nextName || isLikelyAbbreviatedInstructorName(nextName)) return;
+
+  const [existing] = await db
+    .select({ name: instructors.name })
+    .from(instructors)
+    .where(eq(instructors.id, instructorId))
+    .limit(1);
+  if (!existing) return;
+
+  const currentName = String(existing.name ?? "").trim();
+  if (!currentName) return;
+  if (normalizeInstructorName(currentName) === normalizeInstructorName(nextName)) return;
+  if (!canPromoteAbbreviatedInstructorName(currentName, nextName)) return;
+
+  await db
+    .update(instructors)
+    .set({ name: nextName })
+    .where(eq(instructors.id, instructorId));
+}
+
 function preferredAbbreviatedCandidatePool(
   targetName: string,
   candidates: AbbreviatedInstructorCandidate[],
@@ -979,6 +1021,15 @@ function subjectFromCourseCode(courseCode: string): string | null {
   return m ? m[1] : null;
 }
 
+function isExcludedTestCourse(courseCode: string, title: string): boolean {
+  const subject = subjectFromCourseCode(courseCode);
+  if (subject === "AAAA") return true;
+
+  const normalizedTitle = title.trim().toLowerCase();
+  if (!normalizedTitle) return false;
+  return normalizedTitle.includes("test course");
+}
+
 async function upsertDepartment(subjectCode: string) {
   await db
     .insert(departments)
@@ -1042,6 +1093,7 @@ async function upsertInstructorByName(input: {
   if (normalizedEmail) {
     const cachedByEmail = instructorIdCacheByEmail.get(normalizedEmail);
     if (typeof cachedByEmail === "number") {
+      await promoteInstructorNameIfMoreSpecific(cachedByEmail, name);
       instructorIdCacheByName.set(normalizedName, cachedByEmail);
       return cachedByEmail;
     }
@@ -1063,7 +1115,7 @@ async function upsertInstructorByName(input: {
     const abbreviatedTarget = parseAbbreviatedInstructorName(name);
     let abbreviatedFallbackId: number | null = null;
     const candidates = await db
-      .select({ id: instructors.id, email: instructors.email })
+      .select({ id: instructors.id, name: instructors.name, email: instructors.email })
       .from(instructors)
       .where(
         nextEmail
@@ -1094,6 +1146,9 @@ async function upsertInstructorByName(input: {
       const canonicalHasStrongEmail = Boolean(nextEmail && canonicalEmail === nextEmail);
 
       if (!abbreviatedTarget || canonicalHasStrongEmail) {
+        if (canonicalHasStrongEmail) {
+          await promoteInstructorNameIfMoreSpecific(canonical.id, name);
+        }
         if (nextEmail && !canonicalEmail) {
           await db
             .update(instructors)
@@ -1524,6 +1579,7 @@ async function main() {
   }[] = [];
   const courseDetailScheduled = new Set<number>();
   const seenCrnTerm = new Set<string>();
+  let skippedKnownTestCourses = 0;
 
   const subjectWork = useAllResults ? [null] : subjects;
   const campusWork = campuses.length > 0 ? campuses : [null];
@@ -1557,6 +1613,10 @@ async function main() {
           const crn = String(r.crn ?? "").trim();
           const atlasKey = String(r.key ?? "").trim();
           if (!courseCode || !title || !crn || !atlasKey) continue;
+          if (isExcludedTestCourse(courseCode, title)) {
+            skippedKnownTestCourses += 1;
+            continue;
+          }
 
           const crnTermKey = `${termCode}:${crn}`;
           if (seenCrnTerm.has(crnTermKey)) continue;
@@ -1824,6 +1884,10 @@ async function main() {
       );
   } else {
     console.warn("[atlasSync] skipping soft-stale due to subject failures");
+  }
+
+  if (skippedKnownTestCourses > 0) {
+    console.log(`[atlasSync] skipped known test courses count=${skippedKnownTestCourses}`);
   }
 
   console.log("[atlasSync] done");

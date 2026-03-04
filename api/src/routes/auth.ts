@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { authLimiter } from "../middleware/rateLimit.js";
 import { registerSchema, loginSchema } from "@betteratlas/shared";
 import { z } from "zod";
-import { supabase, db } from "../db/index.js";
+import { supabase, supabaseAnon, db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { isAdminEmail } from "../utils/admin.js";
@@ -19,12 +19,40 @@ import {
   grantBadgeToUser,
   listBadgesForUser,
 } from "../services/badgeService.js";
+import crypto from "node:crypto";
 
 const router = Router();
 const resendVerificationSchema = z.object({
   email: z.string().email(),
 });
+const passwordResetRequestSchema = z.object({
+  email: z.string().email(),
+});
+const passwordResetVerifySchema = z.object({
+  email: z.string().email(),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Code must be a 6-digit number"),
+});
+const passwordResetCompleteSchema = z.object({
+  resetToken: z.string().min(16),
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+});
 const loginRedirectUrl = `${env.frontendUrl.replace(/\/+$/, "")}/login?emailVerified=1`;
+
+const RESET_TOKEN_TTL_MS = 10 * 60 * 1000;
+const resetChallengeTokens = new Map<
+  string,
+  { userId: string; email: string; expiresAt: number }
+>();
+
+function cleanupExpiredResetTokens() {
+  const now = Date.now();
+  for (const [token, payload] of resetChallengeTokens.entries()) {
+    if (payload.expiresAt <= now) resetChallengeTokens.delete(token);
+  }
+}
 
 const authUserSelect = {
   id: users.id,
@@ -336,6 +364,132 @@ router.post(
     } catch (err: any) {
       console.error("Resend verification error:", err);
       return res.status(500).json({ error: "Failed to resend verification email" });
+    }
+  }
+);
+
+router.post(
+  "/password-reset/request",
+  authLimiter,
+  validate(passwordResetRequestSchema),
+  async (req, res) => {
+    const { email } = req.body;
+    const genericMessage =
+      "If an account exists for this email, a 6-digit verification code has been sent.";
+
+    try {
+      const { error } = await supabaseAnon.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false,
+        },
+      });
+
+      if (error) {
+        const message = String(error.message || "").toLowerCase();
+        // Do not leak account existence.
+        if (
+          message.includes("not found") ||
+          message.includes("not registered") ||
+          message.includes("for security purposes") ||
+          message.includes("signups not allowed")
+        ) {
+          return res.json({ message: genericMessage });
+        }
+        throw error;
+      }
+
+      return res.json({ message: genericMessage });
+    } catch (err: any) {
+      console.error("Password reset request error:", err);
+      return res.status(500).json({ error: "Failed to send verification code" });
+    }
+  }
+);
+
+router.post(
+  "/password-reset/verify-code",
+  authLimiter,
+  validate(passwordResetVerifySchema),
+  async (req, res) => {
+    const { email, code } = req.body;
+
+    try {
+      cleanupExpiredResetTokens();
+      const { data, error } = await supabaseAnon.auth.verifyOtp({
+        email,
+        token: code,
+        type: "email",
+      });
+
+      if (error) {
+        return res.status(400).json({ error: "Invalid or expired verification code" });
+      }
+
+      const userId = data.user?.id ?? data.session?.user?.id;
+      if (!userId) {
+        return res.status(400).json({ error: "Invalid or expired verification code" });
+      }
+
+      const resetToken = crypto.randomBytes(24).toString("hex");
+      resetChallengeTokens.set(resetToken, {
+        userId,
+        email,
+        expiresAt: Date.now() + RESET_TOKEN_TTL_MS,
+      });
+
+      return res.json({
+        resetToken,
+        message: "Code verified. Continue to set your new password.",
+      });
+    } catch (err: any) {
+      console.error("Password reset verify error:", err);
+      return res.status(500).json({ error: "Failed to verify code" });
+    }
+  }
+);
+
+router.post(
+  "/password-reset/complete",
+  authLimiter,
+  validate(passwordResetCompleteSchema),
+  async (req, res) => {
+    const { resetToken, newPassword } = req.body;
+    cleanupExpiredResetTokens();
+
+    const challenge = resetChallengeTokens.get(resetToken);
+    if (!challenge || challenge.expiresAt <= Date.now()) {
+      if (challenge) resetChallengeTokens.delete(resetToken);
+      return res.status(400).json({ error: "Reset session expired. Request a new code." });
+    }
+
+    const hasStrongPassword =
+      /.{8,}/.test(newPassword) &&
+      /[0-9]/.test(newPassword) &&
+      /[a-z]/.test(newPassword) &&
+      /[A-Z]/.test(newPassword) &&
+      /[!-\/:-@[-`{-~]/.test(newPassword);
+    if (!hasStrongPassword) {
+      return res.status(400).json({
+        error:
+          "Password must include at least 8 characters, upper and lowercase letters, a number, and a special character.",
+      });
+    }
+
+    try {
+      const { error } = await supabase.auth.admin.updateUserById(challenge.userId, {
+        password: newPassword,
+      });
+      if (error) {
+        console.error("Password reset complete error:", error.message);
+        return res.status(500).json({ error: "Failed to update password" });
+      }
+
+      resetChallengeTokens.delete(resetToken);
+      return res.json({ message: "Password updated successfully. You can now sign in." });
+    } catch (err: any) {
+      console.error("Password reset complete exception:", err);
+      return res.status(500).json({ error: "Failed to update password" });
     }
   }
 );

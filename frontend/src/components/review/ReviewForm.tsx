@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { SEMESTERS } from "@betteratlas/shared";
 import RatingStars from "./RatingStars.js";
+import AppDropdown from "../ui/AppDropdown.js";
 
 interface ReviewFormProps {
   sections: Array<{
@@ -37,6 +38,17 @@ export default function ReviewForm({ sections, onSubmit, isLoading }: ReviewForm
   }, [sections]);
 
   const selectedSection = sectionById.get(sectionId) ?? null;
+  const sectionDropdownOptions = useMemo(() => {
+    if (sections.length === 0) return [{ value: "", label: "No sections listed" }];
+    return sections.map((s) => ({
+      value: String(s.id),
+      label: `${s.sectionNumber ? `Section ${s.sectionNumber}` : "Section"} · ${s.semester}${s.instructorName ? ` · ${s.instructorName}` : ""}`,
+    }));
+  }, [sections]);
+  const semesterDropdownOptions = useMemo(
+    () => SEMESTERS.map((s) => ({ value: s, label: s })),
+    []
+  );
 
   useEffect(() => {
     // Keep selection stable if still present; otherwise default to first available section.
@@ -87,21 +99,13 @@ export default function ReviewForm({ sections, onSubmit, isLoading }: ReviewForm
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Select Section
         </label>
-        <select
+        <AppDropdown
           value={String(sectionId || "")}
-          onChange={(e) => setSectionId(parseInt(e.target.value, 10) || 0)}
-          required
-          className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+          onChange={(value) => setSectionId(parseInt(value, 10) || 0)}
+          options={sectionDropdownOptions}
+          className="w-full"
           disabled={sections.length === 0}
-        >
-          {sections.length === 0 && <option value="">No sections listed</option>}
-          {sections.map((s) => (
-            <option key={s.id} value={String(s.id)}>
-              {s.sectionNumber ? `Section ${s.sectionNumber}` : "Section"} · {s.semester}
-              {s.instructorName ? ` · ${s.instructorName}` : ""}
-            </option>
-          ))}
-        </select>
+        />
         {selectedSection?.instructorName && (
           <p className="text-xs text-gray-500 mt-1">
             Professor: {selectedSection.instructorName}
@@ -113,16 +117,13 @@ export default function ReviewForm({ sections, onSubmit, isLoading }: ReviewForm
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Semester Taken
         </label>
-        <select
+        <AppDropdown
           value={semester}
-          onChange={(e) => setSemester(e.target.value)}
-          className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
+          onChange={(value) => setSemester(value)}
+          options={semesterDropdownOptions}
+          className="w-full"
           disabled={!!selectedSection?.semester}
-        >
-          {SEMESTERS.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
+        />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client.js";
+import AppDropdown from "../../components/ui/AppDropdown.js";
 
 type RunStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -48,6 +49,8 @@ type EmbeddingsSyncRunSummary = {
   finishedAt: string | null;
   requestedBy: string;
   requestedEmail: string;
+  termCode?: string | null;
+  semester?: string | null;
   error: string | null;
   logCount: number;
 };
@@ -186,6 +189,7 @@ export default function AdminSync() {
     null
   );
   const [embeddingLogs, setEmbeddingLogs] = useState<SyncRunLog[]>([]);
+  const [embeddingTermCode, setEmbeddingTermCode] = useState("");
 
   const [rmpRuns, setRmpRuns] = useState<RmpSyncRunSummary[]>([]);
   const [selectedRmpRunId, setSelectedRmpRunId] = useState<number | null>(null);
@@ -239,6 +243,7 @@ export default function AdminSync() {
       [data.schedule.termCode || "", data.activeTermCode || ""].filter(Boolean)
     );
     setManualRunTermCodes(defaultManualTerms);
+    setEmbeddingTermCode((prev) => prev || data.activeTermCode || data.schedule.termCode || "");
   }, []);
 
   const loadCourseRuns = useCallback(async () => {
@@ -423,7 +428,9 @@ export default function AdminSync() {
     setIsStartingEmbeddingRun(true);
     setMessage("");
     try {
-      const run = await api.post<EmbeddingsSyncRunSummary>("/admin/embeddings-sync/runs");
+      const run = await api.post<EmbeddingsSyncRunSummary>("/admin/embeddings-sync/runs", {
+        termCode: embeddingTermCode || null,
+      });
       setSelectedEmbeddingRunId(run.id);
       setSelectedEmbeddingRun(run);
       setEmbeddingLogs([]);
@@ -960,13 +967,30 @@ export default function AdminSync() {
                 <code>course_embeddings</code> includes all embedded courses.
               </p>
             </div>
-            <button
-              onClick={handleStartEmbeddingRun}
-              disabled={isStartingEmbeddingRun}
-              className="bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
-            >
-              {isStartingEmbeddingRun ? "Starting..." : "Run Embeddings Update"}
-            </button>
+            <div className="space-y-2 w-full max-w-xs">
+              <label className="space-y-1 block">
+                <span className="text-xs text-gray-500">Semester Scope</span>
+                <AppDropdown
+                  value={embeddingTermCode}
+                  onChange={(value) => setEmbeddingTermCode(value)}
+                  options={[
+                    { value: "", label: "All semesters" },
+                    ...((courseConfig?.terms ?? []).map((term) => ({
+                      value: term.srcdb,
+                      label: `${term.name} (${term.srcdb})`,
+                    }))),
+                  ]}
+                  className="w-full"
+                />
+              </label>
+              <button
+                onClick={handleStartEmbeddingRun}
+                disabled={isStartingEmbeddingRun}
+                className="w-full bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
+              >
+                {isStartingEmbeddingRun ? "Starting..." : "Run Embeddings Update"}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2 max-h-[340px] overflow-auto">
@@ -990,6 +1014,11 @@ export default function AdminSync() {
                   </span>
                 </div>
                 <p className="text-xs text-gray-500">{formatTs(run.createdAt)}</p>
+                {(run.semester || run.termCode) && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Semester: {run.semester || "Unknown"} {run.termCode ? `(${run.termCode})` : ""}
+                  </p>
+                )}
                 <p className="text-xs text-gray-500 mt-1">Logs: {run.logCount}</p>
               </button>
             ))}
@@ -1012,6 +1041,12 @@ export default function AdminSync() {
               <p className="text-xs text-gray-500">
                 Requested by {selectedEmbeddingRun.requestedEmail}
               </p>
+              {(selectedEmbeddingRun.semester || selectedEmbeddingRun.termCode) && (
+                <p className="text-xs text-gray-500">
+                  Semester: {selectedEmbeddingRun.semester || "Unknown"}{" "}
+                  {selectedEmbeddingRun.termCode ? `(${selectedEmbeddingRun.termCode})` : ""}
+                </p>
+              )}
               <p className="text-xs text-gray-500">
                 Started: {formatTs(selectedEmbeddingRun.startedAt)} | Finished:{" "}
                 {formatTs(selectedEmbeddingRun.finishedAt)}

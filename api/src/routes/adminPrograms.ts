@@ -82,6 +82,8 @@ type EmbeddingSyncRun = {
   finishedAt: string | null;
   requestedBy: string;
   requestedEmail: string;
+  termCode: string | null;
+  semester: string | null;
   error: string | null;
   logs: SyncRunLog[];
 };
@@ -271,6 +273,8 @@ function summarizeEmbeddingSyncRun(run: EmbeddingSyncRun) {
     finishedAt: run.finishedAt,
     requestedBy: run.requestedBy,
     requestedEmail: run.requestedEmail,
+    termCode: run.termCode,
+    semester: run.semester,
     error: run.error,
     logCount: run.logs.length,
   };
@@ -362,7 +366,12 @@ function createCourseSyncRun(input: {
   return run;
 }
 
-function createEmbeddingSyncRun(input: { requestedBy: string; requestedEmail: string }) {
+function createEmbeddingSyncRun(input: {
+  requestedBy: string;
+  requestedEmail: string;
+  termCode: string | null;
+  semester: string | null;
+}) {
   const run: EmbeddingSyncRun = {
     id: nextRunId++,
     type: "embeddings_sync",
@@ -372,6 +381,8 @@ function createEmbeddingSyncRun(input: { requestedBy: string; requestedEmail: st
     finishedAt: null,
     requestedBy: input.requestedBy,
     requestedEmail: input.requestedEmail,
+    termCode: input.termCode,
+    semester: input.semester,
     error: null,
     logs: [],
   };
@@ -660,21 +671,33 @@ async function executeCourseSyncRun(run: CourseSyncRun) {
 async function executeEmbeddingSyncRun(run: EmbeddingSyncRun) {
   run.status = "running";
   run.startedAt = nowIso();
-  pushRunLog(run, "info", "Embeddings sync started");
+  const scopeLabel = run.semester ? `${run.semester}${run.termCode ? ` (${run.termCode})` : ""}` : "all semesters";
+  pushRunLog(run, "info", `Embeddings sync started (${scopeLabel})`);
 
   const useEmbDistScript = existsSync(embeddingsBackfillDistPath);
   const command = useEmbDistScript ? process.execPath : "pnpm";
   const args = useEmbDistScript ? [embeddingsBackfillDistPath] : ["embeddings:backfill"];
+  const envVars: NodeJS.ProcessEnv = { ...process.env };
+  if (run.semester) {
+    envVars.EMBEDDINGS_SEMESTER = run.semester;
+  } else {
+    delete envVars.EMBEDDINGS_SEMESTER;
+  }
+  if (run.termCode) {
+    envVars.EMBEDDINGS_TERM_CODE = run.termCode;
+  } else {
+    delete envVars.EMBEDDINGS_TERM_CODE;
+  }
 
   pushRunLog(
     run,
     "info",
-    `Launching ${useEmbDistScript ? `node ${embeddingsBackfillDistPath}` : "pnpm embeddings:backfill"}`
+    `Launching ${useEmbDistScript ? `node ${embeddingsBackfillDistPath}` : "pnpm embeddings:backfill"}${run.semester ? ` with semester=${run.semester}` : ""}`
   );
 
   const child = spawn(command, args, {
     cwd: apiRootDir,
-    env: process.env,
+    env: envVars,
     shell: !useEmbDistScript && process.platform === "win32",
   });
 
@@ -1226,9 +1249,27 @@ router.post("/embeddings-sync/runs", async (req, res) => {
     });
   }
 
+  const termCodeRaw = String(req.body?.termCode || "").trim();
+  const semesterRaw = String(req.body?.semester || "").trim();
+  let termCode: string | null = null;
+  let semester: string | null = null;
+
+  if (termCodeRaw) {
+    const ensuredTerm = await ensureTermExists(termCodeRaw);
+    if (!ensuredTerm) {
+      return res.status(400).json({ error: `Invalid termCode: ${termCodeRaw}` });
+    }
+    termCode = ensuredTerm.srcdb;
+    semester = ensuredTerm.name;
+  } else if (semesterRaw) {
+    semester = semesterRaw;
+  }
+
   const run = createEmbeddingSyncRun({
     requestedBy: req.user!.id,
     requestedEmail: req.user!.email,
+    termCode,
+    semester,
   });
   queueMicrotask(() => {
     void executeEmbeddingSyncRun(run);

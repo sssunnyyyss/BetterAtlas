@@ -4,7 +4,6 @@ import type {
   ProgramAiRequirementsSummary,
   ProgramSummary,
   ProgramTab,
-  ProgramVariants,
 } from "@betteratlas/shared";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -16,7 +15,6 @@ import Catalog from "./Catalog.js";
 
 const hooks = vi.hoisted(() => ({
   useProgram: vi.fn(),
-  useProgramVariants: vi.fn(),
   useProgramAiSummary: vi.fn(),
   useProgramCourses: vi.fn(),
   useCourses: vi.fn(),
@@ -25,7 +23,6 @@ const hooks = vi.hoisted(() => ({
 
 vi.mock("../hooks/usePrograms.js", () => ({
   useProgram: hooks.useProgram,
-  useProgramVariants: hooks.useProgramVariants,
   useProgramAiSummary: hooks.useProgramAiSummary,
   useProgramCourses: hooks.useProgramCourses,
 }));
@@ -79,13 +76,6 @@ const PROGRAMS_BY_ID: Record<number, ProgramSummary> = {
   202: { id: 202, name: "Chemistry", kind: "major", degree: "BA" },
   301: { id: 301, name: "Chemistry", kind: "minor", degree: null },
   302: { id: 302, name: "Chemistry", kind: "minor", degree: "BS" },
-};
-
-const PROGRAM_VARIANTS: ProgramVariants = {
-  programId: 201,
-  name: "Chemistry",
-  majors: [PROGRAMS_BY_ID[202], PROGRAMS_BY_ID[201]],
-  minors: [PROGRAMS_BY_ID[301], PROGRAMS_BY_ID[302]],
 };
 
 function createCourse(
@@ -217,7 +207,6 @@ describe("Catalog program mode regressions", () => {
     currentAiSummary = undefined;
 
     hooks.useProgram.mockReset();
-    hooks.useProgramVariants.mockReset();
     hooks.useProgramAiSummary.mockReset();
     hooks.useProgramCourses.mockReset();
     hooks.useCourses.mockReset();
@@ -225,9 +214,6 @@ describe("Catalog program mode regressions", () => {
 
     hooks.useProgram.mockImplementation((programId: number) =>
       queryResult(programId > 0 ? PROGRAMS_BY_ID[programId] : undefined)
-    );
-    hooks.useProgramVariants.mockImplementation((programId: number) =>
-      queryResult(programId > 0 ? PROGRAM_VARIANTS : undefined)
     );
     hooks.useProgramAiSummary.mockImplementation((programId: number) =>
       queryResult(programId > 0 ? currentAiSummary : undefined)
@@ -255,7 +241,7 @@ describe("Catalog program mode regressions", () => {
     vi.clearAllMocks();
   });
 
-  it("selects program mode and keeps deterministic major/minor counterpart toggles", async () => {
+  it("selects program mode and uses Main/Elective tabs without a Major/Minor toggle", async () => {
     const view = renderCatalog("/catalog");
     try {
       await click(getButton(view.container, "Select Program"));
@@ -264,14 +250,17 @@ describe("Catalog program mode regressions", () => {
         expect(getLocationSearch(view.container)).toContain("programTab=required");
       });
 
-      await click(getButton(view.container, "Minor"));
+      expect(() => getButton(view.container, "Major")).toThrow();
+      expect(() => getButton(view.container, "Minor")).toThrow();
+
+      await click(getButton(view.container, "Elective"));
       await waitFor(() => {
-        expect(getLocationSearch(view.container)).toContain("programId=302");
+        expect(getLocationSearch(view.container)).toContain("programTab=electives");
       });
 
-      await click(getButton(view.container, "Major"));
+      await click(getButton(view.container, "Main"));
       await waitFor(() => {
-        expect(getLocationSearch(view.container)).toContain("programId=201");
+        expect(getLocationSearch(view.container)).toContain("programTab=required");
       });
     } finally {
       view.unmount();

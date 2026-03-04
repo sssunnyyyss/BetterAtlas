@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useProgram, usePrograms } from "../../hooks/usePrograms.js";
 import { useInstructors } from "../../hooks/useInstructors.js";
+import { useTerms } from "../../hooks/useCourses.js";
+import AppDropdown from "../ui/AppDropdown.js";
 import { buildProgramSearchOptions } from "../../lib/programVariantSelection.js";
 import {
-  SEMESTERS,
   SORT_OPTIONS,
   GER_TAGS,
   CAMPUS_OPTIONS,
@@ -38,6 +39,7 @@ export default function CourseFilters({
   const [instructorInput, setInstructorInput] = useState(filters.instructor || "");
   const [instructorOpen, setInstructorOpen] = useState(false);
   const instructorQuery = instructorInput.trim();
+  const { data: terms } = useTerms();
   const { data: instructors, isLoading: instructorsLoading } = useInstructors(
     instructorQuery ? { q: instructorQuery, limit: 12 } : { limit: 12 }
   );
@@ -54,6 +56,65 @@ export default function CourseFilters({
   const selectedGers = filters.attributes
     ? filters.attributes.split(",").filter(Boolean)
     : [];
+  const semesterOptions = useMemo(() => {
+    const names = (terms ?? [])
+      .map((term) => String(term.name ?? "").trim())
+      .filter(Boolean);
+    const uniqueNames = [...new Set(names)];
+    const selectedSemester = String(filters.semester ?? "").trim();
+
+    if (selectedSemester && !uniqueNames.includes(selectedSemester)) {
+      uniqueNames.unshift(selectedSemester);
+    }
+
+    return uniqueNames;
+  }, [terms, filters.semester]);
+  const semesterDropdownOptions = useMemo(
+    () => [{ value: "", label: "All Semesters" }, ...semesterOptions.map((s) => ({ value: s, label: s }))],
+    [semesterOptions]
+  );
+  const sortDropdownOptions = useMemo(
+    () =>
+      SORT_OPTIONS.map((opt) => ({
+        value: opt,
+        label: opt.charAt(0).toUpperCase() + opt.slice(1),
+      })),
+    []
+  );
+  const creditsDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "Any" },
+      ...[1, 2, 3, 4].map((c) => ({
+        value: String(c),
+        label: `${c} credit${c > 1 ? "s" : ""}`,
+      })),
+    ],
+    []
+  );
+  const campusDropdownOptions = useMemo(
+    () => [{ value: "", label: "All Campuses" }, ...CAMPUS_OPTIONS.map((c) => ({ value: c, label: c }))],
+    []
+  );
+  const componentTypeDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "All Types" },
+      ...Object.entries(COMPONENT_TYPE_OPTIONS).map(([code, label]) => ({
+        value: code,
+        label,
+      })),
+    ],
+    []
+  );
+  const instructionMethodDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "All Methods" },
+      ...Object.entries(INSTRUCTION_METHOD_OPTIONS).map(([code, label]) => ({
+        value: code,
+        label,
+      })),
+    ],
+    []
+  );
 
   function toggleGer(code: string) {
     const next = selectedGers.includes(code)
@@ -188,18 +249,11 @@ export default function CourseFilters({
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Semester
         </label>
-        <select
+        <AppDropdown
           value={filters.semester || ""}
-          onChange={(e) => onChange("semester", e.target.value)}
-          className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-        >
-          <option value="">All Semesters</option>
-          {SEMESTERS.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+          options={semesterDropdownOptions}
+          onChange={(value) => onChange("semester", value)}
+        />
       </div>
 
       {/* GER Requirements */}
@@ -237,17 +291,11 @@ export default function CourseFilters({
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Sort by
         </label>
-        <select
+        <AppDropdown
           value={filters.sort || "code"}
-          onChange={(e) => onChange("sort", e.target.value)}
-          className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-        >
-          {SORT_OPTIONS.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt.charAt(0).toUpperCase() + opt.slice(1)}
-            </option>
-          ))}
-        </select>
+          options={sortDropdownOptions}
+          onChange={(value) => onChange("sort", value)}
+        />
       </div>
 
       <div>
@@ -272,18 +320,11 @@ export default function CourseFilters({
         <label className="block text-sm font-medium text-gray-700 mb-1">
           Credits
         </label>
-        <select
+        <AppDropdown
           value={filters.credits || ""}
-          onChange={(e) => onChange("credits", e.target.value)}
-          className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-        >
-          <option value="">Any</option>
-          {[1, 2, 3, 4].map((c) => (
-            <option key={c} value={String(c)}>
-              {c} credit{c > 1 ? "s" : ""}
-            </option>
-          ))}
-        </select>
+          options={creditsDropdownOptions}
+          onChange={(value) => onChange("credits", value)}
+        />
       </div>
 
       {/* Advanced Filters Toggle */}
@@ -363,18 +404,11 @@ export default function CourseFilters({
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Campus
             </label>
-            <select
+            <AppDropdown
               value={filters.campus || ""}
-              onChange={(e) => onChange("campus", e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="">All Campuses</option>
-              {CAMPUS_OPTIONS.map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+              options={campusDropdownOptions}
+              onChange={(value) => onChange("campus", value)}
+            />
           </div>
 
           {/* Component Type */}
@@ -382,18 +416,11 @@ export default function CourseFilters({
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Component Type
             </label>
-            <select
+            <AppDropdown
               value={filters.componentType || ""}
-              onChange={(e) => onChange("componentType", e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="">All Types</option>
-              {Object.entries(COMPONENT_TYPE_OPTIONS).map(([code, label]) => (
-                <option key={code} value={code}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              options={componentTypeDropdownOptions}
+              onChange={(value) => onChange("componentType", value)}
+            />
           </div>
 
           {/* Instruction Method */}
@@ -401,18 +428,11 @@ export default function CourseFilters({
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Instruction Method
             </label>
-            <select
+            <AppDropdown
               value={filters.instructionMethod || ""}
-              onChange={(e) => onChange("instructionMethod", e.target.value)}
-              className="w-full rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="">All Methods</option>
-              {Object.entries(INSTRUCTION_METHOD_OPTIONS).map(([code, label]) => (
-                <option key={code} value={code}>
-                  {label}
-                </option>
-              ))}
-            </select>
+              options={instructionMethodDropdownOptions}
+              onChange={(value) => onChange("instructionMethod", value)}
+            />
           </div>
         </div>
       )}
