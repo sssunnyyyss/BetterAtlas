@@ -6,6 +6,7 @@ import { aiLimiter } from "../middleware/rateLimit.js";
 import { env } from "../config/env.js";
 import { openAiChat, openAiChatJson } from "../lib/openai.js";
 import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
+import { classifyIntent } from "../ai/intent/intentRouter.js";
 import { getUserById } from "../services/userService.js";
 import {
   listCourses,
@@ -516,48 +517,6 @@ function findDepartmentCodeFromMajor(
   return null;
 }
 
-function isTrivialGreeting(text: string) {
-  const t = text.trim().toLowerCase();
-  if (!t) return true;
-  if (t.length <= 24) {
-    const alpha = t.replace(/[^a-z]/g, "");
-    if (/^(hi|hey|yo|sup|help|test|testing)$/.test(alpha)) return true;
-    // hello, hellooo, hellow, helo
-    if (/^h+e+l+o+w*$/.test(alpha)) return true;
-  }
-  return false;
-}
-
-function isCourseSuggestionIntent(text: string) {
-  const t = text.trim().toLowerCase();
-  if (!t) return false;
-
-  if (/\b([a-z]{2,8})\s*-?\s*(\d{3,4}[a-z]?)\b/i.test(t)) {
-    return true;
-  }
-
-  const strongIntentPhrases = [
-    "recommend",
-    "suggest",
-    "what should i take",
-    "which classes should i",
-    "which course should i",
-    "find me classes",
-    "find me courses",
-    "plan my schedule",
-    "build my schedule",
-    "easy ger",
-    "low workload",
-  ];
-  if (strongIntentPhrases.some((phrase) => t.includes(phrase))) {
-    return true;
-  }
-
-  return /\b(course|courses|class|classes|ger|gers|elective|electives|professor|instructor|catalog)\b/i.test(
-    t
-  );
-}
-
 function interleaveByDepartment(
   courses: CourseWithRatings[],
   max: number,
@@ -936,17 +895,6 @@ router.post(
       );
       for (const c of dislikedCourses) excludeSet.add(c.id);
 
-      const tDepsStart = Date.now();
-      const [deps, trainerScores] = await Promise.all([
-        getDepartmentsCached(),
-        getTrainerScoresCached(),
-      ]);
-      const deptCode = findDepartmentCodeFromMajor(
-        user?.major ?? null,
-        deps
-      );
-      const depsMs = Date.now() - tDepsStart;
-
       if (reset && userId) clearUserMemory(userId);
       if (reset && !messages && !prompt) {
         return res.json({
@@ -970,10 +918,12 @@ router.post(
 
       const latestUser =
         [...effectiveMessages].reverse().find((m) => m.role === "user")?.content ?? "";
-      const wantsCourseSuggestions = isCourseSuggestionIntent(latestUser);
+      const decision = classifyIntent({
+        latestUser,
+        recentMessages: effectiveMessages,
+      });
 
-      // If someone just says "hello", don't burn an expensive LLM call.
-      if (isTrivialGreeting(latestUser)) {
+      if (decision.mode === "conversation" && decision.reason === "trivial_greeting") {
         if (userId) {
           setUserMemory(userId, [
             ...getUserMemory(userId),
@@ -987,7 +937,7 @@ router.post(
         if (totalMs > 1500) {
           console.log("ai/course-recommendations timings", {
             totalMs,
-            depsMs,
+            depsMs: 0,
             openaiMs: 0,
             note: "trivial_greeting",
             model: env.openaiModel,
@@ -1001,7 +951,7 @@ router.post(
         });
       }
 
-      if (!wantsCourseSuggestions) {
+      if (decision.mode === "conversation") {
         const systemPrompt = [
           "You are BetterAtlas AI, a helpful conversational assistant for students.",
           "Respond naturally and directly to the user.",
@@ -1037,7 +987,7 @@ router.post(
         if (totalMs > 1500) {
           console.log("ai/course-recommendations timings", {
             totalMs,
-            depsMs,
+            depsMs: 0,
             candidatesMs: 0,
             embedMs: 0,
             semanticMs: 0,
@@ -1053,6 +1003,27 @@ router.post(
           recommendations: [],
         });
       }
+
+      if (decision.mode === "clarify") {
+        return res.json({
+          assistantMessage:
+            "I can help with that. What matters most for this pick right now: workload, GER, department, or semester?",
+          followUpQuestion:
+            "What matters most for this pick right now: workload, GER, department, or semester?",
+          recommendations: [],
+        });
+      }
+
+      const tDepsStart = Date.now();
+      const [deps, trainerScores] = await Promise.all([
+        getDepartmentsCached(),
+        getTrainerScoresCached(),
+      ]);
+      const deptCode = findDepartmentCodeFromMajor(
+        user?.major ?? null,
+        deps
+      );
+      const depsMs = Date.now() - tDepsStart;
 
       const candidateQuery = normalizeSearchQuery(latestUser);
       const searchTerms = deriveAiSearchTerms(latestUser, deps).slice(0, 3);
