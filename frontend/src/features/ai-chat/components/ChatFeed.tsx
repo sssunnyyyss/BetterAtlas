@@ -116,7 +116,6 @@ export function ChatFeed({
               <ChatAssistantBlock
                 content={turn.content}
                 recommendations={turn.recommendations}
-                followUp={turn.followUp}
                 prefersReducedMotion={prefersReducedMotion}
               />
             </div>
@@ -138,7 +137,7 @@ export function ChatFeed({
     <div
       ref={scrollContainerRef}
       onScroll={updateNearBottom}
-      className="h-full min-h-0 overflow-y-auto overscroll-y-contain px-4 py-4"
+      className="h-full min-h-0 touch-pan-y overflow-y-auto overscroll-y-contain px-4 py-4 [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch]"
       data-testid="chat-feed-scroll-container"
     >
       {!hasTurns ? (
