@@ -23,7 +23,7 @@ export function ChatShell({
       className={
         variant === "embedded"
           ? "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#fcfcf9]"
-          : "mx-auto flex h-full min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden rounded-2xl border border-[#ebe8df] bg-[#fcfcf9] shadow-sm"
+          : "mx-auto flex h-full min-h-0 w-full max-w-3xl flex-1 flex-col overflow-hidden rounded-2xl bg-[#fcfcf9]"
       }
     >
       <div className="shrink-0" data-testid="chat-zone-header">

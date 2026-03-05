@@ -577,7 +577,7 @@ export const ClaudeChatInput: React.FC<ClaudeChatInputProps> = ({
       data-testid={testIds?.shell}
     >
       <div
-        className="!box-content relative z-10 mx-2 flex cursor-text flex-col items-stretch rounded-2xl border border-bg-300 bg-white font-sans antialiased shadow-[0_0_15px_rgba(0,0,0,0.08)] transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,0,0,0.12)] focus-within:shadow-[0_0_25px_rgba(0,0,0,0.15)] md:mx-0"
+        className="!box-content relative z-10 mx-2 flex cursor-text flex-col items-stretch rounded-2xl bg-white font-sans antialiased shadow-[0_0_15px_rgba(0,0,0,0.08)] transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,0,0,0.12)] focus-within:shadow-[0_0_25px_rgba(0,0,0,0.15)] md:mx-0"
       >
         <div className="flex flex-col gap-2 px-3 pb-2 pt-3">
           {(files.length > 0 || pastedContent.length > 0) && (

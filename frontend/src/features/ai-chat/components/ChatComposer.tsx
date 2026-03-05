@@ -19,16 +19,11 @@ export function ChatComposer({
   onValueChange,
   onSubmit,
 }: ChatComposerProps) {
-  const requestToneClassName =
-    requestState === "error"
-      ? "border-red-100 bg-red-50/30"
-      : requestState === "success"
-        ? "border-emerald-100 bg-emerald-50/20"
-        : "border-gray-200 bg-white";
+  void requestState;
 
   return (
     <div
-      className={`shrink-0 border-t border-gray-200 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 ${requestToneClassName}`}
+      className="shrink-0 bg-[#fcfcf9] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3"
       data-testid="chat-composer-shell"
     >
       <ClaudeChatInput

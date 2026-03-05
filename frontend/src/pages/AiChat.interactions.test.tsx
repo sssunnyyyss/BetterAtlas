@@ -337,7 +337,7 @@ describe("AiChat interactions", () => {
           lastTransitionReason: "send",
         }),
         expectedReason: "send",
-        expectedLabel: "Atlas AI is thinking...",
+        expectedLabel: "Analyzing your request...",
         expectedRole: "status",
       },
       {

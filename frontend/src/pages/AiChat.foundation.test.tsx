@@ -19,7 +19,7 @@ vi.mock("../features/ai-chat/hooks/useChatSession.js", () => ({
 }));
 
 const STATUS_LABELS = {
-  sending: "Atlas AI is thinking...",
+  sending: "Analyzing your request...",
   success: "Response received.",
   error: "Something went wrong. Please try again.",
 } as const;

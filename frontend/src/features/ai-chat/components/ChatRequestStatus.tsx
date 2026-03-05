@@ -1,3 +1,5 @@
+import { useEffect, useMemo, useState } from "react";
+import { TextShimmer } from "../../../components/ui/text-shimmer.js";
 import type {
   ChatRequestLifecycle,
   ChatRequestState,
@@ -75,22 +77,73 @@ function StatusIcon({
   return <ErrorIcon />;
 }
 
+function deriveThinkingMessages(lastPrompt: string | null | undefined): string[] {
+  const normalized = (lastPrompt ?? "").toLowerCase();
+  const messages = ["Analyzing your request..."];
+
+  if (normalized.includes("ger")) {
+    messages.push("Matching GER options to your goals...");
+  }
+  if (
+    normalized.includes("schedule") ||
+    normalized.includes("semester") ||
+    normalized.includes("plan")
+  ) {
+    messages.push("Balancing workload across your semester...");
+  }
+  if (
+    normalized.includes("cs") ||
+    normalized.includes("computer science") ||
+    normalized.includes("major")
+  ) {
+    messages.push("Prioritizing major-relevant course picks...");
+  }
+  if (normalized.includes("elective") || normalized.includes("easy")) {
+    messages.push("Filtering for lower-workload options...");
+  }
+
+  messages.push("Checking ratings, workload, and fit...");
+  return Array.from(new Set(messages));
+}
+
 export function ChatRequestStatus({
   requestState,
   requestLifecycle,
   prefersReducedMotion,
   onRetry,
 }: ChatRequestStatusProps) {
-  if (requestState === "idle") {
+  const isIdle = requestState === "idle";
+  const thinkingMessages = useMemo(
+    () => deriveThinkingMessages(requestLifecycle?.lastSubmittedPrompt),
+    [requestLifecycle?.lastSubmittedPrompt],
+  );
+  const [thinkingIndex, setThinkingIndex] = useState(0);
+
+  useEffect(() => {
+    if (requestState !== "sending") {
+      setThinkingIndex(0);
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setThinkingIndex((previous) => (previous + 1) % thinkingMessages.length);
+    }, 1800);
+    return () => window.clearInterval(timer);
+  }, [requestState, thinkingMessages.length]);
+
+  if (isIdle) {
     return null;
   }
 
   const token = chatStatusTokens[requestState];
+
   const label =
     requestState === "error" &&
     requestLifecycle?.lastErrorMessage &&
     requestLifecycle.lastErrorMessage.trim().length > 0
       ? requestLifecycle.lastErrorMessage
+      : requestState === "sending"
+        ? thinkingMessages[thinkingIndex] ?? token.label
       : token.label;
   const canRetry =
     requestState === "error" &&
@@ -112,9 +165,17 @@ export function ChatRequestStatus({
           requestState={requestState}
           prefersReducedMotion={prefersReducedMotion}
         />
-        <p className={`text-xs font-semibold ${token.textClassName}`}>
-          {label}
-        </p>
+        {requestState === "sending" ? (
+          <TextShimmer
+            as="p"
+            className={`text-xs font-semibold ${token.textClassName} [--base-color:#6b7280] [--base-gradient-color:#111827]`}
+            duration={1.4}
+          >
+            {label}
+          </TextShimmer>
+        ) : (
+          <p className={`text-xs font-semibold ${token.textClassName}`}>{label}</p>
+        )}
       </div>
       {canRetry && (
         <button

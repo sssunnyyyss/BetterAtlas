@@ -29,7 +29,7 @@ function ChatAssistantBlockImpl({
   );
 
   return (
-    <div className="space-y-2 rounded-2xl border border-[#e7e1d4] bg-[#faf8f2] p-2">
+    <div className="space-y-2 rounded-2xl bg-[#faf8f2] p-2">
       <ChatMessageBubble role="assistant" align="none">
         <p className="whitespace-pre-wrap text-sm text-[#302f2b]">{content}</p>
       </ChatMessageBubble>
