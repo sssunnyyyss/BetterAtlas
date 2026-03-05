@@ -77,23 +77,12 @@ const recommendSchema = z
 const modelResponseSchema = z.object({
   assistant_message: z.string().min(1).max(2500),
   follow_up_question: z.string().min(1).max(400).nullable().optional(),
-  recommendations: z
-    .array(
-      z.object({
-        course_id: z.number().int().positive(),
-        fit_score: z.number().int().min(1).max(10),
-        why: z.array(z.string().min(1).max(160)).min(1).max(5),
-        cautions: z.array(z.string().min(1).max(160)).max(4).optional(),
-      })
-    )
-    .min(1)
-    .max(16),
 });
 
 // OpenAI Structured Output schema — mirrors modelResponseSchema above.
 // Guarantees the model MUST produce valid JSON matching this exact shape.
 const modelResponseJsonSchema = {
-  name: "course_recommendations",
+  name: "chat_response_with_mentions",
   strict: true,
   schema: {
     type: "object",
@@ -102,28 +91,8 @@ const modelResponseJsonSchema = {
       follow_up_question: {
         anyOf: [{ type: "string" }, { type: "null" }],
       },
-      recommendations: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            course_id: { type: "integer" },
-            fit_score: { type: "integer" },
-            why: {
-              type: "array",
-              items: { type: "string" },
-            },
-            cautions: {
-              type: "array",
-              items: { type: "string" },
-            },
-          },
-          required: ["course_id", "fit_score", "why", "cautions"],
-          additionalProperties: false,
-        },
-      },
     },
-    required: ["assistant_message", "follow_up_question", "recommendations"],
+    required: ["assistant_message", "follow_up_question"],
     additionalProperties: false,
   },
 };
@@ -792,6 +761,119 @@ function rankCandidatesByPreferenceSignals(
     .map((x) => x.course);
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function courseCodeRegex(code: string) {
+  const parts = code
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  return new RegExp(`\\b${parts.map(escapeRegExp).join("\\s*")}\\b`, "i");
+}
+
+type MentionMatch = {
+  course: CourseWithRatings;
+  index: number;
+  matchedBy: "code" | "title";
+};
+
+function extractMentionedCoursesFromAssistantMessage(
+  assistantMessage: string,
+  candidates: CourseWithRatings[]
+): MentionMatch[] {
+  const haystack = assistantMessage.toLowerCase();
+  const matches: MentionMatch[] = [];
+
+  for (const course of candidates) {
+    let bestIndex = Number.POSITIVE_INFINITY;
+    let matchedBy: MentionMatch["matchedBy"] | null = null;
+
+    const codeRe = courseCodeRegex(course.code);
+    if (codeRe) {
+      const codeMatch = codeRe.exec(haystack);
+      if (codeMatch && codeMatch.index < bestIndex) {
+        bestIndex = codeMatch.index;
+        matchedBy = "code";
+      }
+    }
+
+    const title = (course.title ?? "").trim().toLowerCase();
+    if (title.length >= 6) {
+      const titleIndex = haystack.indexOf(title);
+      if (titleIndex !== -1 && titleIndex < bestIndex) {
+        bestIndex = titleIndex;
+        matchedBy = "title";
+      }
+    }
+
+    if (matchedBy) {
+      matches.push({ course, index: bestIndex, matchedBy });
+    }
+  }
+
+  return matches.sort((a, b) => a.index - b.index);
+}
+
+function scoreCourseByQueryTerms(course: CourseWithRatings, termsLower: string[]) {
+  if (termsLower.length === 0) return 0;
+  const text = `${course.code} ${course.title} ${course.description ?? ""}`.toLowerCase();
+  let score = 0;
+  for (const term of termsLower) {
+    if (!term) continue;
+    if (text.includes(term)) score += 1;
+  }
+  if (course.description) score += 0.35;
+  return score;
+}
+
+function buildRecommendationFromCourse({
+  course,
+  termsLower,
+  baseFit,
+  mentionReason,
+}: {
+  course: CourseWithRatings;
+  termsLower: string[];
+  baseFit: number;
+  mentionReason: string | null;
+}) {
+  const text = `${course.code} ${course.title} ${course.description ?? ""}`.toLowerCase();
+  const matchedTerms = termsLower.filter((term) => term && text.includes(term)).slice(0, 3);
+
+  const why: string[] = [];
+  if (mentionReason) why.push(mentionReason);
+  if (matchedTerms.length > 0) {
+    why.push(`Matches your query terms: ${matchedTerms.join(", ")}`);
+  }
+  if (course.gers && course.gers.length > 0) {
+    why.push(`GER: ${course.gers.slice(0, 3).join(", ")}`);
+  }
+  if (why.length < 2) {
+    const desc = (course.description ?? "").replace(/\s+/g, " ").trim();
+    if (desc) why.push(truncate(`Catalog: ${desc}`, 160));
+    else why.push(truncate(`From title: ${course.title}`, 160));
+  }
+
+  const cautions: string[] = [];
+  const req = (course.requirements ?? course.prerequisites ?? "").trim();
+  if (req) cautions.push(truncate(`Requirements: ${req.replace(/\s+/g, " ").trim()}`, 160));
+
+  const relevanceBoost = matchedTerms.length > 0 ? 1 : 0;
+  const fitScore = Math.max(1, Math.min(10, baseFit + relevanceBoost));
+
+  return {
+    course,
+    fitScore,
+    why: fixWhyBullets(course, why.slice(0, 4)),
+    cautions: cautions.slice(0, 2),
+  };
+}
+
 router.post(
   "/ai/course-recommendations",
   optionalAuth,
@@ -1059,33 +1141,22 @@ router.post(
 
       const systemPrompt = [
         "You are BetterAtlas AI, an academic counselor inside a course catalog.",
-        "Goal: recommend courses that match the student's interests and intentions.",
+        "Goal: have a natural conversation while helping the student make better class decisions.",
         "The student's major is a hint, not a constraint.",
-        "Treat active catalog filters as hard constraints; never suggest anything outside them.",
-        "Prioritize fit to the course title and description.",
-        "Do NOT default to CS/tech courses unless the student asks for them or the course clearly matches their described interests.",
-        "Unless the student explicitly asks for one department, diversify: pick from at least 3 departments when possible and avoid recommending more than 3 courses from any single department.",
-        "Use course details when helpful: instructors, campuses, GERs, prerequisites, and requirements/restrictions.",
+        "Treat active catalog filters as hard constraints whenever you suggest specific courses.",
+        "Respond directly to the user first; do not force a list of courses in every answer.",
+        "If suggesting courses, reference concrete course codes/titles from the candidate list only.",
+        "Do NOT default to CS/tech courses unless the user asks for them or the request clearly implies them.",
+        "Use course details when helpful: instructors, campuses, GERs, prerequisites, and requirements.",
         "Use developer/user feedback signals (liked/disliked course examples) as strong preference hints.",
-        "You must ONLY recommend courses from the provided candidate list, using their numeric id.",
-        "Never recommend any excluded course_id values provided in context.",
-        "If the student's request is vague, make reasonable assumptions and include exactly ONE concise follow-up question.",
+        "Never suggest excluded courses listed in context.",
+        "If the student's request is vague, make reasonable assumptions and include one concise follow-up question.",
         "Keep output concise and helpful. No moralizing. No long disclaimers.",
-        "In each recommendation's `why` bullets, reference at least one concrete keyword from the course title or `desc:` snippet provided (no hallucinated details).",
-        "Do NOT use generic why bullets like \"seems relevant\" or \"based on the title/description\"; each why bullet must cite a specific course detail (keyword phrase, GER code, campus, instructor, prerequisite, or requirement).",
         "",
         "Return ONLY valid JSON (no markdown, no code fences) matching this shape:",
         "{",
         '  "assistant_message": string,',
-        '  "follow_up_question": string|null,',
-        '  "recommendations": [',
-        "    {",
-        '      "course_id": number,',
-        '      "fit_score": integer 1-10,',
-        '      "why": string[] (2-4 short bullets),',
-        '      "cautions": string[] (0-2 short bullets)',
-        "    }",
-        "  ] (8 items; minimum 6)",
+        '  "follow_up_question": string|null',
         "}",
       ].join("\n");
 
@@ -1124,7 +1195,7 @@ router.post(
           return parts.length > 0 ? parts.join("\n") : "";
         })(),
         "",
-        "Candidates JSON (ONLY recommend from these ids):",
+        "Candidate courses (if you reference specific courses, use codes/titles from this list):",
         JSON.stringify(modelCandidates),
       ].join("\n");
 
@@ -1161,92 +1232,71 @@ router.post(
 
       const modelResult = parsedResult.data;
 
-      const byId = new Map<number, CourseWithRatings>();
-      for (const c of candidates) byId.set(c.id, c);
-
       const TARGET_RECS = 8;
-      const MIN_RECS = 6;
+      const termsLower = searchTerms.map((t) => t.toLowerCase()).filter(Boolean);
 
-      const seen = new Set<number>();
-      let recommendations = modelResult.recommendations
-        .filter((r) => byId.has(r.course_id))
-        .filter((r) => !excludeSet.has(r.course_id))
-        .filter((r) => {
-          if (seen.has(r.course_id)) return false;
-          seen.add(r.course_id);
+      const mentioned = extractMentionedCoursesFromAssistantMessage(
+        modelResult.assistant_message,
+        candidates
+      );
+
+      const mentionRelevant =
+        termsLower.length === 0
+          ? mentioned
+          : mentioned.filter(
+              (match) => scoreCourseByQueryTerms(match.course, termsLower) > 0
+            );
+
+      const mentionPool =
+        mentionRelevant.length > 0 || termsLower.length === 0 ? mentionRelevant : mentioned;
+
+      const seenMentionedIds = new Set<number>();
+      let recommendations = mentionPool
+        .filter((match) => !excludeSet.has(match.course.id))
+        .filter((match) => {
+          if (seenMentionedIds.has(match.course.id)) return false;
+          seenMentionedIds.add(match.course.id);
           return true;
         })
-        .slice(0, 16)
-        .map((r) => ({
-          course: byId.get(r.course_id)!,
-          fitScore: r.fit_score,
-          why: fixWhyBullets(byId.get(r.course_id)!, r.why),
-          cautions: r.cautions ?? [],
-        }));
+        .slice(0, TARGET_RECS)
+        .map((match) =>
+          buildRecommendationFromCourse({
+            course: match.course,
+            termsLower,
+            baseFit: match.matchedBy === "code" ? 8 : 7,
+            mentionReason:
+              match.matchedBy === "code"
+                ? `Mentioned in response by code (${match.course.code}).`
+                : `Mentioned in response by title (${match.course.title}).`,
+          })
+        );
 
-      if (recommendations.length < MIN_RECS) {
-        const existingIds = new Set<number>(recommendations.map((r) => r.course.id));
-        const perDept = new Map<string, number>();
-        for (const r of recommendations) {
-          const dept = r.course.department?.code ?? "OTHER";
-          perDept.set(dept, (perDept.get(dept) ?? 0) + 1);
-        }
+      if (recommendations.length === 0) {
+        const fallback = candidates
+          .filter((course) => !excludeSet.has(course.id))
+          .map((course) => ({
+            course,
+            score: scoreCourseByQueryTerms(course, termsLower),
+          }))
+          .sort((a, b) => b.score - a.score);
 
-        const termsLower = searchTerms.map((t) => t.toLowerCase());
-        function scoreCourse(c: CourseWithRatings) {
-          const text = `${c.code} ${c.title} ${c.description ?? ""}`.toLowerCase();
-          let score = 0;
-          for (const t of termsLower) {
-            if (!t) continue;
-            if (text.includes(t)) score += 1;
-          }
-          if (c.description) score += 1;
-          return score;
-        }
+        const preferredFallback = fallback.filter((item) => item.score > 0);
+        const fallbackPool =
+          preferredFallback.length > 0 ? preferredFallback : fallback;
 
-        const fill = candidates
-          .filter((c) => !excludeSet.has(c.id))
-          .filter((c) => !existingIds.has(c.id))
-          .slice()
-          .sort((a, b) => scoreCourse(b) - scoreCourse(a));
-
-        for (const c of fill) {
-          if (recommendations.length >= MIN_RECS) break;
-          const dept = c.department?.code ?? "OTHER";
-          if ((perDept.get(dept) ?? 0) >= 3) continue;
-
-          const text = `${c.code} ${c.title} ${c.description ?? ""}`.toLowerCase();
-          const matched = termsLower.filter((t) => t && text.includes(t)).slice(0, 3);
-
-          const why: string[] = [];
-          if (matched.length > 0) why.push(`Title/description mentions: ${matched.join(", ")}`);
-          if (c.gers && c.gers.length > 0) why.push(`GER: ${c.gers.slice(0, 3).join(", ")}`);
-          if (why.length < 2) {
-            const desc = (c.description ?? "").replace(/\s+/g, " ").trim();
-            if (desc) why.push(truncate(`Catalog: ${desc}`, 160));
-            else why.push(truncate(`From title: ${c.title}`, 160));
-          }
-
-          const cautions: string[] = [];
-          const req = (c.requirements ?? c.prerequisites ?? "").trim();
-          if (req) cautions.push(truncate(`Requirements: ${req.replace(/\s+/g, " ").trim()}`, 160));
-
-          recommendations.push({
-            course: c,
-            fitScore: Math.max(4, Math.min(8, 4 + scoreCourse(c))),
-            why: fixWhyBullets(c, why.slice(0, 4)),
-            cautions: cautions.slice(0, 2),
-          });
-          existingIds.add(c.id);
-          perDept.set(dept, (perDept.get(dept) ?? 0) + 1);
-        }
+        recommendations = fallbackPool
+          .slice(0, Math.min(6, TARGET_RECS))
+          .map((item, index) =>
+            buildRecommendationFromCourse({
+              course: item.course,
+              termsLower,
+              baseFit: Math.max(5, 8 - index),
+              mentionReason: "Suggested based on your latest request.",
+            })
+          );
       }
 
       recommendations = recommendations.slice(0, TARGET_RECS);
-
-      if (recommendations.length === 0) {
-        return res.status(500).json({ error: "AI did not select any valid courses" });
-      }
 
       // Persist per-user memory (isolated by user id).
       if (userId) {
