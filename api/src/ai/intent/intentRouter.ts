@@ -19,6 +19,14 @@ type NormalizedIntentText = {
 };
 
 const COURSE_CODE_RE = /\b([a-z]{2,8})\s*-?\s*(\d{3,4}[a-z]?)\b/i;
+const COURSE_CODE_DEPT_BLOCKLIST = new Set([
+  "fall",
+  "spring",
+  "summer",
+  "winter",
+  "easy",
+  "hard",
+]);
 const RECOMMEND_VERB_RE =
   /\b(recommend|suggest|suggestions|what should i take|which classes should i|which course should i|find me classes|find me courses|plan my schedule|build my schedule|give me classes)\b/i;
 const COURSE_NOUN_RE =
@@ -57,7 +65,13 @@ function isTrivialGreeting(text: NormalizedIntentText): boolean {
 }
 
 function hasCourseCodeSignal(text: NormalizedIntentText): boolean {
-  return COURSE_CODE_RE.test(text.keywordText);
+  const match = COURSE_CODE_RE.exec(text.keywordText);
+  if (!match) return false;
+
+  const deptToken = (match[1] ?? "").toLowerCase();
+  if (COURSE_CODE_DEPT_BLOCKLIST.has(deptToken)) return false;
+
+  return true;
 }
 
 function hasStrongRecommendationVerb(text: NormalizedIntentText): boolean {
