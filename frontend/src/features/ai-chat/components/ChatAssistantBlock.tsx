@@ -29,9 +29,9 @@ function ChatAssistantBlockImpl({
   );
 
   return (
-    <div className="space-y-2 rounded-2xl border border-gray-200/80 bg-gray-50/70 p-2">
+    <div className="space-y-2 rounded-2xl border border-[#e7e1d4] bg-[#faf8f2] p-2">
       <ChatMessageBubble role="assistant" align="none">
-        <p className="whitespace-pre-wrap text-sm text-gray-800">{content}</p>
+        <p className="whitespace-pre-wrap text-sm text-[#302f2b]">{content}</p>
       </ChatMessageBubble>
 
       {recommendations.length > 0 && (
@@ -43,7 +43,7 @@ function ChatAssistantBlockImpl({
           role="assistant"
           align="none"
           label="Follow-up"
-          className="border-primary-100 bg-primary-50 text-primary-900"
+          className="border-[#efd9c0] bg-[#f8efe3] text-[#362d23]"
         >
           <p className="text-sm italic">{followUp}</p>
         </ChatMessageBubble>

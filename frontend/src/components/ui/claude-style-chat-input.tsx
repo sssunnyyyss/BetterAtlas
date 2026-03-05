@@ -199,7 +199,7 @@ const PastedContentCard: React.FC<PastedContentCardProps> = ({
   onRemove,
 }) => {
   return (
-    <div className="relative group flex h-28 w-28 flex-shrink-0 animate-fade-in flex-col justify-between overflow-hidden rounded-2xl border border-[#E5E5E5] bg-white p-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)] dark:border-[#30302E] dark:bg-[#20201F]">
+    <div className="relative group flex h-28 w-28 flex-shrink-0 animate-fade-in flex-col justify-between overflow-hidden rounded-2xl border border-[#E5E5E5] bg-white p-3 shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
       <div className="w-full overflow-hidden">
         <p className="line-clamp-4 select-none whitespace-pre-wrap break-words font-mono text-[10px] leading-[1.4] text-[#9CA3AF]">
           {content.content}
@@ -207,8 +207,8 @@ const PastedContentCard: React.FC<PastedContentCardProps> = ({
       </div>
 
       <div className="mt-2 flex w-full items-center justify-between">
-        <div className="inline-flex items-center justify-center rounded border border-[#E5E5E5] bg-white px-1.5 py-[2px] dark:border-[#404040] dark:bg-transparent">
-          <span className="font-sans text-[9px] font-bold uppercase tracking-wider text-[#6B7280] dark:text-[#9CA3AF]">
+        <div className="inline-flex items-center justify-center rounded border border-[#E5E5E5] bg-white px-1.5 py-[2px]">
+          <span className="font-sans text-[9px] font-bold uppercase tracking-wider text-[#6B7280]">
             PASTED
           </span>
         </div>
@@ -216,7 +216,7 @@ const PastedContentCard: React.FC<PastedContentCardProps> = ({
 
       <button
         onClick={() => onRemove(content.id)}
-        className="absolute right-2 top-2 rounded-full border border-[#E5E5E5] bg-white p-[3px] text-[#9CA3AF] opacity-0 shadow-sm transition-colors hover:text-[#6B7280] group-hover:opacity-100 dark:border-[#404040] dark:bg-[#30302E] dark:hover:text-white"
+        className="absolute right-2 top-2 rounded-full border border-[#E5E5E5] bg-white p-[3px] text-[#9CA3AF] opacity-0 shadow-sm transition-colors hover:text-[#6B7280] group-hover:opacity-100"
       >
         <Icons.X className="h-2 w-2" />
       </button>
@@ -257,8 +257,8 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
         className={`inline-flex h-8 min-w-[4rem] shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-xl pl-2.5 pr-2 text-xs font-base transition duration-300 ease-[cubic-bezier(0.165,0.85,0.45,1)] active:scale-[0.98]
           ${
             isOpen
-              ? "bg-bg-200 text-text-100 dark:bg-[#454540] dark:text-[#ECECEC]"
-              : "text-text-300 hover:bg-bg-200 hover:text-text-200 dark:text-[#B4B4B4] dark:hover:bg-[#454540] dark:hover:text-[#ECECEC]"
+              ? "bg-bg-200 text-text-100"
+              : "text-text-300 hover:bg-bg-200 hover:text-text-200"
           }`}
         type="button"
       >
@@ -282,7 +282,7 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
       </button>
 
       {isOpen && (
-        <div className="absolute bottom-full right-0 z-50 mb-2 flex w-[260px] origin-bottom-right animate-fade-in flex-col overflow-hidden rounded-2xl border border-[#DDDDDD] bg-white p-1.5 shadow-2xl dark:border-[#30302E] dark:bg-[#212121]">
+        <div className="absolute bottom-full right-0 z-50 mb-2 flex w-[260px] origin-bottom-right animate-fade-in flex-col overflow-hidden rounded-2xl border border-[#DDDDDD] bg-white p-1.5 shadow-2xl">
           {models.map((model) => (
             <button
               key={model.id}
@@ -290,19 +290,19 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                 onSelect(model.id);
                 setIsOpen(false);
               }}
-              className="group flex w-full items-start justify-between rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-bg-200 dark:hover:bg-[#30302E]"
+              className="group flex w-full items-start justify-between rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-bg-200"
               type="button"
             >
               <div className="flex flex-col gap-0.5">
                 <div className="flex items-center gap-2">
-                  <span className="text-[13px] font-semibold text-text-100 dark:text-[#ECECEC]">
+                  <span className="text-[13px] font-semibold text-text-100">
                     {model.name}
                   </span>
                   {model.badge && (
                     <span
                       className={`rounded-full border px-1.5 py-[1px] text-[10px] font-medium ${
                         model.badge === "Upgrade"
-                          ? "border-blue-200 bg-white text-blue-600 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-400"
+                          ? "border-blue-200 bg-white text-blue-600"
                           : "border-bg-300 text-text-300"
                       }`}
                     >
@@ -310,24 +310,24 @@ const ModelSelector: React.FC<ModelSelectorProps> = ({
                     </span>
                   )}
                 </div>
-                <span className="text-[11px] text-text-300 dark:text-[#999999]">
+                <span className="text-[11px] text-text-300">
                   {model.description}
                 </span>
               </div>
               {selectedModel === model.id && (
-                <Icons.Check className="mt-1 h-4 w-4 text-blue-600 dark:text-blue-400" />
+                <Icons.Check className="mt-1 h-4 w-4 text-blue-600" />
               )}
             </button>
           ))}
 
-          <div className="mx-2 my-1 h-px bg-bg-300 dark:bg-[#30302E]" />
+          <div className="mx-2 my-1 h-px bg-bg-300" />
 
           <button
-            className="group flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-text-100 transition-colors hover:bg-bg-200 dark:text-[#ECECEC] dark:hover:bg-[#30302E]"
+            className="group flex w-full items-center justify-between rounded-xl px-3 py-2.5 text-left text-text-100 transition-colors hover:bg-bg-200"
             type="button"
           >
             <span className="text-[13px] font-semibold">More models</span>
-            <Icons.SelectArrow className="-rotate-90 h-4 w-4 text-text-300 dark:text-[#999999]" />
+            <Icons.SelectArrow className="-rotate-90 h-4 w-4 text-text-300" />
           </button>
         </div>
       )}
@@ -577,7 +577,7 @@ export const ClaudeChatInput: React.FC<ClaudeChatInputProps> = ({
       data-testid={testIds?.shell}
     >
       <div
-        className="!box-content relative z-10 mx-2 flex cursor-text flex-col items-stretch rounded-2xl border border-bg-300 bg-white font-sans antialiased shadow-[0_0_15px_rgba(0,0,0,0.08)] transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,0,0,0.12)] focus-within:shadow-[0_0_25px_rgba(0,0,0,0.15)] dark:border-transparent dark:bg-[#30302E] md:mx-0"
+        className="!box-content relative z-10 mx-2 flex cursor-text flex-col items-stretch rounded-2xl border border-bg-300 bg-white font-sans antialiased shadow-[0_0_15px_rgba(0,0,0,0.08)] transition-all duration-200 hover:shadow-[0_0_20px_rgba(0,0,0,0.12)] focus-within:shadow-[0_0_25px_rgba(0,0,0,0.15)] md:mx-0"
       >
         <div className="flex flex-col gap-2 px-3 pb-2 pt-3">
           {(files.length > 0 || pastedContent.length > 0) && (
@@ -641,10 +641,10 @@ export const ClaudeChatInput: React.FC<ClaudeChatInputProps> = ({
                   type="button"
                 >
                   <Icons.Thinking className="h-5 w-5" />
-                  <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-[6px] bg-[#1F1E1D] px-2 py-1 text-[11px] font-medium text-bg-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 dark:bg-[#EEEEEC] dark:text-bg-100">
-                    <span className="text-[#ECECEC] dark:text-[#1F1E1D]">Extended thinking</span>
+                  <div className="pointer-events-none absolute left-1/2 top-full z-50 mt-2 flex -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-[6px] bg-[#1F1E1D] px-2 py-1 text-[11px] font-medium text-bg-0 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+                    <span className="text-[#ECECEC]">Extended thinking</span>
                     <span
-                      className="text-[#999999] opacity-80 dark:text-[#73726C]"
+                      className="text-[#999999] opacity-80"
                       style={{ fontSize: "10px" }}
                     >
                       ⇧+Ctrl+E

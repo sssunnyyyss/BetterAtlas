@@ -68,9 +68,28 @@ function usePrefersReducedMotion() {
   return prefersReducedMotion;
 }
 
+function resolveGreetingName() {
+  if (typeof window === "undefined") return "there";
+
+  const candidateKeys = [
+    "betteratlas.user.fullName",
+    "betteratlas.fullName",
+    "fullName",
+    "userFullName",
+  ];
+  for (const key of candidateKeys) {
+    const raw = window.localStorage.getItem(key);
+    if (raw && raw.trim().length > 0) {
+      return raw.trim().split(/\s+/)[0];
+    }
+  }
+  return "there";
+}
+
 export default function AiChat({ embedded = false }: AiChatProps) {
   const { keyboardInset, viewportHeight } = useComposerViewport();
   const prefersReducedMotion = usePrefersReducedMotion();
+  const greetingName = resolveGreetingName();
 
   const {
     turns,
@@ -108,6 +127,7 @@ export default function AiChat({ embedded = false }: AiChatProps) {
             requestLifecycle={requestLifecycle}
             prefersReducedMotion={prefersReducedMotion}
             suggestionChips={SUGGESTION_CHIPS}
+            greetingName={greetingName}
             onSuggestionSelect={sendPrompt}
             onRetry={retryLastPrompt}
             endRef={messagesEndRef}

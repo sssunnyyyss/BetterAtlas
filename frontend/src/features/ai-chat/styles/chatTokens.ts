@@ -19,17 +19,17 @@ export const chatRoleTokens: Record<ChatMessageRole, ChatRoleToken> = {
   user: {
     rowClassName: "flex justify-end",
     widthClassName: "max-w-[92%] sm:max-w-[80%]",
-    labelClassName: "mb-1 text-right text-xs font-semibold uppercase tracking-wide text-primary-700",
+    labelClassName: "mb-1 text-right text-xs font-semibold uppercase tracking-wide text-[#8a8378]",
     bubbleClassName:
-      "rounded-2xl rounded-br-sm border border-primary-700 bg-primary-600 px-4 py-2.5 text-white shadow-sm",
+      "rounded-2xl rounded-br-sm border border-[#eadfcd] bg-[#f7efe2] px-4 py-2.5 text-[#2f2d2a] shadow-sm",
     label: "You",
   },
   assistant: {
     rowClassName: "flex justify-start",
     widthClassName: "max-w-[96%] sm:max-w-[88%]",
-    labelClassName: "mb-1 text-xs font-semibold uppercase tracking-wide text-gray-500",
+    labelClassName: "mb-1 text-xs font-semibold uppercase tracking-wide text-[#8a8378]",
     bubbleClassName:
-      "rounded-2xl rounded-tl-sm border border-gray-200 bg-white px-4 py-2.5 text-gray-900 shadow-sm",
+      "rounded-2xl rounded-tl-sm border border-[#e7e1d4] bg-white px-4 py-2.5 text-[#1f1e1d] shadow-sm",
     label: "Atlas AI",
   },
 };

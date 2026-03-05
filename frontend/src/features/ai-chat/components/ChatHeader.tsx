@@ -10,11 +10,11 @@ export function ChatHeader({
   onReset,
 }: ChatHeaderProps) {
   return (
-    <div className="flex items-center justify-between border-b border-gray-200 bg-gradient-to-b from-white to-gray-50 px-4 py-3">
+    <div className="flex items-center justify-between border-b border-[#ebe8df] bg-white/90 px-4 py-3 backdrop-blur-sm">
       <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-100">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#f3eee5]">
           <svg
-            className="h-5 w-5 text-primary-600"
+            className="h-5 w-5 text-[#d97757]"
             fill="none"
             viewBox="0 0 24 24"
             strokeWidth={1.5}
@@ -29,15 +29,15 @@ export function ChatHeader({
           </svg>
         </div>
         <div>
-          <h1 className="text-lg font-semibold text-gray-900">{title}</h1>
-          <p className="text-xs text-gray-500">Course planning assistant</p>
+          <h1 className="text-lg font-semibold text-[#1f1e1d]">{title}</h1>
+          <p className="text-xs text-[#77756f]">Course planning assistant</p>
         </div>
       </div>
       {hasTurns && (
         <button
           type="button"
           onClick={onReset}
-          className="rounded-md border border-gray-200 bg-white px-2.5 py-1 text-sm text-gray-600 transition-colors hover:border-gray-300 hover:text-gray-800"
+          className="rounded-lg border border-[#e2ddd3] bg-white px-2.5 py-1 text-sm text-[#706e68] transition-colors hover:border-[#d2cabd] hover:text-[#2d2c29]"
         >
           New chat
         </button>
