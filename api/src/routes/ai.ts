@@ -92,7 +92,7 @@ const modelResponseJsonSchema = {
         anyOf: [{ type: "string" }, { type: "null" }],
       },
     },
-    required: ["assistant_message", "follow_up_question"],
+    required: ["assistant_message"],
     additionalProperties: false,
   },
 };
@@ -524,6 +524,36 @@ function isTrivialGreeting(text: string) {
   return false;
 }
 
+function isCourseSuggestionIntent(text: string) {
+  const t = text.trim().toLowerCase();
+  if (!t) return false;
+
+  if (/\b([a-z]{2,8})\s*-?\s*(\d{3,4}[a-z]?)\b/i.test(t)) {
+    return true;
+  }
+
+  const strongIntentPhrases = [
+    "recommend",
+    "suggest",
+    "what should i take",
+    "which classes should i",
+    "which course should i",
+    "find me classes",
+    "find me courses",
+    "plan my schedule",
+    "build my schedule",
+    "easy ger",
+    "low workload",
+  ];
+  if (strongIntentPhrases.some((phrase) => t.includes(phrase))) {
+    return true;
+  }
+
+  return /\b(course|courses|class|classes|ger|gers|elective|electives|professor|instructor|catalog)\b/i.test(
+    t
+  );
+}
+
 function interleaveByDepartment(
   courses: CourseWithRatings[],
   max: number,
@@ -936,6 +966,7 @@ router.post(
 
       const latestUser =
         [...effectiveMessages].reverse().find((m) => m.role === "user")?.content ?? "";
+      const wantsCourseSuggestions = isCourseSuggestionIntent(latestUser);
 
       // If someone just says "hello", don't burn an expensive LLM call.
       if (isTrivialGreeting(latestUser)) {
@@ -944,8 +975,7 @@ router.post(
             ...getUserMemory(userId),
             {
               role: "assistant" as const,
-              content:
-                "Hi. Tell me what you want in a class (interests, workload, credits, semester) and I'll recommend courses.",
+              content: "Hi. I can help with anything, including classes when you ask for course recommendations.",
             },
           ]);
         }
@@ -961,8 +991,78 @@ router.post(
         }
         return res.json({
           assistantMessage:
-            "Tell me what you want in a class (interests, workload, credits, semester) and I'll recommend courses.",
-          followUpQuestion: "What are 2-3 topics you'd actually be excited to learn right now?",
+            "Hi. I can help with anything, including classes when you ask for course recommendations.",
+          followUpQuestion: null,
+          recommendations: [],
+        });
+      }
+
+      if (!wantsCourseSuggestions) {
+        const systemPrompt = [
+          "You are BetterAtlas AI, a helpful conversational assistant for students.",
+          "Respond naturally and directly to the user.",
+          "Do NOT provide specific course recommendations unless the user explicitly asks for courses/classes.",
+          "Keep answers concise, practical, and friendly.",
+          "",
+          "Return ONLY valid JSON matching this shape:",
+          "{",
+          '  "assistant_message": string,',
+          '  "follow_up_question": string|null (optional)',
+          "}",
+        ].join("\n");
+
+        const openAiMessages = [
+          { role: "system" as const, content: systemPrompt },
+          ...effectiveMessages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          })),
+        ];
+
+        const tOpenAiStart = Date.now();
+        const { parsed } = await openAiChatJson({
+          messages: openAiMessages,
+          model: env.openaiModel,
+          temperature: 0.4,
+          maxTokens: 1200,
+          responseFormat: { type: "json_schema", json_schema: modelResponseJsonSchema },
+        });
+        const openaiMs = Date.now() - tOpenAiStart;
+
+        const parsedResult = modelResponseSchema.safeParse(parsed);
+        if (!parsedResult.success) {
+          return res.status(500).json({
+            error: "AI returned an invalid response format",
+            details: parsedResult.error.flatten().fieldErrors,
+          });
+        }
+
+        const modelResult = parsedResult.data;
+
+        if (userId) {
+          setUserMemory(userId, [
+            ...effectiveMessages,
+            { role: "assistant" as const, content: modelResult.assistant_message },
+          ]);
+        }
+
+        const totalMs = Date.now() - tStart;
+        if (totalMs > 1500) {
+          console.log("ai/course-recommendations timings", {
+            totalMs,
+            depsMs,
+            candidatesMs: 0,
+            embedMs: 0,
+            semanticMs: 0,
+            openaiMs,
+            model: env.openaiModel,
+            conversationalOnly: true,
+          });
+        }
+
+        return res.json({
+          assistantMessage: modelResult.assistant_message,
+          followUpQuestion: modelResult.follow_up_question ?? null,
           recommendations: [],
         });
       }
@@ -1150,7 +1250,7 @@ router.post(
         "Use course details when helpful: instructors, campuses, GERs, prerequisites, and requirements.",
         "Use developer/user feedback signals (liked/disliked course examples) as strong preference hints.",
         "Never suggest excluded courses listed in context.",
-        "If the student's request is vague, make reasonable assumptions and include one concise follow-up question.",
+        "If the student's request is vague, make reasonable assumptions and optionally include one concise follow-up question.",
         "Keep output concise and helpful. No moralizing. No long disclaimers.",
         "",
         "Return ONLY valid JSON (no markdown, no code fences) matching this shape:",
