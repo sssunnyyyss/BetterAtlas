@@ -884,16 +884,6 @@ router.post(
         typeof recommendSchema
       >;
       const userId = req.user?.id ?? null;
-      const user = userId ? await getUserById(userId) : null;
-      const activeFilters = normalizeAiFilters(filters);
-      const likedCourses = normalizePreferenceCourses(preferences?.liked);
-      const dislikedCourses = normalizePreferenceCourses(preferences?.disliked);
-      const preferenceProfile = buildPreferenceProfile(likedCourses, dislikedCourses);
-
-      const excludeSet = new Set<number>(
-        (excludeCourseIds ?? []).filter((id) => typeof id === "number" && Number.isFinite(id))
-      );
-      for (const c of dislikedCourses) excludeSet.add(c.id);
 
       if (reset && userId) clearUserMemory(userId);
 
@@ -915,6 +905,8 @@ router.post(
         latestUser,
         recentMessages: effectiveMessages,
       });
+      const isTrivialGreeting =
+        decision.mode === "conversation" && decision.reason === "trivial_greeting";
 
       if (reset && !messages && !prompt) {
         return res.json({
@@ -933,7 +925,7 @@ router.post(
         });
       }
 
-      if (decision.mode === "conversation" && decision.reason === "trivial_greeting") {
+      if (isTrivialGreeting) {
         if (userId) {
           setUserMemory(userId, [
             ...getUserMemory(userId),
@@ -1052,6 +1044,16 @@ router.post(
             : {}),
         });
       }
+
+      const activeFilters = normalizeAiFilters(filters);
+      const likedCourses = normalizePreferenceCourses(preferences?.liked);
+      const dislikedCourses = normalizePreferenceCourses(preferences?.disliked);
+      const preferenceProfile = buildPreferenceProfile(likedCourses, dislikedCourses);
+      const excludeSet = new Set<number>(
+        (excludeCourseIds ?? []).filter((id) => typeof id === "number" && Number.isFinite(id))
+      );
+      for (const c of dislikedCourses) excludeSet.add(c.id);
+      const user = userId ? await getUserById(userId) : null;
 
       const tDepsStart = Date.now();
       const [deps, trainerScores] = await Promise.all([
