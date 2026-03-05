@@ -79,24 +79,6 @@ const modelResponseSchema = z.object({
   follow_up_question: z.string().min(1).max(400).nullable().optional(),
 });
 
-// OpenAI Structured Output schema — mirrors modelResponseSchema above.
-// Guarantees the model MUST produce valid JSON matching this exact shape.
-const modelResponseJsonSchema = {
-  name: "chat_response_with_mentions",
-  strict: true,
-  schema: {
-    type: "object",
-    properties: {
-      assistant_message: { type: "string" },
-      follow_up_question: {
-        anyOf: [{ type: "string" }, { type: "null" }],
-      },
-    },
-    required: ["assistant_message"],
-    additionalProperties: false,
-  },
-};
-
 function truncate(str: string, max: number) {
   if (str.length <= max) return str;
   return str.slice(0, Math.max(0, max - 1)).trimEnd() + "...";
@@ -1025,7 +1007,6 @@ router.post(
           model: env.openaiModel,
           temperature: 0.4,
           maxTokens: 1200,
-          responseFormat: { type: "json_schema", json_schema: modelResponseJsonSchema },
         });
         const openaiMs = Date.now() - tOpenAiStart;
 
@@ -1062,7 +1043,7 @@ router.post(
 
         return res.json({
           assistantMessage: modelResult.assistant_message,
-          followUpQuestion: modelResult.follow_up_question ?? null,
+          followUpQuestion: null,
           recommendations: [],
         });
       }
@@ -1188,7 +1169,7 @@ router.post(
         return res.json({
           assistantMessage:
             "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again.",
-          followUpQuestion: "Want me to prioritize semester first, then broaden instructor/campus constraints?",
+          followUpQuestion: null,
           recommendations: [],
           ...(env.nodeEnv !== "production"
             ? {
@@ -1318,7 +1299,6 @@ router.post(
         model: env.openaiModel,
         temperature: 0.2,
         maxTokens: 1500,
-        responseFormat: { type: "json_schema", json_schema: modelResponseJsonSchema },
       });
       const openaiMs = Date.now() - tOpenAiStart;
 
@@ -1427,7 +1407,7 @@ router.post(
 
       return res.json({
         assistantMessage: modelResult.assistant_message,
-        followUpQuestion: modelResult.follow_up_question ?? null,
+        followUpQuestion: null,
         recommendations,
         ...(env.nodeEnv !== "production"
           ? {

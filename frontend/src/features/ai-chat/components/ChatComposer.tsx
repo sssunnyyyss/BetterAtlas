@@ -25,10 +25,25 @@ export function ChatComposer({
 }: ChatComposerProps) {
   void requestState;
 
+  const handleComposerWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (Math.abs(event.deltaY) < 1) return;
+
+    const shell = event.currentTarget.closest('[data-testid^="chat-shell-"]');
+    const feed = shell?.querySelector<HTMLElement>(
+      '[data-testid="chat-feed-scroll-container"]',
+    );
+    if (!feed) return;
+    if (feed.scrollHeight <= feed.clientHeight) return;
+
+    feed.scrollBy({ top: event.deltaY, behavior: "auto" });
+    event.preventDefault();
+  };
+
   return (
     <div
       className="shrink-0 bg-[#fcfcf9] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3"
       data-testid="chat-composer-shell"
+      onWheelCapture={handleComposerWheel}
     >
       {hasTurns && onReset ? (
         <div className="mb-2 flex justify-end">

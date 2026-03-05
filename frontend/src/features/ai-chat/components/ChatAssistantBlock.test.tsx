@@ -51,7 +51,6 @@ function renderAssistantBlock(recommendations: AiCourseRecommendation[]) {
         <ChatAssistantBlock
           content="Here are your best matches."
           recommendations={recommendations}
-          followUp={null}
           prefersReducedMotion={false}
         />
       </MemoryRouter>,

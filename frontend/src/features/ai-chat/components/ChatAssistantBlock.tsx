@@ -6,14 +6,12 @@ import { RecommendationCard } from "./RecommendationCard.js";
 type ChatAssistantBlockProps = {
   content: string;
   recommendations: AiCourseRecommendation[];
-  followUp: string | null;
   prefersReducedMotion: boolean;
 };
 
 function ChatAssistantBlockImpl({
   content,
   recommendations,
-  followUp,
   prefersReducedMotion,
 }: ChatAssistantBlockProps) {
   const recommendationCards = useMemo(
@@ -37,17 +35,6 @@ function ChatAssistantBlockImpl({
       {recommendations.length > 0 && (
         <div className="grid gap-2 sm:grid-cols-2">{recommendationCards}</div>
       )}
-
-      {followUp && (
-        <ChatMessageBubble
-          role="assistant"
-          align="none"
-          label="Follow-up"
-          className="border-[#efd9c0] bg-[#f8efe3] text-[#362d23]"
-        >
-          <p className="text-sm italic">{followUp}</p>
-        </ChatMessageBubble>
-      )}
     </div>
   );
 }
@@ -58,7 +45,6 @@ function assistantBlockPropsEqual(
 ): boolean {
   return (
     previous.content === next.content &&
-    previous.followUp === next.followUp &&
     previous.prefersReducedMotion === next.prefersReducedMotion &&
     previous.recommendations === next.recommendations
   );

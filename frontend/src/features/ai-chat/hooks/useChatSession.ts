@@ -264,7 +264,7 @@ export function useChatSession(): ChatSessionApi {
               role: "assistant",
               content: response.assistantMessage,
               recommendations: response.recommendations,
-              followUp: response.followUpQuestion,
+              followUp: null,
             };
 
             setTurns((previousTurns) => [...previousTurns, nextAssistantTurn]);
