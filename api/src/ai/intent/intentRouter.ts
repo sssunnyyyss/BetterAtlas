@@ -6,6 +6,11 @@ export type IntentDecision = {
   signals: string[];
 };
 
+export type ClarifyResponse = {
+  assistantMessage: string;
+  followUpQuestion: string;
+};
+
 type IntentInput = {
   latestUser: string;
   recentMessages: { role: "user" | "assistant"; content: string }[];
@@ -35,6 +40,10 @@ const COURSE_SEEKING_RE =
   /\b(help|find|looking|pick|choose|take|taking|need|want|plan|planning|search)\b/i;
 const ACTIONABLE_CONSTRAINT_RE =
   /\b(easy|hard|beginner|advanced|major|minor|semester|fall|spring|summer|credit|credits|online|in-person|in person|campus|workload|rating|department|ger|gers|attribute|professor|instructor)\b/i;
+const CLARIFY_GER_RE = /\b(ger|gers|attribute|attributes|requirement|requirements)\b/i;
+const CLARIFY_DEPARTMENT_RE = /\b(major|minor|department)\b/i;
+const CLARIFY_WORKLOAD_RE = /\b(workload|easy|hard|beginner|advanced|chill)\b/i;
+const CLARIFY_SEMESTER_RE = /\b(semester|fall|spring|summer|winter)\b/i;
 
 function normalizeIntentText(text: string): NormalizedIntentText {
   const raw = text.trim();
@@ -92,6 +101,22 @@ function hasActionableConstraint(text: NormalizedIntentText): boolean {
 
 function dedupeSignals(signals: string[]): string[] {
   return [...new Set(signals)];
+}
+
+function buildClarifyQuestion(text: NormalizedIntentText): string {
+  if (CLARIFY_GER_RE.test(text.keywordText)) {
+    return "Which GER or requirement should this satisfy, and for which semester?";
+  }
+  if (CLARIFY_DEPARTMENT_RE.test(text.keywordText)) {
+    return "Which department or major should I prioritize, and how heavy should the workload be?";
+  }
+  if (CLARIFY_WORKLOAD_RE.test(text.keywordText)) {
+    return "Which semester is this for, and do you want easy, moderate, or challenging workload?";
+  }
+  if (CLARIFY_SEMESTER_RE.test(text.keywordText)) {
+    return "For that semester, should I focus on a department, a GER, or a lighter workload?";
+  }
+  return "What should I optimize first: workload, GER, department, or semester?";
 }
 
 export function classifyIntent(input: IntentInput): IntentDecision {
@@ -153,5 +178,15 @@ export function classifyIntent(input: IntentInput): IntentDecision {
     mode: "conversation",
     reason: "general_conversation",
     signals: dedupeSignals([...signals, "fallback_conversation"]),
+  };
+}
+
+export function buildClarifyResponse(input: IntentInput): ClarifyResponse {
+  const text = normalizeIntentText(input.latestUser);
+  const followUpQuestion = buildClarifyQuestion(text);
+
+  return {
+    assistantMessage: `I can help with that. ${followUpQuestion}`,
+    followUpQuestion,
   };
 }

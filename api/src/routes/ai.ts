@@ -6,7 +6,7 @@ import { aiLimiter } from "../middleware/rateLimit.js";
 import { env } from "../config/env.js";
 import { openAiChat, openAiChatJson } from "../lib/openai.js";
 import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
-import { classifyIntent } from "../ai/intent/intentRouter.js";
+import { buildClarifyResponse, classifyIntent } from "../ai/intent/intentRouter.js";
 import { getUserById } from "../services/userService.js";
 import {
   listCourses,
@@ -1005,11 +1005,13 @@ router.post(
       }
 
       if (decision.mode === "clarify") {
+        const clarifyResponse = buildClarifyResponse({
+          latestUser,
+          recentMessages: effectiveMessages,
+        });
         return res.json({
-          assistantMessage:
-            "I can help with that. What matters most for this pick right now: workload, GER, department, or semester?",
-          followUpQuestion:
-            "What matters most for this pick right now: workload, GER, department, or semester?",
+          assistantMessage: clarifyResponse.assistantMessage,
+          followUpQuestion: clarifyResponse.followUpQuestion,
           recommendations: [],
         });
       }
