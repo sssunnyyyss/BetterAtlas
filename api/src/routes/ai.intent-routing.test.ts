@@ -53,30 +53,39 @@ import { getUserById } from "../services/userService.js";
 
 const PAGE_META = { page: 1, limit: 1, total: 1, totalPages: 1 };
 
-const SAMPLE_COURSE: CourseWithRatings = {
-  id: 170,
-  code: "CS 170",
-  title: "Intro to Computer Science",
-  description: "Foundational computing concepts and problem solving.",
-  prerequisites: null,
-  credits: 3,
-  departmentId: 1,
-  attributes: null,
-  department: { id: 1, code: "CS", name: "Computer Science" },
-  avgQuality: 4.2,
-  avgDifficulty: 2.8,
-  avgWorkload: 2.9,
-  reviewCount: 42,
-  instructors: ["Ada Lovelace"],
-  gers: ["QR"],
-  campuses: ["Atlanta"],
-  requirements: null,
-};
+function buildSampleCourse(): CourseWithRatings {
+  return {
+    id: 170,
+    code: "CS 170",
+    title: "Intro to Computer Science",
+    description: "Foundational computing concepts and problem solving.",
+    prerequisites: null,
+    credits: 3,
+    departmentId: 1,
+    attributes: null,
+    department: { id: 1, code: "CS", name: "Computer Science" },
+    avgQuality: 4.2,
+    avgDifficulty: 2.8,
+    avgWorkload: 2.9,
+    reviewCount: 42,
+    instructors: ["Ada Lovelace"],
+    gers: ["QR"],
+    campuses: ["Atlanta"],
+    requirements: null,
+  };
+}
+
+function buildPageResult() {
+  return {
+    data: [buildSampleCourse()],
+    meta: PAGE_META,
+  };
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
 
-  vi.mocked(getUserById).mockResolvedValue(null);
+  vi.mocked(getUserById).mockResolvedValue(null as any);
   vi.mocked(openAiChat).mockResolvedValue(
     "I hear you. We can talk through priorities before looking at classes.",
   );
@@ -91,19 +100,13 @@ beforeEach(() => {
     },
   });
   vi.mocked(listDepartments).mockResolvedValue([
-    { code: "CS", name: "Computer Science" },
+    { id: 1, code: "CS", name: "Computer Science" },
   ]);
   vi.mocked(getAllAiTrainerScores).mockResolvedValue(new Map<number, number>());
   vi.mocked(areCourseEmbeddingsAvailable).mockResolvedValue(false);
   vi.mocked(semanticSearchCoursesByEmbedding).mockResolvedValue([]);
-  vi.mocked(searchCourses).mockResolvedValue({
-    data: [SAMPLE_COURSE],
-    meta: PAGE_META,
-  } as any);
-  vi.mocked(listCourses).mockResolvedValue({
-    data: [SAMPLE_COURSE],
-    meta: PAGE_META,
-  } as any);
+  vi.mocked(searchCourses).mockImplementation(async () => buildPageResult() as any);
+  vi.mocked(listCourses).mockImplementation(async () => buildPageResult() as any);
   vi.mocked(openAiEmbedText).mockResolvedValue([0.1, 0.2, 0.3]);
 });
 
@@ -272,5 +275,16 @@ describe("POST /ai/course-recommendations intent routing", () => {
     expect(getAllAiTrainerScores).toHaveBeenCalledTimes(1);
     expect(searchCourses).toHaveBeenCalled();
     expect(listCourses).toHaveBeenCalled();
+  });
+
+  it("stays deterministic across repeated recommend invocations", async () => {
+    const first = await postRecommendation("Recommend 3 easy HA classes for Fall 2026.");
+    const second = await postRecommendation("Recommend 3 easy HA classes for Fall 2026.");
+
+    expect(first.status).toBe(200);
+    expect(second.status).toBe(200);
+    expect(first.body.debug.intentMode).toBe("recommend");
+    expect(second.body.debug.intentMode).toBe("recommend");
+    expect(first.body.recommendations).toEqual(second.body.recommendations);
   });
 });
