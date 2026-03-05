@@ -12,7 +12,7 @@ Requirements for milestone v1.2. Each requirement must map to exactly one roadma
 - [x] **AIINT-01**: User can have normal conversational turns without receiving forced course recommendations unless recommendation intent is explicit.
 - [x] **AIINT-02**: User with an ambiguous recommendation request receives a concise clarifying follow-up question before course suggestions are returned.
 - [x] **AIINT-03**: User turn intent is classified into deterministic modes (`conversation`, `clarify`, `recommend`) that consistently control retrieval and response behavior.
-- [ ] **AIINT-04**: User sending trivial greetings gets a fast conversational reply without unnecessary recommendation retrieval.
+- [x] **AIINT-04**: User sending trivial greetings gets a fast conversational reply without unnecessary recommendation retrieval.
 
 ### Atlas Grounding and Recommendation Safety
 
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-05*
-*Last updated: 2026-03-05 after completing Phase 5 Plan 02*
+*Last updated: 2026-03-05 after completing Phase 5 Plan 03*
