@@ -35,7 +35,12 @@ export function ChatComposer({
     if (!feed) return;
     if (feed.scrollHeight <= feed.clientHeight) return;
 
-    feed.scrollBy({ top: event.deltaY, behavior: "auto" });
+    const currentTop = feed.scrollTop;
+    const maxTop = Math.max(0, feed.scrollHeight - feed.clientHeight);
+    const nextTop = Math.min(maxTop, Math.max(0, currentTop + event.deltaY));
+    if (nextTop === currentTop) return;
+
+    feed.scrollTop = nextTop;
     event.preventDefault();
   };
 

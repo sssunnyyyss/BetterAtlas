@@ -93,12 +93,14 @@ export default function AiChat({ embedded = false }: AiChatProps) {
 
   useEffect(() => {
     if (embedded) return;
-    const html = document.documentElement;
-    html.style.overflow = "hidden";
-    html.style.height = "100dvh";
+    const body = document.body;
+    const previousOverflow = body.style.overflow;
+    const previousOverscrollBehaviorY = body.style.overscrollBehaviorY;
+    body.style.overflow = "hidden";
+    body.style.overscrollBehaviorY = "none";
     return () => {
-      html.style.overflow = "";
-      html.style.height = "";
+      body.style.overflow = previousOverflow;
+      body.style.overscrollBehaviorY = previousOverscrollBehaviorY;
     };
   }, [embedded]);
 

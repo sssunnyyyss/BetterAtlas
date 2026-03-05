@@ -79,6 +79,28 @@ const modelResponseSchema = z.object({
   follow_up_question: z.string().min(1).max(400).nullable().optional(),
 });
 
+const courseRecommendationResponseFormat = {
+  type: "json_schema" as const,
+  json_schema: {
+    name: "course_recommendation_response",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        assistant_message: { type: "string", minLength: 1, maxLength: 2500 },
+        follow_up_question: {
+          anyOf: [
+            { type: "string", minLength: 1, maxLength: 400 },
+            { type: "null" },
+          ],
+        },
+      },
+      required: ["assistant_message", "follow_up_question"],
+    },
+  },
+};
+
 function truncate(str: string, max: number) {
   if (str.length <= max) return str;
   return str.slice(0, Math.max(0, max - 1)).trimEnd() + "...";
@@ -1278,23 +1300,47 @@ router.post(
       ];
 
       const tOpenAiStart = Date.now();
-      const { parsed } = await openAiChatJson({
-        messages: openAiMessages,
-        model: env.openaiModel,
-        temperature: 0.2,
-        maxTokens: 1500,
-      });
-      const openaiMs = Date.now() - tOpenAiStart;
+      let modelResult: z.infer<typeof modelResponseSchema> | null = null;
+      let usedJsonFallback = false;
 
-      const parsedResult = modelResponseSchema.safeParse(parsed);
-      if (!parsedResult.success) {
-        return res.status(500).json({
-          error: "AI returned an invalid response format",
-          details: parsedResult.error.flatten().fieldErrors,
+      try {
+        const { parsed } = await openAiChatJson({
+          messages: openAiMessages,
+          model: env.openaiModel,
+          temperature: 0.2,
+          maxTokens: 1500,
+          responseFormat: courseRecommendationResponseFormat,
         });
+        const parsedResult = modelResponseSchema.safeParse(parsed);
+        if (parsedResult.success) {
+          modelResult = parsedResult.data;
+        }
+      } catch (error: any) {
+        const message = String(error?.message ?? "");
+        const isJsonFormatFailure =
+          /json object|parse json|invalid response format|missing message content/i.test(
+            message,
+          );
+        if (!isJsonFormatFailure) {
+          throw error;
+        }
       }
 
-      const modelResult = parsedResult.data;
+      if (!modelResult) {
+        const fallbackAssistantMessage = await openAiChat({
+          messages: openAiMessages,
+          model: env.openaiModel,
+          temperature: 0.2,
+          maxTokens: 1500,
+        });
+        modelResult = {
+          assistant_message: fallbackAssistantMessage.trim(),
+          follow_up_question: null,
+        };
+        usedJsonFallback = true;
+      }
+
+      const openaiMs = Date.now() - tOpenAiStart;
 
       const TARGET_RECS = 8;
       const termsLower = searchTerms.map((t) => t.toLowerCase()).filter(Boolean);
@@ -1419,6 +1465,7 @@ router.post(
                 trainerScoresLoaded: trainerScores.size,
                 trainerBoostedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
                 trainerDemotedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
+                usedJsonFallback,
               },
             }
           : {}),

@@ -11,7 +11,7 @@ export default {
         foreground: "hsl(var(--foreground) / <alpha-value>)",
         bg: {
           0: "hsl(var(--bg-0) / <alpha-value>)",
-          000: "hsl(var(--bg-000) / <alpha-value>)",
+          "000": "hsl(var(--bg-000) / <alpha-value>)",
           100: "hsl(var(--bg-100) / <alpha-value>)",
           200: "hsl(var(--bg-200) / <alpha-value>)",
           300: "hsl(var(--bg-300) / <alpha-value>)",
