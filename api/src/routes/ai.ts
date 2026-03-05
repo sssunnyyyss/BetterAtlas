@@ -896,13 +896,6 @@ router.post(
       for (const c of dislikedCourses) excludeSet.add(c.id);
 
       if (reset && userId) clearUserMemory(userId);
-      if (reset && !messages && !prompt) {
-        return res.json({
-          assistantMessage: "AI memory cleared.",
-          followUpQuestion: null,
-          recommendations: [],
-        });
-      }
 
       const effectiveMessages: AiMessage[] = (() => {
         if (Array.isArray(messages)) return messages as AiMessage[];
@@ -922,6 +915,23 @@ router.post(
         latestUser,
         recentMessages: effectiveMessages,
       });
+
+      if (reset && !messages && !prompt) {
+        return res.json({
+          assistantMessage: "AI memory cleared.",
+          followUpQuestion: null,
+          recommendations: [],
+          ...(env.nodeEnv !== "production"
+            ? {
+                debug: {
+                  intentMode: decision.mode,
+                  intentReason: "reset_request",
+                  retrievalSkipped: true,
+                },
+              }
+            : {}),
+        });
+      }
 
       if (decision.mode === "conversation" && decision.reason === "trivial_greeting") {
         if (userId) {
@@ -948,6 +958,15 @@ router.post(
             "Hi. I can help with anything, including classes when you ask for course recommendations.",
           followUpQuestion: null,
           recommendations: [],
+          ...(env.nodeEnv !== "production"
+            ? {
+                debug: {
+                  intentMode: decision.mode,
+                  intentReason: decision.reason,
+                  retrievalSkipped: true,
+                },
+              }
+            : {}),
         });
       }
 
@@ -1001,6 +1020,15 @@ router.post(
           assistantMessage,
           followUpQuestion: null,
           recommendations: [],
+          ...(env.nodeEnv !== "production"
+            ? {
+                debug: {
+                  intentMode: decision.mode,
+                  intentReason: decision.reason,
+                  retrievalSkipped: true,
+                },
+              }
+            : {}),
         });
       }
 
@@ -1013,6 +1041,15 @@ router.post(
           assistantMessage: clarifyResponse.assistantMessage,
           followUpQuestion: clarifyResponse.followUpQuestion,
           recommendations: [],
+          ...(env.nodeEnv !== "production"
+            ? {
+                debug: {
+                  intentMode: decision.mode,
+                  intentReason: decision.reason,
+                  retrievalSkipped: true,
+                },
+              }
+            : {}),
         });
       }
 
@@ -1153,6 +1190,9 @@ router.post(
           ...(env.nodeEnv !== "production"
             ? {
                 debug: {
+                  intentMode: decision.mode,
+                  intentReason: decision.reason,
+                  retrievalSkipped: false,
                   model: env.openaiModel,
                   totalMs: Date.now() - tStart,
                   depsMs,
@@ -1415,6 +1455,9 @@ router.post(
         ...(env.nodeEnv !== "production"
           ? {
               debug: {
+                intentMode: decision.mode,
+                intentReason: decision.reason,
+                retrievalSkipped: false,
                 model: env.openaiModel,
                 totalMs,
                 depsMs,
