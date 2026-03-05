@@ -10,7 +10,7 @@
 
 **Goal:** Deliver a natural conversational AI counselor that recommends accurate BetterAtlas catalog courses when contextually appropriate, without forcing recommendations in every turn.
 
-**Status:** Roadmap ready, phase planning not started  
+**Status:** Phase 5 in progress (1/3 plans complete)  
 **Phase range:** 5-9  
 **Requirement coverage:** 18/18 mapped (100%)
 
@@ -18,7 +18,7 @@
 
 | Phase | Name | Requirement IDs | Status |
 |-------|------|-----------------|--------|
-| 5 | Intent Routing and Conversation Cadence | AIINT-01, AIINT-02, AIINT-03, AIINT-04 | Ready |
+| 5 | Intent Routing and Conversation Cadence | AIINT-01, AIINT-02, AIINT-03, AIINT-04 | In Progress (1/3) |
 | 6 | Atlas Grounding and Recommendation Safety | AIGRD-01, AIGRD-02, AIGRD-03, AIGRD-04 | Ready |
 | 7 | Retrieval and Ranking Relevance Calibration | AIREL-01, AIREL-02, AIREL-03, AIREL-04 | Ready |
 | 8 | Memory and Multi-Turn Context Reliability | AIMEM-01, AIMEM-02, AIMEM-03 | Ready |
@@ -86,7 +86,7 @@
 
 ## Next Up
 
-- Plan and execute Phase 5 workstream.
+- Execute Phase 5 Plan 02 and Plan 03.
 
 ---
-*Last updated: 2026-03-05 after defining milestone v1.2 roadmap*
+*Last updated: 2026-03-05 after completing Phase 5 Plan 01*

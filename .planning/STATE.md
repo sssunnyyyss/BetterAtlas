@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
-status: ready_for_phase_planning
-last_updated: "2026-03-05T22:30:00Z"
+status: phase_execution_in_progress
+last_updated: "2026-03-05T22:36:32Z"
 progress:
   total_phases: 5
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
 ---
 
 # Project State
@@ -18,21 +18,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 phase execution starting with phase 5 planning.
+**Current focus:** Milestone v1.2 phase 5 execution (intent routing and cadence).
 
 ## Current Position
 
-Phase: 5 - Intent Routing and Conversation Cadence (ready)
-Plan: Not started
-Status: Ready for phase 5 planning
-Last activity: 2026-03-05 - v1.2 roadmap created with 100% requirement mapping
+Phase: 5 - Intent Routing and Conversation Cadence (in progress)
+Plan: 01 complete, next 02
+Status: Executing phase 5 plans
+Last activity: 2026-03-05 - completed 05-01 deterministic intent router contracts/tests (AIINT-03)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 7%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
+- Total plans completed: 12
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
 
@@ -43,6 +43,9 @@ Progress: [░░░░░░░░░░] 0%
 - [Milestone v1.2 kickoff]: Focus AI chat on conversational quality with context-aware recommendation cadence and strict Atlas-grounded suggestions.
 - [Milestone v1.2 roadmap]: Sequence milestone into phases 5-9 (intent routing, grounding safety, retrieval/ranking calibration, memory reliability, observability/regression gates).
 - [Milestone v1.2 roadmap]: Map all 18 v1.2 requirements one-to-one to exactly one phase with no cross-phase duplication.
+- [Plan 05-01 intent routing]: Establish explicit `IntentMode` contract (`conversation` | `clarify` | `recommend`) with deterministic rule ordering.
+- [Plan 05-01 intent routing]: Normalize prompt variants (case, punctuation, spacing) before signal extraction to prevent mode drift.
+- [Plan 05-01 intent routing]: Protect course-code detection from semester/year false positives (e.g., "Fall 2026").
 - Phase 1 prioritized toggle correctness over broad UI redesign.
 - [Phase 01-program-and-major-toggle-accuracy]: Use trimmed/lowercased strict name matching first, with normalized fallback only when strict candidates cannot provide both kinds.
 - [Phase 01-program-and-major-toggle-accuracy]: Rank variant candidates by exact degree affinity before lexical/id tie-breakers.
@@ -70,7 +73,8 @@ Progress: [░░░░░░░░░░] 0%
 
 ### Pending Todos
 
-- Create detailed phase plans for phase 5 and begin execution.
+- Execute Phase 5 Plan 02 (route intent cadence branching).
+- Execute Phase 5 Plan 03 (intent-route integration and safeguards).
 
 ### Blockers/Concerns
 
@@ -78,6 +82,6 @@ Progress: [░░░░░░░░░░] 0%
 
 ## Session Continuity
 
-Last session: 2026-03-03
-Stopped at: Milestone v1.2 roadmap complete; phase 5 ready to plan
-Resume file: None
+Last session: 2026-03-05
+Stopped at: Completed 05-01-PLAN.md
+Resume file: .planning/phases/05-intent-routing-and-conversation-cadence/05-02-PLAN.md
