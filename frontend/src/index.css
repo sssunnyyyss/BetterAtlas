@@ -20,6 +20,30 @@
   --border: 214 32% 91%;
   --input: 214 32% 91%;
   --ring: 220 100% 24%;
+  --bg-0: 43 39% 97%;
+  --bg-000: 43 39% 97%;
+  --bg-100: 0 0% 100%;
+  --bg-200: 48 21% 92%;
+  --bg-300: 0 0% 87%;
+  --text-100: 30 5% 12%;
+  --text-200: 30 1% 24%;
+  --text-300: 57 3% 43%;
+  --text-400: 0 0% 53%;
+  --text-500: 0 0% 60%;
+  --accent-hover: 15 53% 51%;
+}
+
+.dark {
+  --bg-0: 0 0% 13%;
+  --bg-000: 0 0% 13%;
+  --bg-100: 48 2% 15%;
+  --bg-200: 48 2% 19%;
+  --bg-300: 48 2% 27%;
+  --text-100: 0 0% 93%;
+  --text-200: 0 0% 88%;
+  --text-300: 0 0% 71%;
+  --text-400: 0 0% 54%;
+  --text-500: 0 0% 42%;
 }
 
 html {
@@ -820,6 +844,35 @@ h6 {
 
 .ba-chat-turn-enter {
   animation: ba-fade-in-up 200ms ease-out both;
+}
+
+.animate-fade-in {
+  animation: ba-fade-in-up 200ms ease-out both;
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 9999px;
+  background-clip: content-box;
+  background-color: hsl(var(--border));
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--accent-hover));
 }
 
 .ba-chat-status-transition {
