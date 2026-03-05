@@ -18,16 +18,27 @@ Students can coordinate course planning with friends through shared planning wor
   - Accessibility and reduced-motion hardening plus interaction/performance regression coverage.
 - **Codebase snapshot:** ~105,967 JS/TS lines across `frontend`, `api`, and `packages/shared`.
 
-## Next Milestone Goals
+## Current Milestone: v1.2 Conversational Atlas-Grounded Chat
 
-- Define and prioritize the next milestone via `$gsd-new-milestone`.
-- Produce a fresh milestone-scoped `REQUIREMENTS.md` (v1.1 requirements archived).
-- Build roadmap phases from new requirements before execution.
+**Goal:** Deliver a natural conversational AI counselor that recommends accurate BetterAtlas catalog courses when contextually appropriate, without forcing recommendations in every turn.
+
+**Target features:**
+- Intent-aware chat behavior that distinguishes conversational turns from recommendation-seeking turns.
+- Strict Atlas-grounded recommendation policy that references only catalog-backed course candidates.
+- Adaptive recommendation cadence that asks clarifying follow-ups when useful instead of always returning lists.
+- Stronger ranking alignment with student preferences, filters, and prior feedback signals.
+- Regression coverage for grounding, intent gating, and recommendation relevance quality.
+
+## Milestone Constraints
+
+- Preserve AI endpoint compatibility for existing frontend clients where feasible.
+- Keep recommendations constrained to available BetterAtlas catalog data.
+- Prioritize behavior correctness and grounding over adding new UI surface area.
 
 ## Requirements Status
 
 - v1.1 requirements are fully shipped and archived in [.planning/milestones/v1.1-REQUIREMENTS.md](./milestones/v1.1-REQUIREMENTS.md).
-- The active `.planning/REQUIREMENTS.md` file is intentionally reset per milestone workflow.
+- v1.2 requirements will be defined in a fresh `.planning/REQUIREMENTS.md` during this milestone kickoff.
 
 <details>
 <summary>Project History Through v1.1</summary>
@@ -52,4 +63,4 @@ Students can coordinate course planning with friends through shared planning wor
 </details>
 
 ---
-*Last updated: 2026-03-03 after archiving milestone v1.1*
+*Last updated: 2026-03-05 after starting milestone v1.2*

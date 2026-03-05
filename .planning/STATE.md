@@ -1,33 +1,33 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: AI Chat Experience Redesign
-status: awaiting_new_milestone
-last_updated: "2026-03-03T06:40:00Z"
+milestone: v1.2
+milestone_name: Conversational Atlas-Grounded Chat
+status: defining_requirements
+last_updated: "2026-03-05T21:00:00Z"
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 9
-  completed_plans: 9
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-02-27)
+See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.1 archived; define next milestone.
+**Current focus:** Milestone v1.2 requirements and roadmap definition.
 
 ## Current Position
 
-Phase: None (milestone complete)
-Plan: N/A
-Status: v1.1 archived and tagged; ready to start next milestone planning
-Last activity: 2026-03-03 - Archived milestone v1.1 roadmap/requirements and finalized closeout records
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-05 - Milestone v1.2 started
 
-Progress: [██████████] 100%
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
@@ -40,6 +40,7 @@ Progress: [██████████] 100%
 
 ### Decisions
 
+- [Milestone v1.2 kickoff]: Focus AI chat on conversational quality with context-aware recommendation cadence and strict Atlas-grounded suggestions.
 - Phase 1 prioritized toggle correctness over broad UI redesign.
 - [Phase 01-program-and-major-toggle-accuracy]: Use trimmed/lowercased strict name matching first, with normalized fallback only when strict candidates cannot provide both kinds.
 - [Phase 01-program-and-major-toggle-accuracy]: Rank variant candidates by exact degree affinity before lexical/id tie-breakers.
@@ -67,7 +68,7 @@ Progress: [██████████] 100%
 
 ### Pending Todos
 
-- Start next milestone discovery and requirements definition via `$gsd-new-milestone`.
+- Define v1.2 requirements and approve roadmap phases.
 
 ### Blockers/Concerns
 
@@ -76,5 +77,5 @@ Progress: [██████████] 100%
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: Milestone v1.1 archived; waiting for next milestone initialization
+Stopped at: Milestone v1.2 kickoff; requirements in definition
 Resume file: None
