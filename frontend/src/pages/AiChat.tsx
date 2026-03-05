@@ -91,6 +91,17 @@ export default function AiChat({ embedded = false }: AiChatProps) {
   const prefersReducedMotion = usePrefersReducedMotion();
   const greetingName = resolveGreetingName();
 
+  useEffect(() => {
+    if (embedded) return;
+    const html = document.documentElement;
+    html.style.overflow = "hidden";
+    html.style.height = "100dvh";
+    return () => {
+      html.style.overflow = "";
+      html.style.height = "";
+    };
+  }, [embedded]);
+
   const {
     turns,
     draft,
