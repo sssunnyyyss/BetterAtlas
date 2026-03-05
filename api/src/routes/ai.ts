@@ -4,7 +4,7 @@ import { validate } from "../middleware/validate.js";
 import { optionalAuth } from "../middleware/optionalAuth.js";
 import { aiLimiter } from "../middleware/rateLimit.js";
 import { env } from "../config/env.js";
-import { openAiChatJson } from "../lib/openai.js";
+import { openAiChat, openAiChatJson } from "../lib/openai.js";
 import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
 import { getUserById } from "../services/userService.js";
 import {
@@ -985,12 +985,6 @@ router.post(
           "Respond naturally and directly to the user.",
           "Do NOT provide specific course recommendations unless the user explicitly asks for courses/classes.",
           "Keep answers concise, practical, and friendly.",
-          "",
-          "Return ONLY valid JSON matching this shape:",
-          "{",
-          '  "assistant_message": string,',
-          '  "follow_up_question": string|null (optional)',
-          "}",
         ].join("\n");
 
         const openAiMessages = [
@@ -1002,7 +996,7 @@ router.post(
         ];
 
         const tOpenAiStart = Date.now();
-        const { parsed } = await openAiChatJson({
+        const assistantMessage = await openAiChat({
           messages: openAiMessages,
           model: env.openaiModel,
           temperature: 0.4,
@@ -1010,20 +1004,10 @@ router.post(
         });
         const openaiMs = Date.now() - tOpenAiStart;
 
-        const parsedResult = modelResponseSchema.safeParse(parsed);
-        if (!parsedResult.success) {
-          return res.status(500).json({
-            error: "AI returned an invalid response format",
-            details: parsedResult.error.flatten().fieldErrors,
-          });
-        }
-
-        const modelResult = parsedResult.data;
-
         if (userId) {
           setUserMemory(userId, [
             ...effectiveMessages,
-            { role: "assistant" as const, content: modelResult.assistant_message },
+            { role: "assistant" as const, content: assistantMessage },
           ]);
         }
 
@@ -1042,7 +1026,7 @@ router.post(
         }
 
         return res.json({
-          assistantMessage: modelResult.assistant_message,
+          assistantMessage,
           followUpQuestion: null,
           recommendations: [],
         });
