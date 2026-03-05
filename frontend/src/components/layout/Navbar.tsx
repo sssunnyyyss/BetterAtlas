@@ -20,8 +20,36 @@ export default function Navbar() {
   const location = useLocation();
   const [open, setOpen] = React.useState(false);
   const [renderMenu, setRenderMenu] = React.useState(false);
+  const [previousDesktopIndex, setPreviousDesktopIndex] = React.useState<number | null>(null);
+  const [desktopDirection, setDesktopDirection] = React.useState<"left" | "right" | null>(null);
+  const [desktopIndicator, setDesktopIndicator] = React.useState({
+    left: 0,
+    width: 0,
+    ready: false,
+  });
+  const desktopNavRef = React.useRef<HTMLDivElement | null>(null);
+  const desktopLinkRefs = React.useRef<Array<HTMLAnchorElement | null>>([]);
+  const desktopIndexRef = React.useRef(0);
+  const desktopHydratedRef = React.useRef(false);
   const scrolled = useScroll(10);
+  const showFramedShell = scrolled || open;
   const navItems = user?.isAdmin ? [...NAV_ITEMS, { label: "Admin", path: "/admin" }] : NAV_ITEMS;
+  const activeIndex = React.useMemo(() => {
+    const index = navItems.findIndex((item) =>
+      item.path === "/" ? location.pathname === "/" : location.pathname.startsWith(item.path)
+    );
+    return index >= 0 ? index : 0;
+  }, [location.pathname, navItems]);
+
+  const measureDesktopIndicator = React.useCallback(() => {
+    const currentLink = desktopLinkRefs.current[activeIndex];
+    if (!currentLink) return;
+    setDesktopIndicator({
+      left: currentLink.offsetLeft,
+      width: currentLink.offsetWidth,
+      ready: true,
+    });
+  }, [activeIndex]);
 
   React.useEffect(() => {
     if (open) document.body.style.overflow = "hidden";
@@ -46,6 +74,53 @@ export default function Navbar() {
     };
   }, [open]);
 
+  React.useLayoutEffect(() => {
+    measureDesktopIndicator();
+  }, [measureDesktopIndicator]);
+
+  React.useEffect(() => {
+    const navEl = desktopNavRef.current;
+    if (!navEl) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      measureDesktopIndicator();
+    });
+    resizeObserver.observe(navEl);
+
+    const onWindowResize = () => {
+      measureDesktopIndicator();
+    };
+    window.addEventListener("resize", onWindowResize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", onWindowResize);
+    };
+  }, [measureDesktopIndicator]);
+
+  React.useEffect(() => {
+    if (!desktopHydratedRef.current) {
+      desktopHydratedRef.current = true;
+      desktopIndexRef.current = activeIndex;
+      return;
+    }
+
+    const previousIndex = desktopIndexRef.current;
+    if (previousIndex === activeIndex) return;
+
+    setPreviousDesktopIndex(previousIndex);
+    setDesktopDirection(activeIndex > previousIndex ? "right" : "left");
+    desktopIndexRef.current = activeIndex;
+
+    const timeoutId = window.setTimeout(() => {
+      setDesktopDirection(null);
+    }, 460);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeIndex]);
+
   function isActivePath(path: string) {
     return path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
   }
@@ -57,20 +132,74 @@ export default function Navbar() {
   return (
     <header
       className={cn(
-        "sticky top-4 z-50 mx-auto w-full max-w-7xl border-b border-transparent px-4 md:origin-top md:rounded-xl md:border md:transition-all md:duration-300 md:ease-out lg:px-8",
-        scrolled && !open
-          ? "bg-background/95 supports-[backdrop-filter]:bg-background/50 border-border backdrop-blur-lg md:max-w-6xl md:scale-[0.985] md:rounded-2xl md:shadow"
-          : "",
-        open ? "bg-background/90" : "",
+        "ba-liquid-navbar-shell relative z-50 mx-auto mb-4 w-full max-w-7xl rounded-full border border-transparent px-4 md:sticky md:top-4 md:mb-6 md:origin-top md:transition-all md:duration-300 md:ease-out lg:px-8",
+        showFramedShell ? "ba-liquid-navbar-shell-scrolled" : "ba-liquid-navbar-shell-top",
+        scrolled && !open ? "md:max-w-6xl md:scale-[0.985]" : "",
+        open ? "ba-liquid-navbar-shell-open" : "",
       )}
     >
+      <svg className="ba-liquid-nav-filter-defs" aria-hidden="true" focusable="false">
+        <defs>
+          <filter
+            id="ba-navbar-glass-filter"
+            x="0%"
+            y="0%"
+            width="100%"
+            height="100%"
+            colorInterpolationFilters="sRGB"
+          >
+            <feImage
+              result="map"
+              width="100%"
+              height="100%"
+              x="0"
+              y="0"
+              preserveAspectRatio="none"
+              href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='rgb(110,128,128)'/%3E%3Cstop offset='50%25' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='100%25' stop-color='rgb(146,128,128)'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g)'/%3E%3C/svg%3E"
+            />
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="map"
+              scale="22"
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
+
+          <filter
+            id="ba-navbar-glass-filter-edge"
+            x="0%"
+            y="0%"
+            width="100%"
+            height="100%"
+            colorInterpolationFilters="sRGB"
+          >
+            <feImage
+              result="mapEdge"
+              width="100%"
+              height="100%"
+              x="0"
+              y="0"
+              preserveAspectRatio="none"
+              href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='g2' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='rgb(95,128,128)'/%3E%3Cstop offset='50%25' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='100%25' stop-color='rgb(161,128,128)'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g2)'/%3E%3C/svg%3E"
+            />
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="mapEdge"
+              scale="46"
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
+        </defs>
+      </svg>
+
       <nav
         className={cn(
-          "flex h-14 w-full items-center justify-between md:h-12 md:transition-all md:duration-300 md:ease-out",
-          scrolled ? "md:px-1" : "",
+          "ba-liquid-navbar-inner flex h-14 w-full items-center justify-between px-2 md:h-12 md:px-4 md:transition-all md:duration-300 md:ease-out lg:px-5",
         )}
       >
-        <Link to="/" onClick={closeMenu} className="flex items-center gap-2">
+        <Link to="/" onClick={closeMenu} className="flex items-center gap-2 pl-1 md:pl-2">
           <span
             className="text-xl font-bold tracking-tight"
             style={{ fontFamily: "var(--ba-font-display)", color: "#012169" }}
@@ -79,11 +208,34 @@ export default function Navbar() {
           </span>
         </Link>
 
-        <div className="ba-liquid-desktop-nav hidden items-center gap-1 md:flex">
-          {navItems.map((item) => (
+        <div
+          ref={desktopNavRef}
+          className="ba-liquid-desktop-nav hidden items-center gap-1 md:flex"
+          data-current={activeIndex + 1}
+          data-previous={previousDesktopIndex !== null ? previousDesktopIndex + 1 : undefined}
+          data-direction={desktopDirection ?? undefined}
+        >
+          <span
+            className={cn(
+              "ba-liquid-desktop-indicator",
+              desktopIndicator.ready ? "ba-liquid-desktop-indicator-ready" : "",
+            )}
+            style={
+              {
+                "--ba-nav-left": `${desktopIndicator.left}px`,
+                "--ba-nav-width": `${desktopIndicator.width}px`,
+              } as React.CSSProperties
+            }
+            aria-hidden="true"
+          />
+          {navItems.map((item, index) => (
             <Link
               key={item.path}
               to={item.path}
+              ref={(el) => {
+                desktopLinkRefs.current[index] = el;
+              }}
+              data-c-option={index + 1}
               className={cn(
                 "ba-liquid-desktop-link",
                 isActivePath(item.path) ? "ba-liquid-desktop-link-active" : "",
@@ -94,7 +246,7 @@ export default function Navbar() {
           ))}
         </div>
 
-        <div className="hidden items-center gap-2 md:flex">
+        <div className="hidden items-center gap-2 pr-1 md:flex md:pr-2">
           {user ? (
             <>
               <Button asChild variant="outline" className="ba-liquid-desktop-auth">

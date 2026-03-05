@@ -312,7 +312,7 @@ export default function Catalog() {
   );
 
   return (
-    <div className="flex min-h-[calc(100dvh-4rem)]" data-tour-id="catalog-search-filters">
+    <div className="flex min-h-[calc(100dvh-4rem)] pt-2 md:pt-3" data-tour-id="catalog-search-filters">
       <Sidebar>
         <CourseFilters
           filters={filters}

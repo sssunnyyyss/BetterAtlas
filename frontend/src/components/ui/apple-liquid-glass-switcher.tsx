@@ -75,8 +75,8 @@ export function ThemeSwitcher({
 }: ThemeSwitcherProps) {
   const [internalValue, setInternalValue] = useState(defaultValue);
   const [previousOption, setPreviousOption] = useState<string | null>(
-    themeOptions.find((opt) => opt.value === (value ?? internalValue))
-      ?.cOption || null
+    themeOptions.find((opt) => opt.value === (value ?? defaultValue))
+      ?.cOption ?? null
   );
 
   const activeValue = value ?? internalValue;
@@ -88,10 +88,8 @@ export function ThemeSwitcher({
   }, [value]);
 
   const handleChange = (newValue: Theme) => {
-    const currentOption = themeOptions.find(
-      (opt) => opt.value === activeValue
-    )?.cOption;
-    setPreviousOption(currentOption || null);
+    const currentOption = themeOptions.find((opt) => opt.value === activeValue)?.cOption;
+    setPreviousOption(currentOption ?? null);
 
     if (onValueChange) {
       onValueChange(newValue);
@@ -103,9 +101,7 @@ export function ThemeSwitcher({
   return (
     <fieldset
       className="switcher"
-      data-previous={
-        themeOptions.find((o) => o.value === activeValue)?.cOption
-      }
+      data-previous={previousOption ?? undefined}
     >
       <legend className="switcher__legend">Choose theme</legend>
 

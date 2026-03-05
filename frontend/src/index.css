@@ -229,91 +229,257 @@ h6 {
 }
 
 /* Desktop nav "liquid glass" treatment */
-.ba-liquid-desktop-nav {
-  padding: 0.2rem;
-  border: 1px solid rgba(255, 255, 255, 0.65);
-  border-radius: 999px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.86), rgba(222, 234, 255, 0.52));
+.ba-liquid-nav-filter-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ba-liquid-navbar-shell {
+  position: relative;
+  border-color: transparent !important;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 9999px;
+}
+
+.ba-liquid-navbar-shell::before {
+  content: none;
+}
+
+.ba-liquid-navbar-shell-open {
+  box-shadow: none;
+}
+
+.ba-liquid-navbar-inner {
+  position: relative;
+  z-index: 1;
+  border-radius: inherit;
+  border: 1px solid transparent;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01));
+  box-shadow: none;
+  backdrop-filter: url("#ba-navbar-glass-filter") blur(0.75px) saturate(106%) contrast(104%);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter") blur(0.75px) saturate(106%) contrast(104%);
+  overflow: hidden;
+  isolation: isolate;
+  transition:
+    border-color 260ms ease,
+    background 260ms ease,
+    box-shadow 260ms ease;
+}
+
+.ba-liquid-navbar-shell-top .ba-liquid-navbar-inner {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.ba-liquid-navbar-shell-top .ba-liquid-navbar-inner::before,
+.ba-liquid-navbar-shell-top .ba-liquid-navbar-inner::after {
+  opacity: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.ba-liquid-navbar-shell-scrolled .ba-liquid-navbar-inner {
+  border-color: rgba(255, 255, 255, 0.34);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.022));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 10px 24px rgba(0, 33, 105, 0.12);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
+    inset 0 1px 0 rgba(255, 255, 255, 0.44),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.12),
+    0 8px 22px rgba(15, 23, 42, 0.08);
+}
+
+.ba-liquid-navbar-inner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  backdrop-filter: url("#ba-navbar-glass-filter") blur(0.3px) saturate(112%) brightness(1.05);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter") blur(0.3px) saturate(112%) brightness(1.05);
+  -webkit-mask: radial-gradient(120% 95% at 50% 50%, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.9) 32%, rgba(0, 0, 0, 0) 65%);
+  mask: radial-gradient(120% 95% at 50% 50%, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.9) 32%, rgba(0, 0, 0, 0) 65%);
+}
+
+.ba-liquid-navbar-inner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  backdrop-filter: url("#ba-navbar-glass-filter-edge") blur(1px) saturate(106%);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter-edge") blur(1px) saturate(106%);
+  -webkit-mask: radial-gradient(125% 100% at 50% 50%, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0.86) 64%, rgba(0, 0, 0, 1) 100%);
+  mask: radial-gradient(125% 100% at 50% 50%, rgba(0, 0, 0, 0) 30%, rgba(0, 0, 0, 0.86) 64%, rgba(0, 0, 0, 1) 100%);
+}
+
+.ba-liquid-navbar-inner > * {
+  position: relative;
+  z-index: 1;
+}
+
+.ba-liquid-desktop-nav {
+  position: relative;
+  padding: 0.2rem 0;
+}
+
+.ba-liquid-desktop-nav::before {
+  content: none;
+}
+
+.ba-liquid-desktop-indicator {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  width: var(--ba-nav-width, 0px);
+  border-radius: 999px;
+  transform: translateX(var(--ba-nav-left, 0px));
+  transition:
+    transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    width 420ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 180ms ease;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ba-liquid-desktop-indicator::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.16));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.18),
+    0 8px 18px rgba(15, 23, 42, 0.14);
+  backdrop-filter: url("#ba-navbar-glass-filter") blur(0.8px) saturate(112%);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter") blur(0.8px) saturate(112%);
+}
+
+.ba-liquid-desktop-indicator-ready {
+  opacity: 1;
+}
+
+.ba-liquid-desktop-nav[data-direction="right"] .ba-liquid-desktop-indicator::before {
+  transform-origin: left center;
+  animation: ba-liquid-indicator-stretch 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.ba-liquid-desktop-nav[data-direction="left"] .ba-liquid-desktop-indicator::before {
+  transform-origin: right center;
+  animation: ba-liquid-indicator-stretch 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes ba-liquid-indicator-stretch {
+  0% {
+    transform: scaleX(1);
+  }
+  38% {
+    transform: scaleX(1.08);
+  }
+  100% {
+    transform: scaleX(1);
+  }
 }
 
 .ba-liquid-desktop-link {
   position: relative;
+  z-index: 1;
   border-radius: 999px;
-  color: #334155;
+  color: #0f172a;
   font-size: 0.86rem;
   font-weight: 600;
   line-height: 1;
   padding: 0.58rem 0.88rem;
   transition:
     transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
-    background 220ms cubic-bezier(0.22, 1, 0.36, 1),
     color 220ms ease,
-    box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1);
+    text-shadow 220ms ease;
 }
 
 .ba-liquid-desktop-link:hover {
-  color: #0f172a;
+  color: #020617;
   transform: translateY(-1px);
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.7), rgba(225, 235, 251, 0.55));
 }
 
 .ba-liquid-desktop-link-active {
-  color: #00153f;
-  background: linear-gradient(150deg, rgba(222, 233, 255, 0.95), rgba(206, 223, 252, 0.74));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    0 7px 16px rgba(1, 33, 105, 0.18);
+  color: #020617;
+  text-shadow: 0 1px 4px rgba(255, 255, 255, 0.3);
 }
 
 .ba-liquid-desktop-auth {
   border-radius: 999px !important;
-  border-color: rgba(255, 255, 255, 0.58) !important;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.9), rgba(229, 237, 252, 0.58)) !important;
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.07)) !important;
   color: #0f172a !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.74),
-    0 8px 20px rgba(15, 23, 42, 0.12) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.14) !important;
+  backdrop-filter: url("#ba-navbar-glass-filter") blur(0.7px) saturate(110%);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter") blur(0.7px) saturate(110%);
   transition:
-    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 220ms cubic-bezier(0.22, 1, 0.36, 1),
     background 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .ba-liquid-desktop-auth:hover {
-  transform: translateY(-1px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.78),
-    0 10px 22px rgba(15, 23, 42, 0.16) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.52),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.2) !important;
 }
 
 .ba-liquid-desktop-auth-primary {
-  border-color: rgba(255, 255, 255, 0.42) !important;
-  background: linear-gradient(150deg, #012169, #0d3f9f) !important;
-  color: #fff !important;
+  border-color: rgba(255, 255, 255, 0.45) !important;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1)) !important;
+  color: #020617 !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.16),
-    0 12px 24px rgba(1, 33, 105, 0.28) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.52),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.16) !important;
 }
 
 .ba-liquid-desktop-auth-primary:hover {
-  background: linear-gradient(150deg, #0a2f79, #1952bf) !important;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.14)) !important;
+}
+
+.ba-liquid-navbar-shell-top .ba-liquid-desktop-auth,
+.ba-liquid-navbar-shell-top .ba-liquid-desktop-auth:hover,
+.ba-liquid-navbar-shell-top .ba-liquid-desktop-auth-primary,
+.ba-liquid-navbar-shell-top .ba-liquid-desktop-auth-primary:hover {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.ba-liquid-navbar-shell-top .ba-liquid-desktop-indicator,
+.ba-liquid-navbar-shell-top .ba-liquid-desktop-indicator::before {
+  opacity: 0 !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* Mobile menu "liquid glass" treatment */
 .ba-liquid-toggle {
   border-radius: 999px !important;
-  border-color: rgba(255, 255, 255, 0.6) !important;
-  background: linear-gradient(140deg, rgba(255, 255, 255, 0.9), rgba(225, 235, 255, 0.52)) !important;
+  border-color: rgba(255, 255, 255, 0.38) !important;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.1)) !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 10px 24px rgba(0, 33, 105, 0.2);
-  backdrop-filter: blur(14px) saturate(165%);
-  -webkit-backdrop-filter: blur(14px) saturate(165%);
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    0 10px 24px rgba(15, 23, 42, 0.12);
+  backdrop-filter: url("#ba-navbar-glass-filter") blur(0.7px) saturate(110%);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter") blur(0.7px) saturate(110%);
   transition:
     transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 240ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -323,15 +489,25 @@ h6 {
 .ba-liquid-toggle:hover {
   transform: translateY(-1px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.85),
-    0 14px 30px rgba(0, 33, 105, 0.24);
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 14px 30px rgba(15, 23, 42, 0.16);
 }
 
 .ba-liquid-toggle[data-state="open"] {
   transform: translateY(-1px) scale(1.02);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.9),
-    0 15px 34px rgba(0, 33, 105, 0.28);
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 15px 34px rgba(15, 23, 42, 0.2);
+}
+
+.ba-liquid-navbar-shell-top .ba-liquid-toggle,
+.ba-liquid-navbar-shell-top .ba-liquid-toggle:hover,
+.ba-liquid-navbar-shell-top .ba-liquid-toggle[data-state="open"] {
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .ba-liquid-icon {
@@ -368,11 +544,11 @@ h6 {
 
 .ba-liquid-menu-shell {
   background:
-    radial-gradient(100% 80% at 50% -10%, rgba(209, 224, 255, 0.64) 0%, rgba(209, 224, 255, 0) 70%),
-    linear-gradient(180deg, rgba(241, 246, 255, 0.68) 0%, rgba(235, 241, 251, 0.5) 100%);
+    radial-gradient(100% 80% at 50% -10%, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 70%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14) 0%, rgba(255, 255, 255, 0.08) 100%);
   border-top: 1px solid rgba(255, 255, 255, 0.5);
-  backdrop-filter: blur(10px) saturate(140%);
-  -webkit-backdrop-filter: blur(10px) saturate(140%);
+  backdrop-filter: url("#ba-navbar-glass-filter") blur(0.9px) saturate(110%);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter") blur(0.9px) saturate(110%);
   transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -388,10 +564,12 @@ h6 {
 
 .ba-liquid-menu-panel {
   border-top: 1px solid rgba(255, 255, 255, 0.66);
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.88), rgba(227, 236, 251, 0.62));
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.1));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 -10px 28px rgba(0, 33, 105, 0.12);
+    inset 0 1px 0 rgba(255, 255, 255, 0.44),
+    0 -10px 28px rgba(15, 23, 42, 0.1);
+  backdrop-filter: url("#ba-navbar-glass-filter") blur(0.9px) saturate(110%);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter") blur(0.9px) saturate(110%);
   transform-origin: top center;
   transition:
     transform 360ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -415,15 +593,17 @@ h6 {
   width: 100%;
   min-height: 2.65rem;
   border-radius: 0.9rem;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  background: linear-gradient(155deg, rgba(255, 255, 255, 0.88), rgba(229, 236, 251, 0.56));
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.1));
   color: #0f172a;
   font-size: 0.95rem;
   font-weight: 600;
   padding: 0.65rem 0.85rem;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
     0 8px 18px rgba(15, 23, 42, 0.08);
+  backdrop-filter: url("#ba-navbar-glass-filter") blur(0.6px) saturate(108%);
+  -webkit-backdrop-filter: url("#ba-navbar-glass-filter") blur(0.6px) saturate(108%);
   transition:
     transform 220ms ease,
     border-color 220ms ease,
@@ -436,20 +616,20 @@ h6 {
 }
 
 .ba-liquid-menu-link:hover {
-  border-color: rgba(1, 33, 105, 0.25);
+  border-color: rgba(255, 255, 255, 0.52);
   transform: translateY(-1px);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.75),
-    0 10px 20px rgba(0, 33, 105, 0.14);
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    0 10px 20px rgba(15, 23, 42, 0.12);
 }
 
 .ba-liquid-menu-link-active {
-  color: #00153f;
-  border-color: rgba(1, 33, 105, 0.35);
-  background: linear-gradient(160deg, rgba(221, 233, 255, 0.95), rgba(207, 223, 250, 0.72));
+  color: #020617;
+  border-color: rgba(255, 255, 255, 0.54);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.14));
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 8px 20px rgba(1, 33, 105, 0.19);
+    inset 0 1px 0 rgba(255, 255, 255, 0.48),
+    0 8px 20px rgba(15, 23, 42, 0.14);
 }
 
 .ba-liquid-menu-action {
@@ -457,17 +637,17 @@ h6 {
 }
 
 .ba-liquid-menu-action-primary {
-  border-color: rgba(255, 255, 255, 0.4) !important;
-  background: linear-gradient(155deg, #012169, #0c3d9f) !important;
-  color: #fff !important;
+  border-color: rgba(255, 255, 255, 0.5) !important;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0.14)) !important;
+  color: #020617 !important;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.18),
-    0 12px 24px rgba(1, 33, 105, 0.32) !important;
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 12px 24px rgba(15, 23, 42, 0.14) !important;
 }
 
 .ba-liquid-menu-action-primary:hover {
-  border-color: rgba(255, 255, 255, 0.5) !important;
-  background: linear-gradient(155deg, #0b2f7a, #1750be) !important;
+  border-color: rgba(255, 255, 255, 0.58) !important;
+  background: linear-gradient(155deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.18)) !important;
 }
 
 .ba-liquid-menu-panel-open .ba-liquid-menu-link {
@@ -507,6 +687,8 @@ h6 {
   }
 
   .ba-liquid-toggle,
+  .ba-liquid-desktop-indicator,
+  .ba-liquid-desktop-indicator::before,
   .ba-liquid-desktop-link,
   .ba-liquid-desktop-auth,
   .ba-liquid-icon,
@@ -518,6 +700,11 @@ h6 {
   }
 
   .ba-liquid-menu-panel-open .ba-liquid-menu-link {
+    animation: none !important;
+  }
+
+  .ba-liquid-desktop-nav[data-direction="right"] .ba-liquid-desktop-indicator::before,
+  .ba-liquid-desktop-nav[data-direction="left"] .ba-liquid-desktop-indicator::before {
     animation: none !important;
   }
 }

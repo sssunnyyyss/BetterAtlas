@@ -10,13 +10,13 @@
 .home-root {
   position: relative;
   min-height: 100vh;
-  margin-top: -4rem;
-  padding-top: 4rem;
+  margin-top: -4.5rem;
+  padding-top: 4.5rem;
   color: var(--home-ink);
 }
 
 .home-main {
-  min-height: 100vh;
+  min-height: calc(100vh - 4rem);
   display: flex;
   flex-direction: column;
 }
@@ -26,21 +26,23 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding-top: clamp(26px, 7vh, 90px);
-  padding-bottom: clamp(18px, 4vh, 54px);
+  padding-top: clamp(4px, 1.5vh, 16px);
+  padding-bottom: clamp(10px, 2vh, 24px);
 }
 
 /* Emory-toned gradient: warm cream → gold shimmer → blue shimmer → off-white */
 .home-bg {
-  position: absolute;
-  inset: 0;
   z-index: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(900px 520px at 20% 18%, rgba(232, 213, 133, 0.45), transparent 60%),
-    radial-gradient(820px 520px at 78% 26%, rgba(99, 132, 198, 0.38), transparent 62%),
-    radial-gradient(900px 620px at 58% 86%, rgba(235, 232, 215, 0.60), transparent 62%),
-    linear-gradient(180deg, #ffffff 0%, #ffffff 55%, #fcfcfc 100%);
+  background: linear-gradient(180deg, #ffffff 0%, #ffffff 55%, #fcfcfc 100%);
+}
+
+@keyframes ba-aurora {
+  from {
+    background-position: 50% 50%, 50% 50%;
+  }
+  to {
+    background-position: 350% 50%, 350% 50%;
+  }
 }
 
 .home-kicker {

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Typewriter } from "../components/ui/typewriter.js";
+import { AuroraBackground } from "../components/ui/aurora-background.js";
 import "./Home.css";
 
 const HOME_TYPEWRITER_TEXT = [
@@ -27,11 +28,11 @@ export default function Home() {
 
   return (
     <div className="home-root">
-      <div className="home-bg" aria-hidden="true" />
+      <AuroraBackground className="home-bg" />
 
       <main className="relative home-main">
         <section className="home-hero mx-auto max-w-5xl px-5 sm:px-8 text-center">
-          <div className="home-kicker">Beta 1.0.0 release!</div>
+          <div className="home-kicker">Beta release</div>
 
           <h1 className="home-title">
             <span className="home-titleStatic">Welcome to </span>
