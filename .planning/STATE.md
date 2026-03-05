@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
-status: defining_requirements
-last_updated: "2026-03-05T21:00:00Z"
+status: ready_for_phase_planning
+last_updated: "2026-03-05T22:30:00Z"
 progress:
-  total_phases: 0
+  total_phases: 5
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -18,14 +18,14 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 requirements and roadmap definition.
+**Current focus:** Milestone v1.2 phase execution starting with phase 5 planning.
 
 ## Current Position
 
-Phase: Not started (defining requirements)
-Plan: —
-Status: Defining requirements
-Last activity: 2026-03-05 - Milestone v1.2 started
+Phase: 5 - Intent Routing and Conversation Cadence (ready)
+Plan: Not started
+Status: Ready for phase 5 planning
+Last activity: 2026-03-05 - v1.2 roadmap created with 100% requirement mapping
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -41,6 +41,8 @@ Progress: [░░░░░░░░░░] 0%
 ### Decisions
 
 - [Milestone v1.2 kickoff]: Focus AI chat on conversational quality with context-aware recommendation cadence and strict Atlas-grounded suggestions.
+- [Milestone v1.2 roadmap]: Sequence milestone into phases 5-9 (intent routing, grounding safety, retrieval/ranking calibration, memory reliability, observability/regression gates).
+- [Milestone v1.2 roadmap]: Map all 18 v1.2 requirements one-to-one to exactly one phase with no cross-phase duplication.
 - Phase 1 prioritized toggle correctness over broad UI redesign.
 - [Phase 01-program-and-major-toggle-accuracy]: Use trimmed/lowercased strict name matching first, with normalized fallback only when strict candidates cannot provide both kinds.
 - [Phase 01-program-and-major-toggle-accuracy]: Rank variant candidates by exact degree affinity before lexical/id tie-breakers.
@@ -68,7 +70,7 @@ Progress: [░░░░░░░░░░] 0%
 
 ### Pending Todos
 
-- Define v1.2 requirements and approve roadmap phases.
+- Create detailed phase plans for phase 5 and begin execution.
 
 ### Blockers/Concerns
 
@@ -77,5 +79,5 @@ Progress: [░░░░░░░░░░] 0%
 ## Session Continuity
 
 Last session: 2026-03-03
-Stopped at: Milestone v1.2 kickoff; requirements in definition
+Stopped at: Milestone v1.2 roadmap complete; phase 5 ready to plan
 Resume file: None

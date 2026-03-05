@@ -65,30 +65,35 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| AIINT-01 | Phase TBD | Pending |
-| AIINT-02 | Phase TBD | Pending |
-| AIINT-03 | Phase TBD | Pending |
-| AIINT-04 | Phase TBD | Pending |
-| AIGRD-01 | Phase TBD | Pending |
-| AIGRD-02 | Phase TBD | Pending |
-| AIGRD-03 | Phase TBD | Pending |
-| AIGRD-04 | Phase TBD | Pending |
-| AIREL-01 | Phase TBD | Pending |
-| AIREL-02 | Phase TBD | Pending |
-| AIREL-03 | Phase TBD | Pending |
-| AIREL-04 | Phase TBD | Pending |
-| AIMEM-01 | Phase TBD | Pending |
-| AIMEM-02 | Phase TBD | Pending |
-| AIMEM-03 | Phase TBD | Pending |
-| AIOPS-01 | Phase TBD | Pending |
-| AIOPS-02 | Phase TBD | Pending |
-| AIOPS-03 | Phase TBD | Pending |
+| AIINT-01 | Phase 5 | Mapped |
+| AIINT-02 | Phase 5 | Mapped |
+| AIINT-03 | Phase 5 | Mapped |
+| AIINT-04 | Phase 5 | Mapped |
+| AIGRD-01 | Phase 6 | Mapped |
+| AIGRD-02 | Phase 6 | Mapped |
+| AIGRD-03 | Phase 6 | Mapped |
+| AIGRD-04 | Phase 6 | Mapped |
+| AIREL-01 | Phase 7 | Mapped |
+| AIREL-02 | Phase 7 | Mapped |
+| AIREL-03 | Phase 7 | Mapped |
+| AIREL-04 | Phase 7 | Mapped |
+| AIMEM-01 | Phase 8 | Mapped |
+| AIMEM-02 | Phase 8 | Mapped |
+| AIMEM-03 | Phase 8 | Mapped |
+| AIOPS-01 | Phase 9 | Mapped |
+| AIOPS-02 | Phase 9 | Mapped |
+| AIOPS-03 | Phase 9 | Mapped |
 
 **Coverage:**
 - v1 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18
+- Unmapped: 0 ✓
+- Phase 5 coverage: 4 requirements
+- Phase 6 coverage: 4 requirements
+- Phase 7 coverage: 4 requirements
+- Phase 8 coverage: 3 requirements
+- Phase 9 coverage: 3 requirements
 
 ---
 *Requirements defined: 2026-03-05*
-*Last updated: 2026-03-05 after milestone v1.2 definition*
+*Last updated: 2026-03-05 after milestone v1.2 roadmap mapping*
