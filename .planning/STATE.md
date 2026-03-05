@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: phase_execution_in_progress
-last_updated: "2026-03-05T22:36:32Z"
+last_updated: "2026-03-05T22:44:03Z"
 progress:
   total_phases: 5
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -23,16 +23,16 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 5 - Intent Routing and Conversation Cadence (in progress)
-Plan: 01 complete, next 02
+Plan: 02 complete, next 03
 Status: Executing phase 5 plans
-Last activity: 2026-03-05 - completed 05-01 deterministic intent router contracts/tests (AIINT-03)
+Last activity: 2026-03-05 - completed 05-02 intent cadence route branching + clarify-first behavior (AIINT-01, AIINT-02)
 
-Progress: [█░░░░░░░░░] 7%
+Progress: [██░░░░░░░░] 13%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
+- Total plans completed: 13
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
 
@@ -46,6 +46,9 @@ Progress: [█░░░░░░░░░] 7%
 - [Plan 05-01 intent routing]: Establish explicit `IntentMode` contract (`conversation` | `clarify` | `recommend`) with deterministic rule ordering.
 - [Plan 05-01 intent routing]: Normalize prompt variants (case, punctuation, spacing) before signal extraction to prevent mode drift.
 - [Plan 05-01 intent routing]: Protect course-code detection from semester/year false positives (e.g., "Fall 2026").
+- [Plan 05-02 cadence routing]: Route-level behavior now branches strictly by `decision.mode` (`conversation`, `clarify`, `recommend`) before any retrieval work.
+- [Plan 05-02 cadence routing]: Ambiguous recommendation asks return deterministic clarify-first assistant text with a single non-null follow-up question and zero recommendations.
+- [Plan 05-02 cadence routing]: Non-production debug payloads now expose `intentMode`, `intentReason`, and `retrievalSkipped` for branch verification.
 - Phase 1 prioritized toggle correctness over broad UI redesign.
 - [Phase 01-program-and-major-toggle-accuracy]: Use trimmed/lowercased strict name matching first, with normalized fallback only when strict candidates cannot provide both kinds.
 - [Phase 01-program-and-major-toggle-accuracy]: Rank variant candidates by exact degree affinity before lexical/id tie-breakers.
@@ -73,7 +76,6 @@ Progress: [█░░░░░░░░░] 7%
 
 ### Pending Todos
 
-- Execute Phase 5 Plan 02 (route intent cadence branching).
 - Execute Phase 5 Plan 03 (intent-route integration and safeguards).
 
 ### Blockers/Concerns
@@ -83,5 +85,5 @@ Progress: [█░░░░░░░░░] 7%
 ## Session Continuity
 
 Last session: 2026-03-05
-Stopped at: Completed 05-01-PLAN.md
-Resume file: .planning/phases/05-intent-routing-and-conversation-cadence/05-02-PLAN.md
+Stopped at: Completed 05-02-PLAN.md
+Resume file: .planning/phases/05-intent-routing-and-conversation-cadence/05-03-PLAN.md
