@@ -1101,33 +1101,33 @@ router.post(
       }
 
       let searchCoursesRaw: CourseWithRatings[] = [];
-      if (searchTerms.length > 0) {
-        // 1) Try a single "combined" query first (cheap and often good enough).
-        const primary = await searchCourses({
-          q: searchTerms.join(" "),
-          page: 1,
-          limit: 24,
-          ...activeFilters,
-        });
-        searchCoursesRaw = primary.data ?? [];
+      // Recommend mode must always execute lexical retrieval, even when derived terms are empty.
+      const lexicalQuery = searchTerms.length > 0 ? searchTerms.join(" ") : candidateQuery || "course";
+      // 1) Try a single "combined" query first (cheap and often good enough).
+      const primary = await searchCourses({
+        q: lexicalQuery,
+        page: 1,
+        limit: 24,
+        ...activeFilters,
+      });
+      searchCoursesRaw = primary.data ?? [];
 
-        // 2) If that was too strict (common with AND semantics), broaden by searching per-keyword.
-        if (searchCoursesRaw.length < 18 && searchTerms.length > 1) {
-          const perTerm = await Promise.all(
-            searchTerms.map((t) =>
-              searchCourses({
-                q: t,
-                page: 1,
-                limit: 12,
-                ...activeFilters,
-              })
-            )
-          );
-          searchCoursesRaw = [
-            ...searchCoursesRaw,
-            ...perTerm.flatMap((r) => r.data ?? []),
-          ];
-        }
+      // 2) If that was too strict (common with AND semantics), broaden by searching per-keyword.
+      if (searchCoursesRaw.length < 18 && searchTerms.length > 1) {
+        const perTerm = await Promise.all(
+          searchTerms.map((t) =>
+            searchCourses({
+              q: t,
+              page: 1,
+              limit: 12,
+              ...activeFilters,
+            })
+          )
+        );
+        searchCoursesRaw = [
+          ...searchCoursesRaw,
+          ...perTerm.flatMap((r) => r.data ?? []),
+        ];
       }
       const searchUnique = Array.from(dedupeCourses(searchCoursesRaw).values());
       const retrievalEnvelope = buildRetrievalEnvelope({
