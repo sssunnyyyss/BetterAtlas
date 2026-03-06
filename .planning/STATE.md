@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: in_phase_execution
-last_updated: "2026-03-06T18:29:07Z"
+last_updated: "2026-03-06T19:18:17Z"
 progress:
-  total_phases: 5
-  completed_phases: 2
-  total_plans: 7
-  completed_plans: 7
+  total_phases: 7
+  completed_phases: 6
+  total_plans: 21
+  completed_plans: 20
 ---
 
 # Project State
@@ -22,12 +22,12 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 
 ## Current Position
 
-Phase: 7 - Retrieval and Ranking Relevance Calibration (ready)
-Plan: Phase 6 complete (04/04)
-Status: Ready to plan/execute 07-01
-Last activity: 2026-03-06 - completed 06-04 grounding/title-mention strictness + fail-closed hard-filter gap closure (AIGRD-01, AIGRD-04)
+Phase: 7 - Retrieval and Ranking Relevance Calibration (in progress)
+Plan: 07-01 complete (02/03 summaries)
+Status: Continue phase 7 execution (remaining plans: 07-03)
+Last activity: 2026-03-06 - completed 07-01 retrieval mode + relevance sufficiency policy contracts/tests (AIREL-01, AIREL-04)
 
-Progress: [██████░░░░] 40%
+Progress: [█████████░] 95%
 
 ## Performance Metrics
 
@@ -35,6 +35,7 @@ Progress: [██████░░░░] 40%
 - Total plans completed: 19
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
+- Latest execution: Plan 07-01 in 6 min (3 tasks, 4 files)
 
 ## Accumulated Context
 
@@ -88,10 +89,14 @@ Progress: [██████░░░░] 40%
 - [Plan 04-01 recommendation cards]: Split recommendation UI into dedicated card/disclosure primitives with scan-first hierarchy and explicit detail CTA.
 - [Plan 04-02 accessibility hardening]: Standardize keyboard focus affordances via shared chat focus-ring semantics and enforce reduced-motion parity in interactive disclosures.
 - [Plan 04-03 performance hardening]: Memoize recommendation rendering paths and add render-count regression tests to prevent request-state-only rerender churn.
+- [Phase 07]: Cap preference contribution at +/-2.0 and trainer contribution at +/-1.0 in ranking policy.
+- [Phase 07]: Enforce department diversity at final recommendation selection and only relax caps for explicit concentration intent/filters.
+- [Phase 07]: Represent recommendation retrieval with explicit retrieval modes (lexical_only/hybrid/hybrid_degraded) and semantic attempt/availability accounting.
+- [Phase 07]: Gate recommendation output on deterministic top-k base relevance plus matched-term coverage; return refine guidance with empty recommendations when insufficient.
 
 ### Pending Todos
 
-- Start phase 7 planning/execution for hybrid retrieval and ranking relevance calibration requirements (AIREL-01..04).
+- Complete remaining Phase 7 plan and summary: 07-03.
 
 ### Blockers/Concerns
 
@@ -100,5 +105,5 @@ Progress: [██████░░░░] 40%
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 06-04-PLAN.md
+Stopped at: Completed 07-01-PLAN.md
 Resume file: None

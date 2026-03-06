@@ -23,10 +23,10 @@ Requirements for milestone v1.2. Each requirement must map to exactly one roadma
 
 ### Retrieval and Ranking Relevance
 
-- [ ] **AIREL-01**: User recommendation requests use a hybrid retrieval path (lexical + semantic when available) that improves match quality for natural-language prompts.
-- [ ] **AIREL-02**: User receives recommendations ranked with bounded preference signals (liked/disliked examples) and trainer quality signals.
-- [ ] **AIREL-03**: User recommendation lists maintain department diversity unless the request or filters clearly demand concentration.
-- [ ] **AIREL-04**: User receives refinement guidance instead of low-quality forced recommendations when relevant candidates are insufficient.
+- [x] **AIREL-01**: User recommendation requests use a hybrid retrieval path (lexical + semantic when available) that improves match quality for natural-language prompts.
+- [x] **AIREL-02**: User receives recommendations ranked with bounded preference signals (liked/disliked examples) and trainer quality signals.
+- [x] **AIREL-03**: User recommendation lists maintain department diversity unless the request or filters clearly demand concentration.
+- [x] **AIREL-04**: User receives refinement guidance instead of low-quality forced recommendations when relevant candidates are insufficient.
 
 ### Memory and Multi-Turn Context Reliability
 
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-05*
-*Last updated: 2026-03-06 after completing Phase 6 Plan 04*
+*Last updated: 2026-03-06 after completing Phase 7 Plan 02*
