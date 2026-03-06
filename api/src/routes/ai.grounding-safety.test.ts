@@ -100,6 +100,10 @@ function buildPageResult(data: CourseWithRatings[]) {
   };
 }
 
+function withCourseMetadata(course: CourseWithRatings, metadata: Record<string, unknown>) {
+  return Object.assign({}, course, metadata) as CourseWithRatings;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 
@@ -244,6 +248,32 @@ describe("POST /ai/course-recommendations grounding safety", () => {
     expect(body.debug.safeFallbackUsed).toBe(true);
   });
 
+  it("fails closed when assistant references an unknown title-only course mention", async () => {
+    vi.mocked(openAiChatJson).mockResolvedValueOnce({
+      raw: JSON.stringify({
+        assistant_message: "You should take Quantum Basket Weaving next semester.",
+        follow_up_question: null,
+      }),
+      parsed: {
+        assistant_message: "You should take Quantum Basket Weaving next semester.",
+        follow_up_question: null,
+      },
+    });
+
+    const safeFallback = buildSafeGroundingFallback();
+    const { status, body } = await postRecommendation({
+      body: { prompt: "Recommend 3 easy HA classes for Fall 2026." },
+    });
+
+    expect(status).toBe(200);
+    expect(body.assistantMessage).toBe(safeFallback.assistantMessage);
+    expect(body.followUpQuestion).toBe(safeFallback.followUpQuestion);
+    expect(body.recommendations).toEqual([]);
+    expect(body.debug.groundingStatus).toBe("failed");
+    expect(body.debug.groundingViolationCount).toBeGreaterThan(0);
+    expect(body.debug.safeFallbackUsed).toBe(true);
+  });
+
   it("keeps excluded course IDs blocked across sequential calls for the same user", async () => {
     vi.mocked(openAiChatJson)
       .mockResolvedValueOnce({
@@ -320,6 +350,170 @@ describe("POST /ai/course-recommendations grounding safety", () => {
     ).toBe(true);
     expect(body.debug.filterConstraintDroppedCount).toBeGreaterThan(0);
     expect(body.debug.safeFallbackUsed).toBe(false);
+  });
+
+  it("enforces semester/credits/attributes/instructor/campus/component/instruction hard filters, including missing metadata", async () => {
+    const scenarios: Array<{
+      name: string;
+      filters: Record<string, unknown>;
+      matching: CourseWithRatings;
+      missingMetadata: CourseWithRatings;
+    }> = [
+      {
+        name: "semester",
+        filters: { semester: "Fall 2026" },
+        matching: withCourseMetadata(
+          buildCourse({ id: 301, code: "HIST 301", title: "Public History Methods" }),
+          { semesters: ["Fall 2026"] }
+        ),
+        missingMetadata: buildCourse({
+          id: 302,
+          code: "HIST 302",
+          title: "Oral History Studio",
+        }),
+      },
+      {
+        name: "credits",
+        filters: { credits: 4 },
+        matching: buildCourse({ id: 311, code: "QTM 311", title: "Applied Modeling", credits: 4 }),
+        missingMetadata: buildCourse({
+          id: 312,
+          code: "QTM 312",
+          title: "Model Validation Lab",
+          credits: null,
+        }),
+      },
+      {
+        name: "attributes",
+        filters: { attributes: "HA" },
+        matching: buildCourse({ id: 321, code: "HIST 321", title: "Comparative Revolutions", gers: ["HA"] }),
+        missingMetadata: buildCourse({
+          id: 322,
+          code: "HIST 322",
+          title: "Historical Archives Practicum",
+          gers: [],
+        }),
+      },
+      {
+        name: "instructor",
+        filters: { instructor: "Jordan Miles" },
+        matching: buildCourse({
+          id: 331,
+          code: "HIST 331",
+          title: "Atlantic Networks",
+          instructors: ["Jordan Miles"],
+        }),
+        missingMetadata: buildCourse({
+          id: 332,
+          code: "HIST 332",
+          title: "Colonial Economies",
+          instructors: [],
+        }),
+      },
+      {
+        name: "campus",
+        filters: { campus: "Oxford" },
+        matching: buildCourse({ id: 341, code: "ENG 341", title: "Poetics Workshop", campuses: ["Oxford"] }),
+        missingMetadata: buildCourse({
+          id: 342,
+          code: "ENG 342",
+          title: "Literary Translation",
+          campuses: [],
+        }),
+      },
+      {
+        name: "componentType",
+        filters: { componentType: "lec" },
+        matching: withCourseMetadata(
+          buildCourse({ id: 351, code: "CS 351", title: "Systems Design" }),
+          { componentType: "LEC" }
+        ),
+        missingMetadata: buildCourse({
+          id: 352,
+          code: "CS 352",
+          title: "Distributed Services",
+        }),
+      },
+      {
+        name: "instructionMethod",
+        filters: { instructionMethod: "O" },
+        matching: withCourseMetadata(
+          buildCourse({ id: 361, code: "ECON 361", title: "Global Policy Analysis" }),
+          { instructionMethod: "DL" }
+        ),
+        missingMetadata: buildCourse({
+          id: 362,
+          code: "ECON 362",
+          title: "Public Economics",
+        }),
+      },
+    ];
+
+    for (const scenario of scenarios) {
+      const courses = [scenario.matching, scenario.missingMetadata];
+      vi.mocked(searchCourses).mockImplementation(async () => buildPageResult(courses) as any);
+      vi.mocked(listCourses).mockImplementation(async () => buildPageResult(courses) as any);
+      vi.mocked(openAiChatJson).mockResolvedValueOnce({
+        raw: JSON.stringify({
+          assistant_message: `Try ${scenario.matching.code} ${scenario.matching.title} and ${scenario.missingMetadata.code} ${scenario.missingMetadata.title}.`,
+          follow_up_question: null,
+        }),
+        parsed: {
+          assistant_message: `Try ${scenario.matching.code} ${scenario.matching.title} and ${scenario.missingMetadata.code} ${scenario.missingMetadata.title}.`,
+          follow_up_question: null,
+        },
+      });
+
+      const { status, body } = await postRecommendation({
+        body: {
+          prompt: `Recommend classes with ${scenario.name} constraints.`,
+          filters: scenario.filters,
+        },
+      });
+
+      expect(status).toBe(200);
+      expect(body.recommendations).toHaveLength(1);
+      expect(body.recommendations[0].course.id).toBe(scenario.matching.id);
+      expect(body.debug.filterConstraintDroppedCount).toBeGreaterThan(0);
+      expect(body.debug.safeFallbackUsed).toBe(false);
+    }
+  });
+
+  it("fails closed when active hard filters cannot be verified for any recommendation", async () => {
+    const courseWithoutComponentMetadata = buildCourse({
+      id: 470,
+      code: "PHIL 470",
+      title: "Justice and Society",
+    });
+
+    vi.mocked(searchCourses).mockImplementation(
+      async () => buildPageResult([courseWithoutComponentMetadata]) as any
+    );
+    vi.mocked(listCourses).mockImplementation(async () => buildPageResult([courseWithoutComponentMetadata]) as any);
+    vi.mocked(openAiChatJson).mockResolvedValueOnce({
+      raw: JSON.stringify({
+        assistant_message: "Try PHIL 470 Justice and Society.",
+        follow_up_question: null,
+      }),
+      parsed: {
+        assistant_message: "Try PHIL 470 Justice and Society.",
+        follow_up_question: null,
+      },
+    });
+
+    const safeFallback = buildSafeGroundingFallback();
+    const { status, body } = await postRecommendation({
+      body: {
+        prompt: "Recommend lecture courses in philosophy.",
+        filters: { componentType: "LEC" },
+      },
+    });
+
+    expect(status).toBe(200);
+    expect(body.assistantMessage).toBe(safeFallback.assistantMessage);
+    expect(body.recommendations).toEqual([]);
+    expect(body.debug.filterConstraintDroppedCount).toBeGreaterThan(0);
+    expect(body.debug.safeFallbackUsed).toBe(true);
   });
 
   it("applies the same safety gate when JSON-mode parsing falls back to openAiChat", async () => {
