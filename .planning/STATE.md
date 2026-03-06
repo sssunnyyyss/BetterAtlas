@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: in_phase_execution
-last_updated: "2026-03-06T19:36:54Z"
+last_updated: "2026-03-06T23:12:41Z"
 progress:
   total_phases: 7
   completed_phases: 7
-  total_plans: 21
-  completed_plans: 21
+  total_plans: 22
+  completed_plans: 22
 ---
 
 # Project State
@@ -23,19 +23,19 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 7 - Retrieval and Ranking Relevance Calibration (complete)
-Plan: 07-03 complete (03/03 summaries)
+Plan: 07-04 complete (04/04 summaries)
 Status: Phase 7 complete; ready to proceed to phase 8 planning/execution.
-Last activity: 2026-03-06 - completed 07-03 route integration for retrieval/ranking/diversity/sufficiency policies with route-level regressions (AIREL-01..04)
+Last activity: 2026-03-06 - completed 07-04 recommend-mode lexical fallback gap closure with empty-derived-term retrieval regression coverage (AIREL-01..04)
 
 Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21
+- Total plans completed: 22
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
-- Latest execution: Plan 07-03 in 8 min (3 tasks, 2 files)
+- Latest execution: Plan 07-04 in 2 min (2 tasks, 2 files)
 
 ## Accumulated Context
 
@@ -96,6 +96,9 @@ Progress: [██████████] 100%
 - [Phase 07]: Semantic retrieval failures are surfaced as hybrid_degraded telemetry while recommend requests continue on lexical candidates.
 - [Phase 07]: Recommendation ranking now uses bounded preference (+/-2) and trainer (+/-1) signals on top of base relevance.
 - [Phase 07]: Low-relevance candidate pools return deterministic refine guidance with recommendations: [] instead of weak forced cards.
+- [Plan 07-04 lexical fallback]: Recommend-mode lexical retrieval always executes a primary search call, using normalized prompt text when derived terms are empty.
+- [Plan 07-04 broadening policy]: Per-term lexical broadening remains gated to `searchTerms.length > 1` while preserving existing relevance calibration flow.
+- [Plan 07-04 regression lock]: Route-level relevance calibration tests now assert lexical invocation and lexical_only telemetry for empty-derived-term prompts.
 
 ### Pending Todos
 
@@ -108,5 +111,5 @@ Progress: [██████████] 100%
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 07-03-PLAN.md
+Stopped at: Completed 07-04-PLAN.md
 Resume file: None
