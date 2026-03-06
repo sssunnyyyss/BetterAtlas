@@ -72,6 +72,26 @@ describe("validateAssistantGrounding", () => {
     expect(result.matchedCandidateIds).toEqual([]);
   });
 
+  it("fails with unknown_mention for fabricated title-only course mentions", () => {
+    const candidates: CourseWithRatings[] = [
+      buildCourse({
+        id: 170,
+        code: "CS 170",
+        title: "Intro to Computer Science",
+      }),
+    ];
+
+    const result = validateAssistantGrounding({
+      assistantMessage: "You should take Quantum Basket Weaving next semester.",
+      candidates,
+      blockedCourseIds: new Set<number>(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.violations).toEqual([{ kind: "unknown_mention", text: "Quantum Basket Weaving" }]);
+    expect(result.matchedCandidateIds).toEqual([]);
+  });
+
   it("fails with blocked_mention when candidate mentions map to blocked ids", () => {
     const candidates: CourseWithRatings[] = [
       buildCourse({
@@ -123,5 +143,25 @@ describe("validateAssistantGrounding", () => {
       violations: [],
       matchedCandidateIds: [111, 170],
     });
+  });
+
+  it("does not classify generic recommendation phrasing as title-like mentions", () => {
+    const candidates: CourseWithRatings[] = [
+      buildCourse({
+        id: 170,
+        code: "CS 170",
+        title: "Intro to Computer Science",
+      }),
+    ];
+
+    const result = validateAssistantGrounding({
+      assistantMessage: "I can recommend options that fit your interests and schedule.",
+      candidates,
+      blockedCourseIds: new Set<number>(),
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.violations).toEqual([]);
+    expect(result.matchedCandidateIds).toEqual([]);
   });
 });

@@ -15,12 +15,34 @@ type CandidateTitleMention = {
   candidateIds: number[];
 };
 
+type UnknownTitleMention = {
+  text: string;
+  normalizedTitle: string;
+  index: number;
+};
+
 type CandidateCodeIndex = Map<string, number[]>;
 type CandidateTitleIndexEntry = {
   text: string;
   normalizedTitle: string;
   candidateIds: number[];
 };
+
+const TITLE_MENTION_TRIGGER_RE =
+  /\b(?:take|consider|try|recommend|suggest|enroll(?:ing)?\s+in|look\s+at)\s+((?:[A-Z][A-Za-z0-9'&/-]*(?:\s+(?:[A-Z][A-Za-z0-9'&/-]*|and|or|of|to|for|in|on|the)){1,7}))/g;
+const TITLE_CONNECTOR_WORDS = new Set(["and", "or", "of", "to", "for", "in", "on", "the"]);
+const TITLE_GENERIC_WORDS = new Set([
+  "course",
+  "courses",
+  "class",
+  "classes",
+  "options",
+  "option",
+  "recommendation",
+  "recommendations",
+  "fit",
+  "fits",
+]);
 
 function uniqueSortedIds(ids: Iterable<number>) {
   return Array.from(new Set(Array.from(ids))).sort((a, b) => a - b);
@@ -155,12 +177,69 @@ export function extractCandidateTitleMentions(
   );
 }
 
+function isCourseLikeTitleSpan(text: string) {
+  const normalized = normalizeWordTokens(text);
+  if (!normalized) return false;
+
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length < 2 || tokens.length > 8) return false;
+
+  const contentTokens = tokens.filter((token) => !TITLE_CONNECTOR_WORDS.has(token));
+  if (contentTokens.length < 2) return false;
+
+  const longTokenCount = contentTokens.filter((token) => token.length >= 4).length;
+  if (longTokenCount === 0) return false;
+
+  // Avoid generic "recommend options/classes" style spans.
+  if (contentTokens.every((token) => TITLE_GENERIC_WORDS.has(token))) return false;
+
+  return true;
+}
+
+export function extractUnknownTitleLikeMentions(
+  assistantMessage: string,
+  candidates: CourseWithRatings[]
+) {
+  const knownTitles = new Set(buildCandidateTitleIndex(candidates).map((entry) => entry.normalizedTitle));
+  const unknownMentions: UnknownTitleMention[] = [];
+  const seen = new Set<string>();
+  const re = new RegExp(TITLE_MENTION_TRIGGER_RE.source, TITLE_MENTION_TRIGGER_RE.flags);
+  let match: RegExpExecArray | null = null;
+
+  while ((match = re.exec(assistantMessage)) !== null) {
+    const text = String(match[1] ?? "").trim();
+    const normalizedTitle = normalizeWordTokens(text);
+    if (!text || !normalizedTitle) continue;
+    if (!isCourseLikeTitleSpan(text)) continue;
+    if (knownTitles.has(normalizedTitle)) continue;
+    if (extractCourseCodeMentions(text).length > 0) continue;
+
+    const seenKey = normalizedTitle;
+    if (seen.has(seenKey)) continue;
+    seen.add(seenKey);
+
+    unknownMentions.push({
+      text,
+      normalizedTitle,
+      index: match.index,
+    });
+  }
+
+  return unknownMentions.sort(
+    (a, b) =>
+      a.index - b.index ||
+      b.normalizedTitle.length - a.normalizedTitle.length ||
+      a.text.localeCompare(b.text)
+  );
+}
+
 export function validateAssistantGrounding(
   input: GroundingValidationInput
 ): GroundingValidationResult {
   const codeIndex = buildCandidateCodeIndex(input.candidates);
   const codeMentions = extractCourseCodeMentions(input.assistantMessage);
   const titleMentions = extractCandidateTitleMentions(input.assistantMessage, input.candidates);
+  const unknownTitleMentions = extractUnknownTitleLikeMentions(input.assistantMessage, input.candidates);
   const blockedCourseIds = input.blockedCourseIds ?? new Set<number>();
   const matchedCandidateIds = new Set<number>();
   const seenViolations = new Set<string>();
@@ -199,6 +278,10 @@ export function validateAssistantGrounding(
     for (const id of mention.candidateIds) {
       matchedCandidateIds.add(id);
     }
+  }
+
+  for (const mention of unknownTitleMentions) {
+    pushViolation("unknown_mention", mention.text);
   }
 
   return {
