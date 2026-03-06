@@ -306,6 +306,22 @@ describe("POST /ai/course-recommendations relevance calibration", () => {
     expect(body.debug.semanticCount).toBe(0);
   });
 
+  it("always executes lexical retrieval when derived search terms are empty", async () => {
+    const prompt = "please recommend some classes for me";
+
+    const { status, body } = await postRecommendation({
+      prompt,
+    });
+
+    expect(status).toBe(200);
+    expect(Array.isArray(body.recommendations)).toBe(true);
+    expect(searchCourses).toHaveBeenCalled();
+    expect(vi.mocked(searchCourses).mock.calls[0]?.[0]?.q).toBe(prompt);
+    expect(body.debug.searchTerms).toEqual([]);
+    expect(body.debug.retrievalMode).toBe("lexical_only");
+    expect(body.debug.lexicalCount).toBeGreaterThan(0);
+  });
+
   it("keeps ranking relevance-led despite extreme trainer and preference signals", async () => {
     const relevanceLeader = buildCourse({
       id: 310,
