@@ -107,10 +107,7 @@ function courseMatchesSemesterFilter(course: CourseWithRatings, semester: string
   if (!wanted) return true;
 
   const values = getCourseFieldValues(course, "semester", "semesters", "semester").map(normalizeCompactToken);
-  if (values.length === 0) {
-    // Course payloads often omit semester labels even when retrieval was filtered by term.
-    return true;
-  }
+  if (values.length === 0) return false;
 
   return values.some((value) => value === wanted);
 }
@@ -183,10 +180,7 @@ function courseMatchesComponentTypeFilter(course: CourseWithRatings, componentTy
     .map((value) => value.trim().toUpperCase())
     .filter(Boolean);
 
-  if (values.length === 0) {
-    // Recommendation cards do not always carry section component metadata.
-    return true;
-  }
+  if (values.length === 0) return false;
 
   return values.some((value) => value === wanted);
 }
@@ -199,10 +193,7 @@ function courseMatchesInstructionMethodFilter(course: CourseWithRatings, instruc
     .map((value) => normalizeInstructionMethodFilter(value.trim().toUpperCase()))
     .filter((value): value is string => Boolean(value));
 
-  if (values.length === 0) {
-    // Recommendation cards do not always carry section instruction metadata.
-    return true;
-  }
+  if (values.length === 0) return false;
 
   return values.some((value) => value === normalizedFilter);
 }
