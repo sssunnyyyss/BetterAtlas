@@ -161,21 +161,49 @@ export function validateAssistantGrounding(
   const codeIndex = buildCandidateCodeIndex(input.candidates);
   const codeMentions = extractCourseCodeMentions(input.assistantMessage);
   const titleMentions = extractCandidateTitleMentions(input.assistantMessage, input.candidates);
+  const blockedCourseIds = input.blockedCourseIds ?? new Set<number>();
   const matchedCandidateIds = new Set<number>();
+  const seenViolations = new Set<string>();
+  const violations: GroundingValidationResult["violations"] = [];
+
+  const pushViolation = (kind: "unknown_mention" | "blocked_mention", text: string) => {
+    const key = `${kind}:${text.toLowerCase()}`;
+    if (seenViolations.has(key)) return;
+    seenViolations.add(key);
+    violations.push({ kind, text });
+  };
 
   for (const mention of codeMentions) {
     const candidateIds = codeIndex.get(mention.normalizedCode);
-    if (!candidateIds || candidateIds.length === 0) continue;
-    for (const id of candidateIds) matchedCandidateIds.add(id);
+    if (!candidateIds || candidateIds.length === 0) {
+      pushViolation("unknown_mention", mention.text);
+      continue;
+    }
+
+    if (candidateIds.some((id) => blockedCourseIds.has(id))) {
+      pushViolation("blocked_mention", mention.text);
+      continue;
+    }
+
+    for (const id of candidateIds) {
+      matchedCandidateIds.add(id);
+    }
   }
 
   for (const mention of titleMentions) {
-    for (const id of mention.candidateIds) matchedCandidateIds.add(id);
+    if (mention.candidateIds.some((id) => blockedCourseIds.has(id))) {
+      pushViolation("blocked_mention", mention.text);
+      continue;
+    }
+
+    for (const id of mention.candidateIds) {
+      matchedCandidateIds.add(id);
+    }
   }
 
   return {
-    ok: true,
-    violations: [],
+    ok: violations.length === 0,
+    violations,
     matchedCandidateIds: uniqueSortedIds(matchedCandidateIds),
   };
 }
