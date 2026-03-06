@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: in_phase_execution
-last_updated: "2026-03-06T17:45:13Z"
+last_updated: "2026-03-06T17:55:47Z"
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 6
-  completed_plans: 5
+  completed_plans: 6
 ---
 
 # Project State
@@ -18,21 +18,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 phase 6 execution with grounding-safety hardening.
+**Current focus:** Milestone v1.2 transition from completed phase 6 grounding safety to phase 7 retrieval/relevance calibration.
 
 ## Current Position
 
-Phase: 6 - Atlas Grounding and Recommendation Safety (in progress)
-Plan: 02 complete of 03
-Status: Ready to execute 06-03
-Last activity: 2026-03-06 - completed 06-02 session blocklist persistence + merged exclusion enforcement across candidate, grounding, and fallback paths (AIGRD-02)
+Phase: 7 - Retrieval and Ranking Relevance Calibration (ready)
+Plan: Phase 6 complete (03/03)
+Status: Ready to plan/execute 07-01
+Last activity: 2026-03-06 - completed 06-03 hard output filter-constraint safety gate + grounding safety regression suite (AIGRD-04)
 
-Progress: [█████░░░░░] 33%
+Progress: [██████░░░░] 40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 19
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
 
@@ -40,6 +40,9 @@ Progress: [█████░░░░░] 33%
 
 ### Decisions
 
+- [Plan 06-03 output safety gate]: Enforce active recommendation filters at final response assembly using deterministic `courseSatisfiesAiFilters` predicates and dropped-card accounting.
+- [Plan 06-03 fail-closed filter policy]: If post-assembly filter enforcement drops all recommendations after model generation, return deterministic safe grounding fallback with empty recommendation cards.
+- [Plan 06-03 regression lock]: Route-level safety tests must cover off-catalog mentions, session blocklist carryover, hard filter constraints, and JSON fallback path parity.
 - [Plan 06-02 exclusion persistence]: Merge request exclusions/dislikes with per-user TTL session blocklist and treat the merged set as the single blocked-ID policy.
 - [Plan 06-02 grounding alignment]: Pass merged blocked IDs into grounding validation and fail closed with safe fallback when grounding checks fail.
 - [Plan 06-02 reset parity]: Clear session blocklist state when `reset=true` alongside user memory reset behavior.
@@ -85,7 +88,7 @@ Progress: [█████░░░░░] 33%
 
 ### Pending Todos
 
-- Execute 06-03 for remaining phase 6 filter hard-constraint enforcement (AIGRD-04) and finalize grounding safety verification.
+- Start phase 7 planning/execution for hybrid retrieval and ranking relevance calibration requirements (AIREL-01..04).
 
 ### Blockers/Concerns
 
@@ -94,5 +97,5 @@ Progress: [█████░░░░░] 33%
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 06-02-PLAN.md
+Stopped at: Completed 06-03-PLAN.md
 Resume file: None
