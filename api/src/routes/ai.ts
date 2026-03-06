@@ -7,6 +7,13 @@ import { env } from "../config/env.js";
 import { openAiChat, openAiChatJson } from "../lib/openai.js";
 import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
 import { buildClarifyResponse, classifyIntent } from "../ai/intent/intentRouter.js";
+import { validateAssistantGrounding } from "../ai/grounding/groundingValidator.js";
+import { buildSafeGroundingFallback } from "../ai/grounding/safeGroundingFallback.js";
+import {
+  clearSessionBlockedCourseIds,
+  getSessionBlockedCourseIds,
+  mergeSessionBlockedCourseIds,
+} from "../ai/grounding/sessionBlocklistState.js";
 import { getUserById } from "../services/userService.js";
 import {
   listCourses,
@@ -885,7 +892,10 @@ router.post(
       >;
       const userId = req.user?.id ?? null;
 
-      if (reset && userId) clearUserMemory(userId);
+      if (reset && userId) {
+        clearUserMemory(userId);
+        clearSessionBlockedCourseIds(userId);
+      }
 
       const effectiveMessages: AiMessage[] = (() => {
         if (Array.isArray(messages)) return messages as AiMessage[];
@@ -1053,6 +1063,18 @@ router.post(
         (excludeCourseIds ?? []).filter((id) => typeof id === "number" && Number.isFinite(id))
       );
       for (const c of dislikedCourses) excludeSet.add(c.id);
+      if (userId) {
+        const priorBlockedIds = getSessionBlockedCourseIds(userId);
+        for (const blockedId of priorBlockedIds) {
+          excludeSet.add(blockedId);
+        }
+      }
+
+      const persistSessionBlockedIds = () => {
+        if (!userId) return;
+        mergeSessionBlockedCourseIds(userId, excludeSet);
+      };
+
       const user = userId ? await getUserById(userId) : null;
 
       const tDepsStart = Date.now();
@@ -1184,6 +1206,7 @@ router.post(
       const semanticCandidateCount = candidates.filter((c) => semanticIds.has(c.id)).length;
 
       if (candidates.length === 0) {
+        persistSessionBlockedIds();
         return res.json({
           assistantMessage:
             "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again.",
@@ -1359,6 +1382,79 @@ router.post(
 
       const TARGET_RECS = 8;
       const termsLower = searchTerms.map((t) => t.toLowerCase()).filter(Boolean);
+      const groundingResult = validateAssistantGrounding({
+        assistantMessage: modelResult.assistant_message,
+        candidates,
+        blockedCourseIds: excludeSet,
+      });
+
+      if (!groundingResult.ok) {
+        const safeFallback = buildSafeGroundingFallback();
+        if (userId) {
+          setUserMemory(userId, [
+            ...effectiveMessages,
+            { role: "assistant" as const, content: safeFallback.assistantMessage },
+          ]);
+        }
+        persistSessionBlockedIds();
+
+        const totalMs = Date.now() - tStart;
+        if (totalMs > 1500) {
+          console.log("ai/course-recommendations timings", {
+            totalMs,
+            depsMs,
+            candidatesMs,
+            embedMs,
+            semanticMs,
+            openaiMs,
+            model: env.openaiModel,
+            note: "grounding_fallback",
+          });
+        }
+
+        return res.json({
+          assistantMessage: safeFallback.assistantMessage,
+          followUpQuestion: safeFallback.followUpQuestion,
+          recommendations: safeFallback.recommendations,
+          ...(env.nodeEnv !== "production"
+            ? {
+                debug: {
+                  intentMode: decision.mode,
+                  intentReason: decision.reason,
+                  retrievalSkipped: false,
+                  model: env.openaiModel,
+                  totalMs,
+                  depsMs,
+                  candidatesMs,
+                  embedMs,
+                  semanticMs,
+                  openaiMs,
+                  searchTerms,
+                  candidateCount: candidates.length,
+                  hadFillers: needFillers,
+                  userMajor: user?.major ?? null,
+                  deptCode,
+                  searchUniqueCount: searchUnique.length,
+                  semanticUniqueCount: semanticUnique.length,
+                  semanticCandidateCount,
+                  candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
+                  appliedFilters: activeFilters,
+                  likedSignals: likedCourses.length,
+                  dislikedSignals: dislikedCourses.length,
+                  trainerScoresLoaded: trainerScores.size,
+                  trainerBoostedCount:
+                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
+                  trainerDemotedCount:
+                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
+                  usedJsonFallback,
+                  groundingStatus: "failed",
+                  groundingViolationCount: groundingResult.violations.length,
+                  blockedCourseCount: excludeSet.size,
+                },
+              }
+            : {}),
+        });
+      }
 
       const mentioned = extractMentionedCoursesFromAssistantMessage(
         modelResult.assistant_message,
@@ -1430,6 +1526,7 @@ router.post(
           { role: "assistant" as const, content: modelResult.assistant_message },
         ]);
       }
+      persistSessionBlockedIds();
 
       const totalMs = Date.now() - tStart;
       if (totalMs > 1500) {
@@ -1484,6 +1581,9 @@ router.post(
                 trainerBoostedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
                 trainerDemotedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
                 usedJsonFallback,
+                groundingStatus: "passed",
+                groundingViolationCount: 0,
+                blockedCourseCount: excludeSet.size,
               },
             }
           : {}),
