@@ -17,7 +17,7 @@ Requirements for milestone v1.2. Each requirement must map to exactly one roadma
 ### Atlas Grounding and Recommendation Safety
 
 - [x] **AIGRD-01**: User sees specific course codes/titles in assistant replies only when those courses exist in the active BetterAtlas candidate set.
-- [ ] **AIGRD-02**: User never receives recommendations for excluded or explicitly disliked courses in the same session.
+- [x] **AIGRD-02**: User never receives recommendations for excluded or explicitly disliked courses in the same session.
 - [x] **AIGRD-03**: User receives a safe fallback response (no fabricated specific course names) whenever grounding validation fails.
 - [ ] **AIGRD-04**: User receives recommendations that obey active catalog filters (semester/department/rating/credits/attribute/instructor/campus/component/instruction method) as hard constraints.
 
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-05*
-*Last updated: 2026-03-06 after completing Phase 6 Plan 01*
+*Last updated: 2026-03-06 after completing Phase 6 Plan 02*

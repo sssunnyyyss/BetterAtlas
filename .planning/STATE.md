@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: in_phase_execution
-last_updated: "2026-03-06T17:38:00Z"
+last_updated: "2026-03-06T17:45:13Z"
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -23,16 +23,16 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 6 - Atlas Grounding and Recommendation Safety (in progress)
-Plan: 01 complete of 03
-Status: Ready to execute 06-02
-Last activity: 2026-03-06 - completed 06-01 deterministic grounding contracts, fail-closed validation, and fallback tests (AIGRD-01, AIGRD-03)
+Plan: 02 complete of 03
+Status: Ready to execute 06-03
+Last activity: 2026-03-06 - completed 06-02 session blocklist persistence + merged exclusion enforcement across candidate, grounding, and fallback paths (AIGRD-02)
 
-Progress: [████░░░░░░] 27%
+Progress: [█████░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15
+- Total plans completed: 16
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
 
@@ -40,6 +40,9 @@ Progress: [████░░░░░░] 27%
 
 ### Decisions
 
+- [Plan 06-02 exclusion persistence]: Merge request exclusions/dislikes with per-user TTL session blocklist and treat the merged set as the single blocked-ID policy.
+- [Plan 06-02 grounding alignment]: Pass merged blocked IDs into grounding validation and fail closed with safe fallback when grounding checks fail.
+- [Plan 06-02 reset parity]: Clear session blocklist state when `reset=true` alongside user memory reset behavior.
 - [Plan 06-01 grounding contracts]: Normalize course-code mentions to a canonical compact token while accepting `CS170`, `CS 170`, and `CS-170` surface forms.
 - [Plan 06-01 grounding safety]: Treat unknown explicit course mentions and blocked-candidate mentions as hard grounding failures (`unknown_mention` / `blocked_mention`).
 - [Plan 06-01 fallback policy]: Use deterministic safe fallback text with no specific catalog course entities and an empty recommendation list payload.
@@ -82,7 +85,7 @@ Progress: [████░░░░░░] 27%
 
 ### Pending Todos
 
-- Execute 06-02 and 06-03 for phase 6 route integration and filter/exclusion enforcement completion.
+- Execute 06-03 for remaining phase 6 filter hard-constraint enforcement (AIGRD-04) and finalize grounding safety verification.
 
 ### Blockers/Concerns
 
@@ -91,5 +94,5 @@ Progress: [████░░░░░░] 27%
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 06-01-PLAN.md
+Stopped at: Completed 06-02-PLAN.md
 Resume file: None
