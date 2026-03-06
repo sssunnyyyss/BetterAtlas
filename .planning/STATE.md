@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
-status: ready_for_phase_planning
-last_updated: "2026-03-05T23:02:00Z"
+status: in_phase_execution
+last_updated: "2026-03-06T17:38:00Z"
 progress:
   total_phases: 5
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 6
+  completed_plans: 4
 ---
 
 # Project State
@@ -18,21 +18,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 transition from phase 5 completion to phase 6 planning.
+**Current focus:** Milestone v1.2 phase 6 execution with grounding-safety hardening.
 
 ## Current Position
 
-Phase: 5 - Intent Routing and Conversation Cadence (complete)
-Plan: 03 complete, phase 5 complete
-Status: Ready to begin phase 6 planning/execution
-Last activity: 2026-03-05 - completed 05-03 greeting fast-path + route-level intent cadence regression gate (AIINT-04)
+Phase: 6 - Atlas Grounding and Recommendation Safety (in progress)
+Plan: 01 complete of 03
+Status: Ready to execute 06-02
+Last activity: 2026-03-06 - completed 06-01 deterministic grounding contracts, fail-closed validation, and fallback tests (AIGRD-01, AIGRD-03)
 
-Progress: [███░░░░░░░] 20%
+Progress: [████░░░░░░] 27%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
+- Total plans completed: 15
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
 
@@ -40,6 +40,9 @@ Progress: [███░░░░░░░] 20%
 
 ### Decisions
 
+- [Plan 06-01 grounding contracts]: Normalize course-code mentions to a canonical compact token while accepting `CS170`, `CS 170`, and `CS-170` surface forms.
+- [Plan 06-01 grounding safety]: Treat unknown explicit course mentions and blocked-candidate mentions as hard grounding failures (`unknown_mention` / `blocked_mention`).
+- [Plan 06-01 fallback policy]: Use deterministic safe fallback text with no specific catalog course entities and an empty recommendation list payload.
 - [Milestone v1.2 kickoff]: Focus AI chat on conversational quality with context-aware recommendation cadence and strict Atlas-grounded suggestions.
 - [Milestone v1.2 roadmap]: Sequence milestone into phases 5-9 (intent routing, grounding safety, retrieval/ranking calibration, memory reliability, observability/regression gates).
 - [Milestone v1.2 roadmap]: Map all 18 v1.2 requirements one-to-one to exactly one phase with no cross-phase duplication.
@@ -79,7 +82,7 @@ Progress: [███░░░░░░░] 20%
 
 ### Pending Todos
 
-- Plan Phase 6 work for Atlas grounding and recommendation safety (AIGRD-01..04).
+- Execute 06-02 and 06-03 for phase 6 route integration and filter/exclusion enforcement completion.
 
 ### Blockers/Concerns
 
@@ -87,6 +90,6 @@ Progress: [███░░░░░░░] 20%
 
 ## Session Continuity
 
-Last session: 2026-03-05
-Stopped at: Completed 05-03-PLAN.md
+Last session: 2026-03-06
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
