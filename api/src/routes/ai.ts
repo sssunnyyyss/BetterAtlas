@@ -9,6 +9,7 @@ import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
 import { buildClarifyResponse, classifyIntent } from "../ai/intent/intentRouter.js";
 import { validateAssistantGrounding } from "../ai/grounding/groundingValidator.js";
 import { buildSafeGroundingFallback } from "../ai/grounding/safeGroundingFallback.js";
+import { enforceRecommendationFilterConstraints } from "../ai/grounding/filterConstraintGuard.js";
 import {
   clearSessionBlockedCourseIds,
   getSessionBlockedCourseIds,
@@ -1387,6 +1388,9 @@ router.post(
         candidates,
         blockedCourseIds: excludeSet,
       });
+      const excludedMentionCount = groundingResult.violations.filter(
+        (violation) => violation.kind === "blocked_mention"
+      ).length;
 
       if (!groundingResult.ok) {
         const safeFallback = buildSafeGroundingFallback();
@@ -1449,7 +1453,10 @@ router.post(
                   usedJsonFallback,
                   groundingStatus: "failed",
                   groundingViolationCount: groundingResult.violations.length,
+                  excludedMentionCount,
                   blockedCourseCount: excludeSet.size,
+                  safeFallbackUsed: true,
+                  filterConstraintDroppedCount: 0,
                 },
               }
             : {}),
@@ -1518,6 +1525,83 @@ router.post(
       }
 
       recommendations = recommendations.slice(0, TARGET_RECS);
+      const constrainedRecommendations = enforceRecommendationFilterConstraints(
+        recommendations,
+        activeFilters
+      );
+      recommendations = constrainedRecommendations.valid;
+      const filterConstraintDroppedCount = constrainedRecommendations.droppedCount;
+
+      if (filterConstraintDroppedCount > 0 && recommendations.length === 0) {
+        const safeFallback = buildSafeGroundingFallback();
+        if (userId) {
+          setUserMemory(userId, [
+            ...effectiveMessages,
+            { role: "assistant" as const, content: safeFallback.assistantMessage },
+          ]);
+        }
+        persistSessionBlockedIds();
+
+        const totalMs = Date.now() - tStart;
+        if (totalMs > 1500) {
+          console.log("ai/course-recommendations timings", {
+            totalMs,
+            depsMs,
+            candidatesMs,
+            embedMs,
+            semanticMs,
+            openaiMs,
+            model: env.openaiModel,
+            note: "filter_constraint_fallback",
+          });
+        }
+
+        return res.json({
+          assistantMessage: safeFallback.assistantMessage,
+          followUpQuestion: safeFallback.followUpQuestion,
+          recommendations: safeFallback.recommendations,
+          ...(env.nodeEnv !== "production"
+            ? {
+                debug: {
+                  intentMode: decision.mode,
+                  intentReason: decision.reason,
+                  retrievalSkipped: false,
+                  model: env.openaiModel,
+                  totalMs,
+                  depsMs,
+                  candidatesMs,
+                  embedMs,
+                  semanticMs,
+                  openaiMs,
+                  searchTerms,
+                  candidateCount: candidates.length,
+                  hadFillers: needFillers,
+                  userMajor: user?.major ?? null,
+                  deptCode,
+                  searchUniqueCount: searchUnique.length,
+                  semanticUniqueCount: semanticUnique.length,
+                  semanticCandidateCount,
+                  candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
+                  appliedFilters: activeFilters,
+                  likedSignals: likedCourses.length,
+                  dislikedSignals: dislikedCourses.length,
+                  trainerScoresLoaded: trainerScores.size,
+                  trainerBoostedCount:
+                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
+                  trainerDemotedCount:
+                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
+                  usedJsonFallback,
+                  groundingStatus: "passed",
+                  groundingViolationCount: 0,
+                  excludedMentionCount: 0,
+                  blockedCourseCount: excludeSet.size,
+                  safeFallbackUsed: true,
+                  filterConstraintDroppedCount,
+                },
+              }
+            : {}),
+        });
+      }
 
       // Persist per-user memory (isolated by user id).
       if (userId) {
@@ -1583,7 +1667,10 @@ router.post(
                 usedJsonFallback,
                 groundingStatus: "passed",
                 groundingViolationCount: 0,
+                excludedMentionCount: 0,
                 blockedCourseCount: excludeSet.size,
+                safeFallbackUsed: false,
+                filterConstraintDroppedCount,
               },
             }
           : {}),
