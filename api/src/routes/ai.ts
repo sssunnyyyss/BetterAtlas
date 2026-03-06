@@ -33,6 +33,10 @@ import {
   selectWithDepartmentDiversity,
   shouldAllowDepartmentConcentration,
 } from "../ai/relevance/diversityPolicy.js";
+import {
+  buildLowRelevanceRefineGuidance,
+  isRelevanceSufficient,
+} from "../ai/relevance/relevanceSufficiencyPolicy.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
 const router = Router();
@@ -787,6 +791,23 @@ function scoreCourseByQueryTerms(course: CourseWithRatings, termsLower: string[]
   return score;
 }
 
+function computeMatchedTermCoverage(courses: CourseWithRatings[], termsLower: string[]): number {
+  if (termsLower.length === 0) return 1;
+  if (!Array.isArray(courses) || courses.length === 0) return 0;
+
+  const matchedTerms = new Set<string>();
+  for (const course of courses.slice(0, 4)) {
+    const text = `${course.code} ${course.title} ${course.description ?? ""}`.toLowerCase();
+    for (const term of termsLower) {
+      if (term && text.includes(term)) {
+        matchedTerms.add(term);
+      }
+    }
+  }
+
+  return Math.max(0, Math.min(1, matchedTerms.size / termsLower.length));
+}
+
 function buildRecommendationFromCourse({
   course,
   termsLower,
@@ -1457,6 +1478,83 @@ router.post(
         });
       }
 
+      const relevanceGateEligible = candidates.length >= 4;
+      const matchedTermCoverage = relevanceGateEligible
+        ? computeMatchedTermCoverage(candidates, termsLower)
+        : 1;
+      const relevanceSufficient = !relevanceGateEligible
+        ? true
+        : isRelevanceSufficient({
+            rankedBaseScores: rankedCandidates.map((candidate) => candidate.scores.baseRelevance),
+            matchedTermCoverage,
+            retrievalMode: retrievalEnvelope.mode,
+          });
+
+      if (!relevanceSufficient) {
+        const refineGuidance = buildLowRelevanceRefineGuidance({
+          retrievalMode: retrievalEnvelope.mode,
+          matchedTermCoverage,
+        });
+        if (userId) {
+          setUserMemory(userId, [
+            ...effectiveMessages,
+            { role: "assistant" as const, content: refineGuidance.assistantMessage },
+          ]);
+        }
+        persistSessionBlockedIds();
+
+        return res.json({
+          assistantMessage: refineGuidance.assistantMessage,
+          followUpQuestion: refineGuidance.followUpQuestion,
+          recommendations: refineGuidance.recommendations,
+          ...(env.nodeEnv !== "production"
+            ? {
+                debug: {
+                  intentMode: decision.mode,
+                  intentReason: decision.reason,
+                  retrievalSkipped: false,
+                  ...retrievalDebug,
+                  model: env.openaiModel,
+                  totalMs: Date.now() - tStart,
+                  depsMs,
+                  candidatesMs,
+                  embedMs,
+                  semanticMs,
+                  openaiMs,
+                  searchTerms,
+                  candidateCount: candidates.length,
+                  hadFillers: needFillers,
+                  userMajor: user?.major ?? null,
+                  deptCode,
+                  searchUniqueCount: searchUnique.length,
+                  semanticUniqueCount: semanticUnique.length,
+                  semanticCandidateCount,
+                  candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
+                  appliedFilters: activeFilters,
+                  likedSignals: likedCourses.length,
+                  dislikedSignals: dislikedCourses.length,
+                  trainerScoresLoaded: trainerScores.size,
+                  trainerBoostedCount:
+                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
+                  trainerDemotedCount:
+                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
+                  usedJsonFallback,
+                  groundingStatus: "passed",
+                  groundingViolationCount: 0,
+                  excludedMentionCount: 0,
+                  blockedCourseCount: excludeSet.size,
+                  safeFallbackUsed: false,
+                  lowRelevanceRefineUsed: true,
+                  filterConstraintDroppedCount: 0,
+                  relevanceGateEligible,
+                  matchedTermCoverage,
+                  relevanceSufficient,
+                },
+              }
+            : {}),
+        });
+      }
+
       const mentioned = extractMentionedCoursesFromAssistantMessage(
         modelResult.assistant_message,
         candidates
@@ -1609,6 +1707,10 @@ router.post(
                   safeFallbackUsed: true,
                   filterConstraintDroppedCount,
                   concentrationAllowed,
+                  lowRelevanceRefineUsed: false,
+                  relevanceGateEligible,
+                  matchedTermCoverage,
+                  relevanceSufficient,
                 },
               }
             : {}),
@@ -1685,6 +1787,10 @@ router.post(
                 safeFallbackUsed: false,
                 filterConstraintDroppedCount,
                 concentrationAllowed,
+                lowRelevanceRefineUsed: false,
+                relevanceGateEligible,
+                matchedTermCoverage,
+                relevanceSufficient,
               },
             }
           : {}),
