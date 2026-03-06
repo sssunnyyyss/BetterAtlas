@@ -24,7 +24,15 @@ import {
   semanticSearchCoursesByEmbedding,
 } from "../services/courseService.js";
 import { getAllAiTrainerScores } from "../services/aiTrainerService.js";
-import { buildRetrievalEnvelope } from "../ai/relevance/retrievalModePolicy.js";
+import {
+  buildRetrievalEnvelope,
+  enforceSemanticCandidateQuota,
+} from "../ai/relevance/retrievalModePolicy.js";
+import { rankCandidatesWithBoundedSignals } from "../ai/relevance/rankingPolicy.js";
+import {
+  selectWithDepartmentDiversity,
+  shouldAllowDepartmentConcentration,
+} from "../ai/relevance/diversityPolicy.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
 const router = Router();
@@ -121,6 +129,26 @@ function normalizeSearchQuery(text: string) {
   // This is only used to fetch candidates; the full user prompt still goes to the LLM.
   const cleaned = text.replace(/\s+/g, " ").trim();
   return truncate(cleaned, 200);
+}
+
+function deriveConcentrationIntentSignals(text: string): string[] {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+
+  const signals = new Set<string>();
+  if (/\b(concentrat(e|ion)|focus(ed)? on)\b/.test(normalized)) {
+    signals.add("concentration_required");
+  }
+
+  const hasOnlyConstraint = /\b(only|just|strictly|exclusively)\b/.test(normalized);
+  if (hasOnlyConstraint && /\b(department|major|field|area)\b/.test(normalized)) {
+    signals.add("department_focus");
+  }
+  if (hasOnlyConstraint && /\b(courses?|classes?)\b/.test(normalized)) {
+    signals.add("single_department_request");
+  }
+
+  return Array.from(signals);
 }
 
 const GENERIC_WHY_RE =
@@ -404,28 +432,6 @@ async function getTrainerScoresCached(): Promise<Map<number, number>> {
   return trainerScoresInFlight;
 }
 
-const GLOBAL_SCORE_WEIGHT = 2.0;
-
-function rankCandidatesWithGlobalBias(
-  courses: CourseWithRatings[],
-  profile: PreferenceProfile,
-  trainerScores: Map<number, number>,
-  globalWeight = GLOBAL_SCORE_WEIGHT
-) {
-  const hasPrefs = hasAnyPreferenceSignals(profile);
-  const hasTrainer = trainerScores.size > 0;
-  if (!hasPrefs && !hasTrainer) return courses;
-
-  return courses
-    .map((course, idx) => {
-      const prefScore = hasPrefs ? scoreCourseWithPreferenceSignals(course, profile) : 0;
-      const globalScore = (trainerScores.get(course.id) ?? 0) * globalWeight;
-      return { course, idx, score: prefScore + globalScore };
-    })
-    .sort((a, b) => b.score - a.score || a.idx - b.idx)
-    .map((x) => x.course);
-}
-
 function getUserMemory(userId: string): AiMessage[] {
   const existing = memoryByUser.get(userId);
   if (!existing) return [];
@@ -451,58 +457,6 @@ function dedupeCourses(courses: CourseWithRatings[]) {
     if (!map.has(c.id)) map.set(c.id, c);
   }
   return map;
-}
-
-function enforceSemanticCandidateQuota(input: {
-  candidates: CourseWithRatings[];
-  semanticRanked: CourseWithRatings[];
-  semanticIds: Set<number>;
-  excludeIds: Set<number>;
-  maxCandidates: number;
-  minSemantic: number;
-}) {
-  const { candidates, semanticRanked, semanticIds, excludeIds, maxCandidates, minSemantic } = input;
-
-  if (semanticIds.size === 0 || minSemantic <= 0) return candidates;
-
-  const target = Math.min(minSemantic, semanticIds.size, maxCandidates);
-  if (target <= 0) return candidates;
-
-  const out = [...candidates];
-  let semanticCount = out.filter((c) => semanticIds.has(c.id)).length;
-  if (semanticCount >= target) return out;
-
-  const selectedIds = new Set<number>(out.map((c) => c.id));
-  const addableSemantic = semanticRanked
-    .filter((c) => semanticIds.has(c.id))
-    .filter((c) => !excludeIds.has(c.id))
-    .filter((c) => !selectedIds.has(c.id));
-
-  for (const sem of addableSemantic) {
-    if (semanticCount >= target) break;
-
-    // Replace from the tail so higher-ranked/earlier candidates stay stable.
-    let replaceIdx = -1;
-    for (let i = out.length - 1; i >= 0; i--) {
-      if (!semanticIds.has(out[i].id)) {
-        replaceIdx = i;
-        break;
-      }
-    }
-
-    if (replaceIdx === -1) {
-      if (out.length >= maxCandidates) break;
-      out.push(sem);
-    } else {
-      selectedIds.delete(out[replaceIdx].id);
-      out[replaceIdx] = sem;
-    }
-
-    selectedIds.add(sem.id);
-    semanticCount += 1;
-  }
-
-  return out.slice(0, maxCandidates);
 }
 
 function findDepartmentCodeFromMajor(
@@ -1092,6 +1046,7 @@ router.post(
 
       const candidateQuery = normalizeSearchQuery(latestUser);
       const searchTerms = deriveAiSearchTerms(latestUser, deps).slice(0, 3);
+      const termsLower = searchTerms.map((t) => t.toLowerCase()).filter(Boolean);
 
       const tCandidatesStart = Date.now();
       let embedMs = 0;
@@ -1222,7 +1177,26 @@ router.post(
         maxCandidates: CANDIDATE_MAX,
         minSemantic: MIN_SEMANTIC_CANDIDATES,
       });
-      candidates = rankCandidatesWithGlobalBias(candidates, preferenceProfile, trainerScores);
+      const baseRelevance = new Map<number, number>();
+      const preferenceScores = new Map<number, number>();
+      for (const candidate of candidates) {
+        const lexicalScore = scoreCourseByQueryTerms(candidate, termsLower);
+        const semanticScore = semanticIds.has(candidate.id) ? 1 : 0;
+        const descriptionScore = candidate.description ? 0.15 : 0;
+        baseRelevance.set(candidate.id, lexicalScore + semanticScore + descriptionScore);
+        preferenceScores.set(candidate.id, scoreCourseWithPreferenceSignals(candidate, preferenceProfile));
+      }
+
+      const rankedCandidates = rankCandidatesWithBoundedSignals({
+        courses: candidates,
+        baseRelevance,
+        preferenceScores,
+        trainerScores,
+      });
+      const rankedCourseIndex = new Map<number, number>(
+        rankedCandidates.map((candidate, index) => [candidate.course.id, index])
+      );
+      candidates = rankedCandidates.map((candidate) => candidate.course);
       const semanticCandidateCount = candidates.filter((c) => semanticIds.has(c.id)).length;
 
       if (candidates.length === 0) {
@@ -1402,7 +1376,6 @@ router.post(
       const openaiMs = Date.now() - tOpenAiStart;
 
       const TARGET_RECS = 8;
-      const termsLower = searchTerms.map((t) => t.toLowerCase()).filter(Boolean);
       const groundingResult = validateAssistantGrounding({
         assistantMessage: modelResult.assistant_message,
         candidates,
@@ -1498,9 +1471,14 @@ router.post(
 
       const mentionPool =
         mentionRelevant.length > 0 || termsLower.length === 0 ? mentionRelevant : mentioned;
+      const rankedMentionPool = [...mentionPool].sort((a, b) => {
+        const aRank = rankedCourseIndex.get(a.course.id) ?? Number.MAX_SAFE_INTEGER;
+        const bRank = rankedCourseIndex.get(b.course.id) ?? Number.MAX_SAFE_INTEGER;
+        return aRank - bRank || a.index - b.index;
+      });
 
       const seenMentionedIds = new Set<number>();
-      let recommendations = mentionPool
+      let recommendations = rankedMentionPool
         .filter((match) => !excludeSet.has(match.course.id))
         .filter((match) => {
           if (seenMentionedIds.has(match.course.id)) return false;
@@ -1521,23 +1499,13 @@ router.post(
         );
 
       if (recommendations.length === 0) {
-        const fallback = candidates
-          .filter((course) => !excludeSet.has(course.id))
-          .map((course) => ({
-            course,
-            score: scoreCourseByQueryTerms(course, termsLower),
-          }))
-          .sort((a, b) => b.score - a.score);
+        const fallback = candidates.filter((course) => !excludeSet.has(course.id));
 
-        const preferredFallback = fallback.filter((item) => item.score > 0);
-        const fallbackPool =
-          preferredFallback.length > 0 ? preferredFallback : fallback;
-
-        recommendations = fallbackPool
+        recommendations = fallback
           .slice(0, Math.min(6, TARGET_RECS))
-          .map((item, index) =>
+          .map((course, index) =>
             buildRecommendationFromCourse({
-              course: item.course,
+              course,
               termsLower,
               baseFit: Math.max(5, 8 - index),
               mentionReason: "Suggested based on your latest request.",
@@ -1552,6 +1520,27 @@ router.post(
       );
       recommendations = constrainedRecommendations.valid;
       const filterConstraintDroppedCount = constrainedRecommendations.droppedCount;
+      const concentrationAllowed = shouldAllowDepartmentConcentration({
+        filters: activeFilters,
+        intentSignals: deriveConcentrationIntentSignals(latestUser),
+        rankedDepartmentCodes: candidates
+          .slice(0, TARGET_RECS)
+          .map((candidate) => candidate.department?.code ?? "OTHER"),
+      });
+      const diversityRanked = recommendations
+        .slice()
+        .sort((a, b) => {
+          const aRank = rankedCourseIndex.get(a.course.id) ?? Number.MAX_SAFE_INTEGER;
+          const bRank = rankedCourseIndex.get(b.course.id) ?? Number.MAX_SAFE_INTEGER;
+          return aRank - bRank || a.course.code.localeCompare(b.course.code);
+        })
+        .map((recommendation) => ({ recommendation, course: recommendation.course }));
+      recommendations = selectWithDepartmentDiversity({
+        ranked: diversityRanked,
+        targetCount: TARGET_RECS,
+        maxPerDepartment: 2,
+        concentrationAllowed,
+      }).map((item) => item.recommendation);
 
       if (filterConstraintDroppedCount > 0 && recommendations.length === 0) {
         const safeFallback = buildSafeGroundingFallback();
@@ -1619,6 +1608,7 @@ router.post(
                   blockedCourseCount: excludeSet.size,
                   safeFallbackUsed: true,
                   filterConstraintDroppedCount,
+                  concentrationAllowed,
                 },
               }
             : {}),
@@ -1694,6 +1684,7 @@ router.post(
                 blockedCourseCount: excludeSet.size,
                 safeFallbackUsed: false,
                 filterConstraintDroppedCount,
+                concentrationAllowed,
               },
             }
           : {}),
