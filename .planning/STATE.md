@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: in_phase_execution
-last_updated: "2026-03-06T17:55:47Z"
+last_updated: "2026-03-06T18:19:30Z"
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 6
-  completed_plans: 6
+  total_plans: 7
+  completed_plans: 7
 ---
 
 # Project State
@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-03-05)
 ## Current Position
 
 Phase: 7 - Retrieval and Ranking Relevance Calibration (ready)
-Plan: Phase 6 complete (03/03)
+Plan: Phase 6 complete (04/04)
 Status: Ready to plan/execute 07-01
-Last activity: 2026-03-06 - completed 06-03 hard output filter-constraint safety gate + grounding safety regression suite (AIGRD-04)
+Last activity: 2026-03-06 - completed 06-04 grounding/title-mention strictness + fail-closed hard-filter gap closure (AIGRD-01, AIGRD-04)
 
 Progress: [██████░░░░] 40%
 
@@ -40,6 +40,9 @@ Progress: [██████░░░░] 40%
 
 ### Decisions
 
+- [Plan 06-04 title-only grounding]: Treat bounded course-like title spans after recommendation triggers as `unknown_mention` violations when they do not map to active candidate titles.
+- [Plan 06-04 hard-filter metadata policy]: Enforce fail-closed behavior for active semester/component/instruction filters when recommendation metadata is missing.
+- [Plan 06-04 regression matrix]: Route-level grounding safety tests must cover title-only hallucinations and hard-filter enforcement across semester/credits/attributes/instructor/campus/component/instruction dimensions.
 - [Plan 06-03 output safety gate]: Enforce active recommendation filters at final response assembly using deterministic `courseSatisfiesAiFilters` predicates and dropped-card accounting.
 - [Plan 06-03 fail-closed filter policy]: If post-assembly filter enforcement drops all recommendations after model generation, return deterministic safe grounding fallback with empty recommendation cards.
 - [Plan 06-03 regression lock]: Route-level safety tests must cover off-catalog mentions, session blocklist carryover, hard filter constraints, and JSON fallback path parity.
@@ -97,5 +100,5 @@ Progress: [██████░░░░] 40%
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 06-03-PLAN.md
+Stopped at: Completed 06-04-PLAN.md
 Resume file: None
