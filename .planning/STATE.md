@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: in_phase_execution
-last_updated: "2026-03-06T19:21:51Z"
+last_updated: "2026-03-06T19:36:54Z"
 progress:
   total_phases: 7
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 21
-  completed_plans: 20
+  completed_plans: 21
 ---
 
 # Project State
@@ -18,24 +18,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 transition from completed phase 6 grounding safety to phase 7 retrieval/relevance calibration.
+**Current focus:** Milestone v1.2 phase 7 completion and transition readiness for phase 8 memory/context reliability.
 
 ## Current Position
 
-Phase: 7 - Retrieval and Ranking Relevance Calibration (in progress)
-Plan: 07-01 complete (02/03 summaries)
-Status: Continue phase 7 execution (remaining plans: 07-03)
-Last activity: 2026-03-06 - completed 07-01 retrieval mode + relevance sufficiency policy contracts/tests (AIREL-01, AIREL-04)
+Phase: 7 - Retrieval and Ranking Relevance Calibration (complete)
+Plan: 07-03 complete (03/03 summaries)
+Status: Phase 7 complete; ready to proceed to phase 8 planning/execution.
+Last activity: 2026-03-06 - completed 07-03 route integration for retrieval/ranking/diversity/sufficiency policies with route-level regressions (AIREL-01..04)
 
-Progress: [█████████░] 95%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 19
+- Total plans completed: 21
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
-- Latest execution: Plan 07-01 in 6 min (3 tasks, 4 files)
+- Latest execution: Plan 07-03 in 8 min (3 tasks, 2 files)
 
 ## Accumulated Context
 
@@ -93,10 +93,13 @@ Progress: [█████████░] 95%
 - [Phase 07]: Enforce department diversity at final recommendation selection and only relax caps for explicit concentration intent/filters.
 - [Phase 07]: Represent recommendation retrieval with explicit retrieval modes (lexical_only/hybrid/hybrid_degraded) and semantic attempt/availability accounting.
 - [Phase 07]: Gate recommendation output on deterministic top-k base relevance plus matched-term coverage; return refine guidance with empty recommendations when insufficient.
+- [Phase 07]: Semantic retrieval failures are surfaced as hybrid_degraded telemetry while recommend requests continue on lexical candidates.
+- [Phase 07]: Recommendation ranking now uses bounded preference (+/-2) and trainer (+/-1) signals on top of base relevance.
+- [Phase 07]: Low-relevance candidate pools return deterministic refine guidance with recommendations: [] instead of weak forced cards.
 
 ### Pending Todos
 
-- Complete remaining Phase 7 plan and summary: 07-03.
+- None.
 
 ### Blockers/Concerns
 
@@ -105,5 +108,5 @@ Progress: [█████████░] 95%
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 07-01-PLAN.md
+Stopped at: Completed 07-03-PLAN.md
 Resume file: None
