@@ -24,6 +24,7 @@ import {
   semanticSearchCoursesByEmbedding,
 } from "../services/courseService.js";
 import { getAllAiTrainerScores } from "../services/aiTrainerService.js";
+import { buildRetrievalEnvelope } from "../ai/relevance/retrievalModePolicy.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
 const router = Router();
@@ -1096,9 +1097,12 @@ router.post(
       let embedMs = 0;
       let semanticMs = 0;
       let semanticUnique: CourseWithRatings[] = [];
+      const semanticAvailable = await areCourseEmbeddingsAvailable();
+      const semanticAttempted = semanticAvailable && candidateQuery.length >= 3;
+      let semanticFailed = false;
       const hasFilters = hasAnyAiFilters(activeFilters);
 
-      if (candidateQuery.length >= 3 && (await areCourseEmbeddingsAvailable())) {
+      if (semanticAttempted) {
         try {
           const tEmbed = Date.now();
           const embedding = (await openAiEmbedText({ input: latestUser })) as number[];
@@ -1112,10 +1116,11 @@ router.post(
           });
           semanticMs = Date.now() - tSemantic;
         } catch (e) {
-          // Don't fail the whole request if embeddings aren't set up yet.
+          // Don't fail the whole request if semantic retrieval can't run.
           semanticUnique = [];
           embedMs = 0;
           semanticMs = 0;
+          semanticFailed = true;
         }
       }
 
@@ -1149,6 +1154,20 @@ router.post(
         }
       }
       const searchUnique = Array.from(dedupeCourses(searchCoursesRaw).values());
+      const retrievalEnvelope = buildRetrievalEnvelope({
+        lexicalCount: searchUnique.length,
+        semanticCount: semanticUnique.length,
+        semanticAvailable,
+        semanticAttempted,
+        semanticFailed,
+      });
+      const retrievalDebug = {
+        retrievalMode: retrievalEnvelope.mode,
+        semanticAttempted: retrievalEnvelope.semanticAttempted,
+        semanticAvailable: retrievalEnvelope.semanticAvailable,
+        lexicalCount: retrievalEnvelope.lexicalCount,
+        semanticCount: retrievalEnvelope.semanticCount,
+      };
 
       // Only pay for fillers (top-rated, major-rated) when search isn't providing enough options.
       const needFillers = searchUnique.length + semanticUnique.length < 24 && candidateQuery.length >= 3;
@@ -1219,6 +1238,7 @@ router.post(
                   intentMode: decision.mode,
                   intentReason: decision.reason,
                   retrievalSkipped: false,
+                  ...retrievalDebug,
                   model: env.openaiModel,
                   totalMs: Date.now() - tStart,
                   depsMs,
@@ -1426,6 +1446,7 @@ router.post(
                   intentMode: decision.mode,
                   intentReason: decision.reason,
                   retrievalSkipped: false,
+                  ...retrievalDebug,
                   model: env.openaiModel,
                   totalMs,
                   depsMs,
@@ -1566,6 +1587,7 @@ router.post(
                   intentMode: decision.mode,
                   intentReason: decision.reason,
                   retrievalSkipped: false,
+                  ...retrievalDebug,
                   model: env.openaiModel,
                   totalMs,
                   depsMs,
@@ -1641,6 +1663,7 @@ router.post(
                 intentMode: decision.mode,
                 intentReason: decision.reason,
                 retrievalSkipped: false,
+                ...retrievalDebug,
                 model: env.openaiModel,
                 totalMs,
                 depsMs,
