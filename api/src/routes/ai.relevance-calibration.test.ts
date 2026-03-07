@@ -233,6 +233,51 @@ async function postRecommendation(body: Record<string, unknown>) {
   return { status: res.statusCode, body: res.payload };
 }
 
+function expectRecommendDebugContract(
+  debug: any,
+  options?: {
+    expectedConstraintsActive?: boolean;
+    expectedConstraintFallbackTriggered?: boolean;
+  }
+) {
+  expect(debug.intentMode).toBe("recommend");
+  expect(debug.retrievalSkipped).toBe(false);
+
+  expect(debug.candidateComposition).toMatchObject({
+    totalCandidates: debug.candidateCount,
+    searchUniqueCount: debug.searchUniqueCount,
+    semanticUniqueCount: debug.semanticUniqueCount,
+    semanticCandidateCount: debug.semanticCandidateCount,
+    withDescriptionCount: debug.candidatesWithDescription,
+    byDepartment: expect.any(Object),
+  });
+
+  expect(debug.filterEvidence).toMatchObject({
+    droppedCount: debug.filterConstraintDroppedCount,
+    constraintsActive: expect.any(Boolean),
+    constraintFallbackTriggered: expect.any(Boolean),
+  });
+  if (typeof options?.expectedConstraintsActive === "boolean") {
+    expect(debug.filterEvidence.constraintsActive).toBe(options.expectedConstraintsActive);
+  }
+  expect(debug.filterEvidence.constraintFallbackTriggered).toBe(
+    options?.expectedConstraintFallbackTriggered ?? false
+  );
+
+  expect(Array.isArray(debug.rankingTopBreakdown)).toBe(true);
+  expect(debug.rankingTopBreakdown.length).toBeGreaterThan(0);
+  expect(debug.rankingTopBreakdown[0]).toMatchObject({
+    rank: expect.any(Number),
+    courseId: expect.any(Number),
+    courseCode: expect.any(String),
+    courseTitle: expect.any(String),
+    baseRelevance: expect.any(Number),
+    preference: expect.any(Number),
+    trainer: expect.any(Number),
+    final: expect.any(Number),
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 
@@ -288,6 +333,9 @@ describe("POST /ai/course-recommendations relevance calibration", () => {
     expect(body.debug.semanticAttempted).toBe(true);
     expect(body.debug.semanticAvailable).toBe(true);
     expect(body.debug.semanticCount).toBeGreaterThan(0);
+    expectRecommendDebugContract(body.debug, {
+      expectedConstraintsActive: false,
+    });
   });
 
   it("emits hybrid_degraded telemetry when semantic retrieval fails", async () => {
@@ -304,6 +352,9 @@ describe("POST /ai/course-recommendations relevance calibration", () => {
     expect(body.debug.semanticAttempted).toBe(true);
     expect(body.debug.semanticAvailable).toBe(true);
     expect(body.debug.semanticCount).toBe(0);
+    expectRecommendDebugContract(body.debug, {
+      expectedConstraintsActive: false,
+    });
   });
 
   it("always executes lexical retrieval when derived search terms are empty", async () => {
@@ -320,6 +371,9 @@ describe("POST /ai/course-recommendations relevance calibration", () => {
     expect(body.debug.searchTerms).toEqual([]);
     expect(body.debug.retrievalMode).toBe("lexical_only");
     expect(body.debug.lexicalCount).toBeGreaterThan(0);
+    expectRecommendDebugContract(body.debug, {
+      expectedConstraintsActive: false,
+    });
   });
 
   it("keeps ranking relevance-led despite extreme trainer and preference signals", async () => {
@@ -388,6 +442,9 @@ describe("POST /ai/course-recommendations relevance calibration", () => {
       expect(leaderIndex).toBeLessThan(amplifiedIndex);
     }
     expect(recommendationIds[0]).not.toBe(311);
+    expectRecommendDebugContract(body.debug, {
+      expectedConstraintsActive: false,
+    });
   });
 
   it("enforces final-card department diversity for unconstrained requests", async () => {
@@ -469,6 +526,9 @@ describe("POST /ai/course-recommendations relevance calibration", () => {
     expect(earlyRecommendations.filter((code: string) => code === "CS").length).toBeLessThanOrEqual(2);
     expect(new Set(earlyRecommendations).size).toBeGreaterThan(1);
     expect(body.debug.concentrationAllowed).toBe(false);
+    expectRecommendDebugContract(body.debug, {
+      expectedConstraintsActive: false,
+    });
   });
 
   it("allows concentration when explicit department filters are active", async () => {
@@ -522,6 +582,9 @@ describe("POST /ai/course-recommendations relevance calibration", () => {
       body.recommendations.every((item: any) => item.course.department?.code === "CS")
     ).toBe(true);
     expect(body.debug.concentrationAllowed).toBe(true);
+    expectRecommendDebugContract(body.debug, {
+      expectedConstraintsActive: true,
+    });
   });
 
   it("returns low-relevance refine guidance with zero recommendations", async () => {
@@ -579,5 +642,9 @@ describe("POST /ai/course-recommendations relevance calibration", () => {
     expect(body.debug.lowRelevanceRefineUsed).toBe(true);
     expect(body.debug.safeFallbackUsed).toBe(false);
     expect(body.debug.relevanceSufficient).toBe(false);
+    expectRecommendDebugContract(body.debug, {
+      expectedConstraintsActive: false,
+    });
+    expect(body.debug.relevanceGateEligible).toBe(true);
   });
 });
