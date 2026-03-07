@@ -50,6 +50,7 @@ import {
   buildLowRelevanceRefineGuidance,
   isRelevanceSufficient,
 } from "../ai/relevance/relevanceSufficiencyPolicy.js";
+import { recordAiQualityEvent } from "../ai/observability/aiQualityTelemetry.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
 const router = Router();
@@ -962,16 +963,44 @@ router.post(
   aiLimiter,
   validate(recommendSchema),
   async (req, res) => {
+    let telemetryIntentMode: "conversation" | "clarify" | "recommend" = "conversation";
+    let telemetryRetrievalMode: "none" | "lexical_only" | "hybrid" | "hybrid_degraded" = "none";
+    let telemetryGroundingStatus: "not_applicable" | "passed" | "failed" = "not_applicable";
+    let telemetryUsedJsonFallback = false;
+    let telemetryGroundingMismatch = false;
+
     try {
       const tStart = Date.now();
-
-      if (!env.openaiApiKey) {
-        return res.status(500).json({ error: "AI is not configured on the server" });
-      }
 
       const { messages, prompt, reset, sessionId, excludeCourseIds, filters, preferences } = req.body as z.infer<
         typeof recommendSchema
       >;
+
+      const configErrorMessages: AiMessage[] = (() => {
+        if (Array.isArray(messages)) return messages as AiMessage[];
+        const nextUser = (prompt ?? "").trim();
+        return nextUser ? [{ role: "user" as const, content: nextUser }] : [];
+      })();
+      const configErrorLatestUser =
+        [...configErrorMessages].reverse().find((message) => message.role === "user")?.content ?? "";
+      const configErrorDecision = classifyIntent({
+        latestUser: configErrorLatestUser,
+        recentMessages: configErrorMessages,
+      });
+      telemetryIntentMode = configErrorDecision.mode;
+
+      if (!env.openaiApiKey) {
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "route_error",
+          groundingStatus: telemetryGroundingStatus,
+          safeFallbackUsed: false,
+          usedJsonFallback: telemetryUsedJsonFallback,
+          groundingMismatch: telemetryGroundingMismatch,
+        });
+        return res.status(500).json({ error: "AI is not configured on the server" });
+      }
       const userId = req.user?.id ?? null;
       const sessionKey = resolveAiSessionKey({ userId, sessionId });
 
@@ -999,10 +1028,20 @@ router.post(
         latestUser,
         recentMessages: effectiveMessages,
       });
+      telemetryIntentMode = decision.mode;
       const isTrivialGreeting =
         decision.mode === "conversation" && decision.reason === "trivial_greeting";
 
       if (reset && !messages && !prompt) {
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: "none",
+          outcomeType: "reset",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
         return res.json({
           assistantMessage: "AI memory cleared.",
           followUpQuestion: null,
@@ -1039,6 +1078,15 @@ router.post(
             model: env.openaiModel,
           });
         }
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: "none",
+          outcomeType: "conversation_response",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
         return res.json({
           assistantMessage:
             "Hi. I can help with anything, including classes when you ask for course recommendations.",
@@ -1102,6 +1150,15 @@ router.post(
           });
         }
 
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: "none",
+          outcomeType: "conversation_response",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
         return res.json({
           assistantMessage,
           followUpQuestion: null,
@@ -1122,6 +1179,15 @@ router.post(
         const clarifyResponse = buildClarifyResponse({
           latestUser,
           recentMessages: effectiveMessages,
+        });
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: "none",
+          outcomeType: "clarify_response",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
         });
         return res.json({
           assistantMessage: clarifyResponse.assistantMessage,
@@ -1307,6 +1373,7 @@ router.post(
         lexicalCount: retrievalEnvelope.lexicalCount,
         semanticCount: retrievalEnvelope.semanticCount,
       };
+      telemetryRetrievalMode = retrievalEnvelope.mode;
 
       // Only pay for fillers (top-rated, major-rated) when search isn't providing enough options.
       const needFillers = searchUnique.length + semanticUnique.length < 24 && candidateQuery.length >= 3;
@@ -1388,6 +1455,15 @@ router.post(
           "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again."
         );
         persistSessionBlockedIds();
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "empty_candidates",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
         return res.json({
           assistantMessage:
             "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again.",
@@ -1559,6 +1635,7 @@ router.post(
           follow_up_question: null,
         };
         usedJsonFallback = true;
+        telemetryUsedJsonFallback = true;
       }
 
       const openaiMs = Date.now() - tOpenAiStart;
@@ -1569,6 +1646,8 @@ router.post(
         candidates,
         blockedCourseIds: excludeSet,
       });
+      telemetryGroundingStatus = groundingResult.ok ? "passed" : "failed";
+      telemetryGroundingMismatch = groundingResult.violations.length > 0;
       const excludedMentionCount = groundingResult.violations.filter(
         (violation) => violation.kind === "blocked_mention"
       ).length;
@@ -1592,6 +1671,15 @@ router.post(
           });
         }
 
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "grounding_fallback",
+          groundingStatus: "failed",
+          safeFallbackUsed: true,
+          usedJsonFallback: telemetryUsedJsonFallback,
+          groundingMismatch: telemetryGroundingMismatch,
+        });
         return res.json({
           assistantMessage: safeFallback.assistantMessage,
           followUpQuestion: safeFallback.followUpQuestion,
@@ -1660,6 +1748,15 @@ router.post(
         persistRecommendationContext(refineGuidance.assistantMessage);
         persistSessionBlockedIds();
 
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "low_relevance_refine",
+          groundingStatus: "passed",
+          safeFallbackUsed: false,
+          usedJsonFallback: telemetryUsedJsonFallback,
+          groundingMismatch: false,
+        });
         return res.json({
           assistantMessage: refineGuidance.assistantMessage,
           followUpQuestion: refineGuidance.followUpQuestion,
@@ -1816,6 +1913,15 @@ router.post(
           });
         }
 
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "filter_constraint_fallback",
+          groundingStatus: "passed",
+          safeFallbackUsed: true,
+          usedJsonFallback: telemetryUsedJsonFallback,
+          groundingMismatch: false,
+        });
         return res.json({
           assistantMessage: safeFallback.assistantMessage,
           followUpQuestion: safeFallback.followUpQuestion,
@@ -1891,6 +1997,15 @@ router.post(
         deptCounts[k] = (deptCounts[k] ?? 0) + 1;
       }
 
+      recordAiQualityEvent({
+        intentMode: telemetryIntentMode,
+        retrievalMode: telemetryRetrievalMode,
+        outcomeType: "recommendation_success",
+        groundingStatus: "passed",
+        safeFallbackUsed: false,
+        usedJsonFallback: telemetryUsedJsonFallback,
+        groundingMismatch: false,
+      });
       return res.json({
         assistantMessage: modelResult.assistant_message,
         followUpQuestion: null,
@@ -1942,6 +2057,15 @@ router.post(
           : {}),
       });
     } catch (err: any) {
+      recordAiQualityEvent({
+        intentMode: telemetryIntentMode,
+        retrievalMode: telemetryRetrievalMode,
+        outcomeType: "route_error",
+        groundingStatus: telemetryGroundingStatus,
+        safeFallbackUsed: false,
+        usedJsonFallback: telemetryUsedJsonFallback,
+        groundingMismatch: telemetryGroundingMismatch,
+      });
       console.error("AI recommend error:", err);
       return res.status(500).json({ error: err?.message || "AI request failed" });
     }
