@@ -38,7 +38,7 @@ Requirements for milestone v1.2. Each requirement must map to exactly one roadma
 
 - [ ] **AIOPS-01**: Team can monitor production-safe AI quality telemetry including intent mode, retrieval mode, fallback usage, and grounding mismatch indicators.
 - [ ] **AIOPS-02**: Team has automated regression tests that verify intent gating, Atlas grounding, exclusion handling, and empty/low-relevance behaviors.
-- [ ] **AIOPS-03**: Team can inspect non-production debug diagnostics for candidate composition, filter enforcement, and ranking factors.
+- [x] **AIOPS-03**: Team can inspect non-production debug diagnostics for candidate composition, filter enforcement, and ranking factors.
 
 ## v2 Requirements
 

@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Conversational Atlas-Grounded Chat
 status: unknown
-last_updated: "2026-03-07T02:11:18Z"
+last_updated: "2026-03-07T02:25:23Z"
 progress:
   total_phases: 9
   completed_phases: 8
-  total_plans: 26
-  completed_plans: 26
+  total_plans: 28
+  completed_plans: 27
 ---
 
 # Project State
@@ -18,29 +18,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 phase 9 execution, with 09-01 complete for production-safe AI telemetry instrumentation and admin monitoring exposure.
+**Current focus:** Milestone v1.2 phase 9 execution, with 09-02 complete for centralized non-production diagnostics and schema-locking relevance regressions.
 
 ## Current Position
 
 Phase: 9 - Observability and Regression Gates (in progress)
-Plan: 09-01 complete (01/03 summaries)
-Status: Phase 9 started; bounded AI quality telemetry now records route outcomes and admin metrics expose aggregate telemetry snapshots.
-Last activity: 2026-03-07 - completed 09-01 telemetry foundation + route instrumentation + admin metrics exposure (AIOPS-01)
+Plan: 09-02 complete (02/03 summaries)
+Status: Phase 9 in progress; telemetry foundation is live and non-production diagnostics now use one stable contract with ranking/filter evidence.
+Last activity: 2026-03-07 - completed 09-02 centralized diagnostics builder + route refactor + relevance diagnostics regression lock (AIOPS-03)
 
-Progress: [███░░░░░░░] 33%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 26
+- Total plans completed: 27
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
-- Latest execution: Plan 09-01 in 3 min (3 tasks, 4 implementation/test files + planning docs)
+- Latest execution: Plan 09-02 in 8 min (3 tasks, 4 implementation/test files + planning docs)
 
 ## Accumulated Context
 
 ### Decisions
 
+- [Plan 09-02 diagnostics contract]: Added `buildAiDebugDiagnostics` + `buildRankingTopBreakdown` as the single non-production diagnostics assembly contract with stable default keys.
+- [Plan 09-02 route parity]: Replaced duplicated branch-local `debug` literals in `POST /ai/course-recommendations` with centralized helper generation behind a shared production gate wrapper.
+- [Plan 09-02 regression lock]: Expanded `ai.relevance-calibration` assertions to enforce ranking breakdown shape and filter evidence semantics across recommend outcomes.
 - [Plan 09-01 telemetry contract]: Added a dedicated bounded telemetry recorder with enum/boolean-only dimensions and deterministic aggregate snapshot/rate APIs.
 - [Plan 09-01 route instrumentation]: Instrumented every terminal response branch in `POST /ai/course-recommendations` to emit exactly one quality telemetry event per outcome.
 - [Plan 09-01 admin monitoring]: Exposed `aiQualityTelemetry` snapshot in `/api/admin/system/metrics` under existing `requireAuth` + admin middleware protections.
@@ -125,5 +128,5 @@ Progress: [███░░░░░░░] 33%
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 09-01-PLAN.md
+Stopped at: Completed 09-observability-and-regression-gates-02-PLAN.md
 Resume file: None
