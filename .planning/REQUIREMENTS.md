@@ -36,8 +36,8 @@ Requirements for milestone v1.2. Each requirement must map to exactly one roadma
 
 ### Observability and Regression Gates
 
-- [ ] **AIOPS-01**: Team can monitor production-safe AI quality telemetry including intent mode, retrieval mode, fallback usage, and grounding mismatch indicators.
-- [ ] **AIOPS-02**: Team has automated regression tests that verify intent gating, Atlas grounding, exclusion handling, and empty/low-relevance behaviors.
+- [x] **AIOPS-01**: Team can monitor production-safe AI quality telemetry including intent mode, retrieval mode, fallback usage, and grounding mismatch indicators.
+- [x] **AIOPS-02**: Team has automated regression tests that verify intent gating, Atlas grounding, exclusion handling, and empty/low-relevance behaviors.
 - [x] **AIOPS-03**: Team can inspect non-production debug diagnostics for candidate composition, filter enforcement, and ranking factors.
 
 ## v2 Requirements
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-05*
-*Last updated: 2026-03-07 after completing Phase 8 Plan 03*
+*Last updated: 2026-03-07 after completing Phase 9 Plan 03*

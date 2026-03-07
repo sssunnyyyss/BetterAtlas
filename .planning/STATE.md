@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Conversational Atlas-Grounded Chat
 status: unknown
-last_updated: "2026-03-07T02:25:23Z"
+last_updated: "2026-03-07T02:32:52.845Z"
 progress:
   total_phases: 9
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 28
-  completed_plans: 27
+  completed_plans: 28
 ---
 
 # Project State
@@ -18,24 +18,24 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 phase 9 execution, with 09-02 complete for centralized non-production diagnostics and schema-locking relevance regressions.
+**Current focus:** Milestone v1.2 phase 9 completed; observability regressions and release-blocking AI gate command are now packaged and documented.
 
 ## Current Position
 
-Phase: 9 - Observability and Regression Gates (in progress)
-Plan: 09-02 complete (02/03 summaries)
-Status: Phase 9 in progress; telemetry foundation is live and non-production diagnostics now use one stable contract with ranking/filter evidence.
-Last activity: 2026-03-07 - completed 09-02 centralized diagnostics builder + route refactor + relevance diagnostics regression lock (AIOPS-03)
+Phase: 9 - Observability and Regression Gates (complete)
+Plan: 09-03 complete (03/03 summaries)
+Status: Phase 9 complete; AI observability and behavior regressions are now enforced through a single release-blocking gate command with runbook guidance.
+Last activity: 2026-03-07 - completed 09-03 observability route regressions + gate scripts + release policy runbook (AIOPS-02, AIOPS-01 reinforcement)
 
-Progress: [███████░░░] 67%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 27
+- Total plans completed: 28
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
-- Latest execution: Plan 09-02 in 8 min (3 tasks, 4 implementation/test files + planning docs)
+- Latest execution: Plan 09-03 in 3 min (3 tasks, 4 implementation/docs files + planning docs)
 
 ## Accumulated Context
 
@@ -116,6 +116,9 @@ Progress: [███████░░░] 67%
 - [Plan 07-04 lexical fallback]: Recommend-mode lexical retrieval always executes a primary search call, using normalized prompt text when derived terms are empty.
 - [Plan 07-04 broadening policy]: Per-term lexical broadening remains gated to `searchTerms.length > 1` while preserving existing relevance calibration flow.
 - [Plan 07-04 regression lock]: Route-level relevance calibration tests now assert lexical invocation and lexical_only telemetry for empty-derived-term prompts.
+- [Phase 09]: Adopted a single test:ai:gates release command to run build plus all AI route regression suites. — Prevents per-suite command drift and enforces one CI/release invocation path.
+- [Phase 09]: Added a dedicated ai.observability route test suite for telemetry outcome and debug environment contract coverage. — Isolating observability checks keeps failures actionable without coupling unrelated behavior suites.
+- [Phase 09]: Documented gate failures as release-blocking in docs/ai-regression-gates.md. — Aligns operational policy with automated AI safety and observability regression guarantees.
 
 ### Pending Todos
 
@@ -128,5 +131,5 @@ Progress: [███████░░░] 67%
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 09-observability-and-regression-gates-02-PLAN.md
+Stopped at: Completed 09-observability-and-regression-gates-03-PLAN.md
 Resume file: None
