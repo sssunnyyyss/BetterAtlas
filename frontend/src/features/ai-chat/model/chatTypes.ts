@@ -14,6 +14,7 @@ export type ChatPromptPayloadMessage = {
 
 export type ChatFailedPromptPayload = {
   prompt: string;
+  sessionId?: string;
   messages: ChatPromptPayloadMessage[];
 };
 

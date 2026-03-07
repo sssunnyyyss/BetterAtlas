@@ -48,22 +48,33 @@ export type AiPreferenceSignals = {
   disliked?: AiPreferenceCourse[];
 };
 
+type AiCourseRecommendationRequestCommon = {
+  reset?: boolean;
+  sessionId?: string;
+  excludeCourseIds?: number[];
+  filters?: AiRecommendationFilters;
+  preferences?: AiPreferenceSignals;
+};
+
+export type AiPromptCourseRecommendationsRequest =
+  AiCourseRecommendationRequestCommon & {
+    prompt: string;
+  };
+
+export type AiMessagesCourseRecommendationsRequest =
+  AiCourseRecommendationRequestCommon & {
+    messages: AiMessage[];
+  };
+
+export type AiResetCourseRecommendationsRequest = {
+  reset: true;
+  sessionId?: string;
+};
+
 export type AiCourseRecommendationsRequest =
-  | {
-      prompt: string;
-      reset?: boolean;
-      excludeCourseIds?: number[];
-      filters?: AiRecommendationFilters;
-      preferences?: AiPreferenceSignals;
-    }
-  | {
-      messages: AiMessage[];
-      reset?: boolean;
-      excludeCourseIds?: number[];
-      filters?: AiRecommendationFilters;
-      preferences?: AiPreferenceSignals;
-    }
-  | { reset: true };
+  | AiPromptCourseRecommendationsRequest
+  | AiMessagesCourseRecommendationsRequest
+  | AiResetCourseRecommendationsRequest;
 
 export function useAiCourseRecommendations() {
   return useMutation({
