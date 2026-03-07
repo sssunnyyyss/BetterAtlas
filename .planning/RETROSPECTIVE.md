@@ -35,6 +35,45 @@
 
 ---
 
+## Milestone: v1.2 — Conversational Atlas-Grounded Chat
+
+**Shipped:** 2026-03-07
+**Phases:** 5 | **Plans:** 17 | **Sessions:** 1
+
+### What Was Built
+- Deterministic intent routing and clarify-first conversational cadence gates.
+- Atlas-grounded recommendation safety with fail-closed fallback and hard filter enforcement.
+- Hybrid retrieval/ranking/diversity calibration with low-relevance refine guidance behavior.
+- Session-scoped memory + topic-shift precedence reliability across API and first-party chat payload contracts.
+- Production-safe AI telemetry and a release-blocking AI regression gate command (`test:ai:gates`).
+
+### What Worked
+- Plan-by-wave decomposition kept large cross-cutting backend/frontend work stable.
+- Policy-first modules with targeted route-level regressions reduced behavioral drift risk.
+- A single canonical gate command improved release confidence and reduced manual suite selection errors.
+
+### What Was Inefficient
+- Milestone audit gate was skipped; closeout proceeded with known audit-process debt.
+- Auto-generated milestone rollup stats were incomplete and required manual correction.
+- Some legacy state tooling expected older `STATE.md` formatting and required manual normalization.
+
+### Patterns Established
+- Keep production telemetry strictly enum/boolean-based and separate from non-production diagnostics.
+- Use centralized diagnostics builders instead of branch-local debug payload assembly.
+- Enforce pre-release quality with one authoritative command path (`pnpm run test:ai:gates`).
+
+### Key Lessons
+1. Treat milestone audits as a required pre-flight gate to avoid archival-time uncertainty.
+2. Keep summary metadata and parsing contracts strict so milestone statistics stay machine-reliable.
+3. Preserve deterministic policy modules + route regressions as the default for AI behavior changes.
+
+### Cost Observations
+- Model mix: 0% opus, 100% sonnet, 0% haiku
+- Sessions: 1
+- Notable: High phase throughput remained stable by keeping plans narrow and test-heavy.
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -42,14 +81,17 @@
 | Milestone | Sessions | Phases | Key Change |
 |-----------|----------|--------|------------|
 | v1.0 | 1 | 1 | Added deterministic program-mode contract across API and frontend |
+| v1.2 | 1 | 5 | Standardized AI behavior hardening through policy modules + release-blocking gate scripts |
 
 ### Cumulative Quality
 
 | Milestone | Tests | Coverage | Zero-Dep Additions |
 |-----------|-------|----------|-------------------|
 | v1.0 | Added targeted API + frontend regressions | Not measured | 0 |
+| v1.2 | Added intent/grounding/relevance/memory/observability regression gates | 22 files / 118 tests in `test:ai:gates` | 0 |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Keep selection logic centralized and deterministic to prevent UI/API drift.
 2. Treat milestone audits as release gates, not optional cleanup.
+3. Use one canonical release gate command to prevent suite drift and confidence gaps.
