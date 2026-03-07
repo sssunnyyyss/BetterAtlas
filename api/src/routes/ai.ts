@@ -51,6 +51,10 @@ import {
   isRelevanceSufficient,
 } from "../ai/relevance/relevanceSufficiencyPolicy.js";
 import { recordAiQualityEvent } from "../ai/observability/aiQualityTelemetry.js";
+import {
+  buildAiDebugDiagnostics,
+  buildRankingTopBreakdown,
+} from "../ai/observability/aiDebugDiagnostics.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
 const router = Router();
@@ -957,6 +961,11 @@ function buildRecommendationFromCourse({
   };
 }
 
+function withNonProductionDebug(factory: () => ReturnType<typeof buildAiDebugDiagnostics>) {
+  if (env.nodeEnv === "production") return {};
+  return { debug: factory() };
+}
+
 router.post(
   "/ai/course-recommendations",
   optionalAuth,
@@ -1046,15 +1055,13 @@ router.post(
           assistantMessage: "AI memory cleared.",
           followUpQuestion: null,
           recommendations: [],
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  intentMode: decision.mode,
-                  intentReason: "reset_request",
-                  retrievalSkipped: true,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildAiDebugDiagnostics({
+              intentMode: decision.mode,
+              intentReason: "reset_request",
+              retrievalSkipped: true,
+            })
+          ),
         });
       }
 
@@ -1092,15 +1099,13 @@ router.post(
             "Hi. I can help with anything, including classes when you ask for course recommendations.",
           followUpQuestion: null,
           recommendations: [],
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  intentMode: decision.mode,
-                  intentReason: decision.reason,
-                  retrievalSkipped: true,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildAiDebugDiagnostics({
+              intentMode: decision.mode,
+              intentReason: decision.reason,
+              retrievalSkipped: true,
+            })
+          ),
         });
       }
 
@@ -1163,15 +1168,13 @@ router.post(
           assistantMessage,
           followUpQuestion: null,
           recommendations: [],
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  intentMode: decision.mode,
-                  intentReason: decision.reason,
-                  retrievalSkipped: true,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildAiDebugDiagnostics({
+              intentMode: decision.mode,
+              intentReason: decision.reason,
+              retrievalSkipped: true,
+            })
+          ),
         });
       }
 
@@ -1193,15 +1196,13 @@ router.post(
           assistantMessage: clarifyResponse.assistantMessage,
           followUpQuestion: clarifyResponse.followUpQuestion,
           recommendations: [],
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  intentMode: decision.mode,
-                  intentReason: decision.reason,
-                  retrievalSkipped: true,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildAiDebugDiagnostics({
+              intentMode: decision.mode,
+              intentReason: decision.reason,
+              retrievalSkipped: true,
+            })
+          ),
         });
       }
 
@@ -1449,6 +1450,107 @@ router.post(
       );
       candidates = rankedCandidates.map((candidate) => candidate.course);
       const semanticCandidateCount = candidates.filter((c) => semanticIds.has(c.id)).length;
+      const rankingTopBreakdown = buildRankingTopBreakdown({
+        rankedCandidates,
+        limit: 5,
+      });
+      const buildRecommendDebugDiagnostics = (input: {
+        totalMs: number;
+        openaiMs: number;
+        candidateCount?: number;
+        semanticCandidateCount?: number;
+        candidatesWithDescription?: number;
+        deptCounts?: Record<string, number>;
+        groundingStatus?: "not_applicable" | "passed" | "failed";
+        groundingViolationCount?: number;
+        excludedMentionCount?: number;
+        usedJsonFallback?: boolean;
+        safeFallbackUsed?: boolean;
+        lowRelevanceRefineUsed?: boolean;
+        filterConstraintDroppedCount?: number;
+        constraintFallbackTriggered?: boolean;
+        concentrationAllowed?: boolean | null;
+        relevanceGateEligible?: boolean | null;
+        matchedTermCoverage?: number | null;
+        relevanceSufficient?: boolean | null;
+      }) =>
+        buildAiDebugDiagnostics({
+          intentMode: decision.mode,
+          intentReason: decision.reason,
+          retrievalSkipped: false,
+          retrieval: {
+            retrievalMode: retrievalDebug.retrievalMode,
+            semanticAttempted: retrievalDebug.semanticAttempted,
+            semanticAvailable: retrievalDebug.semanticAvailable,
+            lexicalCount: retrievalDebug.lexicalCount,
+            semanticCount: retrievalDebug.semanticCount,
+          },
+          timings: {
+            model: env.openaiModel,
+            totalMs: input.totalMs,
+            depsMs,
+            candidatesMs,
+            embedMs,
+            semanticMs,
+            openaiMs: input.openaiMs,
+          },
+          query: {
+            searchTerms,
+          },
+          candidateComposition: {
+            candidateCount: input.candidateCount ?? candidates.length,
+            hadFillers: needFillers,
+            userMajor: user?.major ?? null,
+            deptCode,
+            searchUniqueCount: searchUnique.length,
+            semanticUniqueCount: semanticUnique.length,
+            semanticCandidateCount: input.semanticCandidateCount ?? semanticCandidateCount,
+            candidatesWithDescription:
+              input.candidatesWithDescription ??
+              candidates.filter((candidate) => Boolean(candidate.description)).length,
+            deptCounts: input.deptCounts ?? {},
+          },
+          preferenceSignals: {
+            appliedFilters: activeFilters,
+            likedSignals: likedCourses.length,
+            dislikedSignals: dislikedCourses.length,
+          },
+          trainerSignals: {
+            trainerScoresLoaded: trainerScores.size,
+            trainerBoostedCount:
+              candidates.filter((candidate) => (trainerScores.get(candidate.id) ?? 0) > 0.3).length,
+            trainerDemotedCount:
+              candidates.filter((candidate) => (trainerScores.get(candidate.id) ?? 0) < -0.3).length,
+          },
+          grounding: {
+            status: input.groundingStatus ?? "not_applicable",
+            violationCount: input.groundingViolationCount ?? 0,
+            excludedMentionCount: input.excludedMentionCount ?? 0,
+            blockedCourseCount: excludeSet.size,
+          },
+          outcome: {
+            usedJsonFallback: Boolean(input.usedJsonFallback),
+            safeFallbackUsed: Boolean(input.safeFallbackUsed),
+            lowRelevanceRefineUsed: Boolean(input.lowRelevanceRefineUsed),
+            concentrationAllowed:
+              typeof input.concentrationAllowed === "boolean"
+                ? input.concentrationAllowed
+                : null,
+          },
+          relevanceGate: {
+            eligible:
+              typeof input.relevanceGateEligible === "boolean" ? input.relevanceGateEligible : null,
+            matchedTermCoverage:
+              typeof input.matchedTermCoverage === "number" ? input.matchedTermCoverage : null,
+            sufficient:
+              typeof input.relevanceSufficient === "boolean" ? input.relevanceSufficient : null,
+          },
+          filterEnforcement: {
+            droppedCount: input.filterConstraintDroppedCount ?? 0,
+            constraintFallbackTriggered: Boolean(input.constraintFallbackTriggered),
+          },
+          rankingTopBreakdown,
+        });
 
       if (candidates.length === 0) {
         persistRecommendationContext(
@@ -1469,38 +1571,15 @@ router.post(
             "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again.",
           followUpQuestion: null,
           recommendations: [],
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  intentMode: decision.mode,
-                  intentReason: decision.reason,
-                  retrievalSkipped: false,
-                  ...retrievalDebug,
-                  model: env.openaiModel,
-                  totalMs: Date.now() - tStart,
-                  depsMs,
-                  candidatesMs,
-                  embedMs,
-                  semanticMs,
-                  openaiMs: 0,
-                  searchTerms,
-                  candidateCount: 0,
-                  hadFillers: needFillers,
-                  userMajor: user?.major ?? null,
-                  deptCode,
-                  searchUniqueCount: searchUnique.length,
-                  semanticUniqueCount: semanticUnique.length,
-                  semanticCandidateCount: 0,
-                  candidatesWithDescription: 0,
-                  appliedFilters: activeFilters,
-                  likedSignals: likedCourses.length,
-                  dislikedSignals: dislikedCourses.length,
-                  trainerScoresLoaded: trainerScores.size,
-                  trainerBoostedCount: 0,
-                  trainerDemotedCount: 0,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildRecommendDebugDiagnostics({
+              totalMs: Date.now() - tStart,
+              openaiMs: 0,
+              candidateCount: 0,
+              semanticCandidateCount: 0,
+              candidatesWithDescription: 0,
+            })
+          ),
         });
       }
 
@@ -1684,47 +1763,17 @@ router.post(
           assistantMessage: safeFallback.assistantMessage,
           followUpQuestion: safeFallback.followUpQuestion,
           recommendations: safeFallback.recommendations,
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  intentMode: decision.mode,
-                  intentReason: decision.reason,
-                  retrievalSkipped: false,
-                  ...retrievalDebug,
-                  model: env.openaiModel,
-                  totalMs,
-                  depsMs,
-                  candidatesMs,
-                  embedMs,
-                  semanticMs,
-                  openaiMs,
-                  searchTerms,
-                  candidateCount: candidates.length,
-                  hadFillers: needFillers,
-                  userMajor: user?.major ?? null,
-                  deptCode,
-                  searchUniqueCount: searchUnique.length,
-                  semanticUniqueCount: semanticUnique.length,
-                  semanticCandidateCount,
-                  candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
-                  appliedFilters: activeFilters,
-                  likedSignals: likedCourses.length,
-                  dislikedSignals: dislikedCourses.length,
-                  trainerScoresLoaded: trainerScores.size,
-                  trainerBoostedCount:
-                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
-                  trainerDemotedCount:
-                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
-                  usedJsonFallback,
-                  groundingStatus: "failed",
-                  groundingViolationCount: groundingResult.violations.length,
-                  excludedMentionCount,
-                  blockedCourseCount: excludeSet.size,
-                  safeFallbackUsed: true,
-                  filterConstraintDroppedCount: 0,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildRecommendDebugDiagnostics({
+              totalMs,
+              openaiMs,
+              groundingStatus: "failed",
+              groundingViolationCount: groundingResult.violations.length,
+              excludedMentionCount,
+              usedJsonFallback,
+              safeFallbackUsed: true,
+            })
+          ),
         });
       }
 
@@ -1761,51 +1810,19 @@ router.post(
           assistantMessage: refineGuidance.assistantMessage,
           followUpQuestion: refineGuidance.followUpQuestion,
           recommendations: refineGuidance.recommendations,
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  intentMode: decision.mode,
-                  intentReason: decision.reason,
-                  retrievalSkipped: false,
-                  ...retrievalDebug,
-                  model: env.openaiModel,
-                  totalMs: Date.now() - tStart,
-                  depsMs,
-                  candidatesMs,
-                  embedMs,
-                  semanticMs,
-                  openaiMs,
-                  searchTerms,
-                  candidateCount: candidates.length,
-                  hadFillers: needFillers,
-                  userMajor: user?.major ?? null,
-                  deptCode,
-                  searchUniqueCount: searchUnique.length,
-                  semanticUniqueCount: semanticUnique.length,
-                  semanticCandidateCount,
-                  candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
-                  appliedFilters: activeFilters,
-                  likedSignals: likedCourses.length,
-                  dislikedSignals: dislikedCourses.length,
-                  trainerScoresLoaded: trainerScores.size,
-                  trainerBoostedCount:
-                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
-                  trainerDemotedCount:
-                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
-                  usedJsonFallback,
-                  groundingStatus: "passed",
-                  groundingViolationCount: 0,
-                  excludedMentionCount: 0,
-                  blockedCourseCount: excludeSet.size,
-                  safeFallbackUsed: false,
-                  lowRelevanceRefineUsed: true,
-                  filterConstraintDroppedCount: 0,
-                  relevanceGateEligible,
-                  matchedTermCoverage,
-                  relevanceSufficient,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildRecommendDebugDiagnostics({
+              totalMs: Date.now() - tStart,
+              openaiMs,
+              groundingStatus: "passed",
+              usedJsonFallback,
+              safeFallbackUsed: false,
+              lowRelevanceRefineUsed: true,
+              relevanceGateEligible,
+              matchedTermCoverage,
+              relevanceSufficient,
+            })
+          ),
         });
       }
 
@@ -1926,52 +1943,22 @@ router.post(
           assistantMessage: safeFallback.assistantMessage,
           followUpQuestion: safeFallback.followUpQuestion,
           recommendations: safeFallback.recommendations,
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  intentMode: decision.mode,
-                  intentReason: decision.reason,
-                  retrievalSkipped: false,
-                  ...retrievalDebug,
-                  model: env.openaiModel,
-                  totalMs,
-                  depsMs,
-                  candidatesMs,
-                  embedMs,
-                  semanticMs,
-                  openaiMs,
-                  searchTerms,
-                  candidateCount: candidates.length,
-                  hadFillers: needFillers,
-                  userMajor: user?.major ?? null,
-                  deptCode,
-                  searchUniqueCount: searchUnique.length,
-                  semanticUniqueCount: semanticUnique.length,
-                  semanticCandidateCount,
-                  candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
-                  appliedFilters: activeFilters,
-                  likedSignals: likedCourses.length,
-                  dislikedSignals: dislikedCourses.length,
-                  trainerScoresLoaded: trainerScores.size,
-                  trainerBoostedCount:
-                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
-                  trainerDemotedCount:
-                    candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
-                  usedJsonFallback,
-                  groundingStatus: "passed",
-                  groundingViolationCount: 0,
-                  excludedMentionCount: 0,
-                  blockedCourseCount: excludeSet.size,
-                  safeFallbackUsed: true,
-                  filterConstraintDroppedCount,
-                  concentrationAllowed,
-                  lowRelevanceRefineUsed: false,
-                  relevanceGateEligible,
-                  matchedTermCoverage,
-                  relevanceSufficient,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildRecommendDebugDiagnostics({
+              totalMs,
+              openaiMs,
+              groundingStatus: "passed",
+              usedJsonFallback,
+              safeFallbackUsed: true,
+              filterConstraintDroppedCount,
+              constraintFallbackTriggered: true,
+              concentrationAllowed,
+              lowRelevanceRefineUsed: false,
+              relevanceGateEligible,
+              matchedTermCoverage,
+              relevanceSufficient,
+            })
+          ),
         });
       }
 
@@ -2010,51 +1997,23 @@ router.post(
         assistantMessage: modelResult.assistant_message,
         followUpQuestion: null,
         recommendations,
-        ...(env.nodeEnv !== "production"
-          ? {
-              debug: {
-                intentMode: decision.mode,
-                intentReason: decision.reason,
-                retrievalSkipped: false,
-                ...retrievalDebug,
-                model: env.openaiModel,
-                totalMs,
-                depsMs,
-                candidatesMs,
-                embedMs,
-                semanticMs,
-                openaiMs,
-                searchTerms,
-                candidateCount: candidates.length,
-                hadFillers: needFillers,
-                userMajor: user?.major ?? null,
-                deptCode,
-                searchUniqueCount: searchUnique.length,
-                semanticUniqueCount: semanticUnique.length,
-                semanticCandidateCount,
-                candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
-                deptCounts,
-                appliedFilters: activeFilters,
-                likedSignals: likedCourses.length,
-                dislikedSignals: dislikedCourses.length,
-                trainerScoresLoaded: trainerScores.size,
-                trainerBoostedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
-                trainerDemotedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
-                usedJsonFallback,
-                groundingStatus: "passed",
-                groundingViolationCount: 0,
-                excludedMentionCount: 0,
-                blockedCourseCount: excludeSet.size,
-                safeFallbackUsed: false,
-                filterConstraintDroppedCount,
-                concentrationAllowed,
-                lowRelevanceRefineUsed: false,
-                relevanceGateEligible,
-                matchedTermCoverage,
-                relevanceSufficient,
-              },
-            }
-          : {}),
+        ...withNonProductionDebug(() =>
+          buildRecommendDebugDiagnostics({
+            totalMs,
+            openaiMs,
+            deptCounts,
+            groundingStatus: "passed",
+            usedJsonFallback,
+            safeFallbackUsed: false,
+            filterConstraintDroppedCount,
+            constraintFallbackTriggered: false,
+            concentrationAllowed,
+            lowRelevanceRefineUsed: false,
+            relevanceGateEligible,
+            matchedTermCoverage,
+            relevanceSufficient,
+          })
+        ),
       });
     } catch (err: any) {
       recordAiQualityEvent({
