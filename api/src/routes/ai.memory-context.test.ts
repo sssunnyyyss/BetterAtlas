@@ -415,7 +415,7 @@ describe("POST /ai/course-recommendations memory context", () => {
         filters: { department: "QTM" },
       },
     });
-    const searchArgs = vi.mocked(searchCourses).mock.calls.at(-1)?.[0] ?? {};
+    const searchArgs = (vi.mocked(searchCourses).mock.calls.at(-1)?.[0] ?? {}) as any;
     const openAiCall = vi.mocked(openAiChatJson).mock.calls.at(-1)?.[0];
     const contextMessage = openAiCall?.messages?.[1]?.content ?? "";
     const resolvedLine =
