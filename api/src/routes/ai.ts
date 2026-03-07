@@ -15,6 +15,12 @@ import {
   getSessionBlockedCourseIds,
   mergeSessionBlockedCourseIds,
 } from "../ai/grounding/sessionBlocklistState.js";
+import {
+  clearSessionContext,
+  getSessionContext,
+  resolveAiSessionKey,
+  upsertSessionContext,
+} from "../ai/memory/sessionContextState.js";
 import { getUserById } from "../services/userService.js";
 import {
   listCourses,
@@ -83,6 +89,8 @@ const recommendSchema = z
     prompt: z.string().min(1).max(4000).optional(),
     // Back-compat: client may send the whole message list.
     messages: z.array(aiMessageSchema).min(1).max(12).optional(),
+    // Optional chat-session identifier to isolate memory/blocklist state per tab/conversation.
+    sessionId: z.string().max(120).optional(),
     // Avoid recommending already-shown courses (used by "Generate more").
     excludeCourseIds: z.array(z.number().int().positive()).max(200).optional(),
     // Apply active catalog filters as hard constraints to candidate retrieval.
@@ -325,10 +333,6 @@ function deriveAiSearchTerms(text: string, deps?: DepartmentMini[]) {
   return out;
 }
 
-const MEMORY_TTL_MS = 6 * 60 * 60 * 1000; // 6h
-const MEMORY_MAX_MESSAGES = 6; // last N user/assistant messages (keep context small for latency)
-const memoryByUser = new Map<string, { messages: AiMessage[]; updatedAt: number }>();
-
 type DepartmentMini = { code: string; name: string };
 type CacheEntry<T> = { value: T; updatedAt: number };
 type AiCourseFilters = z.infer<typeof aiFilterSchema>;
@@ -436,23 +440,15 @@ async function getTrainerScoresCached(): Promise<Map<number, number>> {
   return trainerScoresInFlight;
 }
 
-function getUserMemory(userId: string): AiMessage[] {
-  const existing = memoryByUser.get(userId);
-  if (!existing) return [];
-  if (Date.now() - existing.updatedAt > MEMORY_TTL_MS) {
-    memoryByUser.delete(userId);
-    return [];
-  }
-  return existing.messages;
+function getSessionMessages(sessionKey: string | null): AiMessage[] {
+  if (!sessionKey) return [];
+  const context = getSessionContext(sessionKey);
+  return context?.messages ?? [];
 }
 
-function setUserMemory(userId: string, messages: AiMessage[]) {
-  const trimmed = messages.slice(-MEMORY_MAX_MESSAGES);
-  memoryByUser.set(userId, { messages: trimmed, updatedAt: Date.now() });
-}
-
-function clearUserMemory(userId: string) {
-  memoryByUser.delete(userId);
+function persistSessionMessages(sessionKey: string | null, messages: AiMessage[]) {
+  if (!sessionKey) return;
+  upsertSessionContext(sessionKey, { messages: messages.slice(-12) });
 }
 
 function dedupeCourses(courses: CourseWithRatings[]) {
@@ -864,23 +860,24 @@ router.post(
         return res.status(500).json({ error: "AI is not configured on the server" });
       }
 
-      const { messages, prompt, reset, excludeCourseIds, filters, preferences } = req.body as z.infer<
+      const { messages, prompt, reset, sessionId, excludeCourseIds, filters, preferences } = req.body as z.infer<
         typeof recommendSchema
       >;
       const userId = req.user?.id ?? null;
+      const sessionKey = resolveAiSessionKey({ userId, sessionId });
 
-      if (reset && userId) {
-        clearUserMemory(userId);
-        clearSessionBlockedCourseIds(userId);
+      if (reset && sessionKey) {
+        clearSessionContext(sessionKey);
+        clearSessionBlockedCourseIds(sessionKey);
       }
 
       const effectiveMessages: AiMessage[] = (() => {
         if (Array.isArray(messages)) return messages as AiMessage[];
         const nextUser = (prompt ?? "").trim();
-        if (!userId) {
+        if (!sessionKey) {
           return nextUser ? [{ role: "user" as const, content: nextUser }] : [];
         }
-        const mem = getUserMemory(userId);
+        const mem = getSessionMessages(sessionKey);
         const merged = nextUser ? [...mem, { role: "user" as const, content: nextUser }] : mem;
         // Keep model context bounded.
         return merged.slice(-12);
@@ -913,9 +910,9 @@ router.post(
       }
 
       if (isTrivialGreeting) {
-        if (userId) {
-          setUserMemory(userId, [
-            ...getUserMemory(userId),
+        if (sessionKey) {
+          persistSessionMessages(sessionKey, [
+            ...effectiveMessages,
             {
               role: "assistant" as const,
               content: "Hi. I can help with anything, including classes when you ask for course recommendations.",
@@ -974,8 +971,8 @@ router.post(
         });
         const openaiMs = Date.now() - tOpenAiStart;
 
-        if (userId) {
-          setUserMemory(userId, [
+        if (sessionKey) {
+          persistSessionMessages(sessionKey, [
             ...effectiveMessages,
             { role: "assistant" as const, content: assistantMessage },
           ]);
@@ -1040,16 +1037,16 @@ router.post(
         (excludeCourseIds ?? []).filter((id) => typeof id === "number" && Number.isFinite(id))
       );
       for (const c of dislikedCourses) excludeSet.add(c.id);
-      if (userId) {
-        const priorBlockedIds = getSessionBlockedCourseIds(userId);
+      if (sessionKey) {
+        const priorBlockedIds = getSessionBlockedCourseIds(sessionKey);
         for (const blockedId of priorBlockedIds) {
           excludeSet.add(blockedId);
         }
       }
 
       const persistSessionBlockedIds = () => {
-        if (!userId) return;
-        mergeSessionBlockedCourseIds(userId, excludeSet);
+        if (!sessionKey) return;
+        mergeSessionBlockedCourseIds(sessionKey, excludeSet);
       };
 
       const user = userId ? await getUserById(userId) : null;
@@ -1408,8 +1405,8 @@ router.post(
 
       if (!groundingResult.ok) {
         const safeFallback = buildSafeGroundingFallback();
-        if (userId) {
-          setUserMemory(userId, [
+        if (sessionKey) {
+          persistSessionMessages(sessionKey, [
             ...effectiveMessages,
             { role: "assistant" as const, content: safeFallback.assistantMessage },
           ]);
@@ -1495,8 +1492,8 @@ router.post(
           retrievalMode: retrievalEnvelope.mode,
           matchedTermCoverage,
         });
-        if (userId) {
-          setUserMemory(userId, [
+        if (sessionKey) {
+          persistSessionMessages(sessionKey, [
             ...effectiveMessages,
             { role: "assistant" as const, content: refineGuidance.assistantMessage },
           ]);
@@ -1642,8 +1639,8 @@ router.post(
 
       if (filterConstraintDroppedCount > 0 && recommendations.length === 0) {
         const safeFallback = buildSafeGroundingFallback();
-        if (userId) {
-          setUserMemory(userId, [
+        if (sessionKey) {
+          persistSessionMessages(sessionKey, [
             ...effectiveMessages,
             { role: "assistant" as const, content: safeFallback.assistantMessage },
           ]);
@@ -1718,8 +1715,8 @@ router.post(
       }
 
       // Persist per-user memory (isolated by user id).
-      if (userId) {
-        setUserMemory(userId, [
+      if (sessionKey) {
+        persistSessionMessages(sessionKey, [
           ...effectiveMessages,
           { role: "assistant" as const, content: modelResult.assistant_message },
         ]);

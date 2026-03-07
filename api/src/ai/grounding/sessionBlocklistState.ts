@@ -5,18 +5,19 @@ type SessionBlocklistEntry = {
   updatedAt: number;
 };
 
-const blocklistByUser = new Map<string, SessionBlocklistEntry>();
+const blocklistBySessionKey = new Map<string, SessionBlocklistEntry>();
 
 function isValidCourseId(value: number) {
   return Number.isInteger(value) && value > 0;
 }
 
-function getFreshEntry(userId: string): SessionBlocklistEntry | null {
-  const entry = blocklistByUser.get(userId);
+function getFreshEntry(sessionKey: string): SessionBlocklistEntry | null {
+  if (!sessionKey) return null;
+  const entry = blocklistBySessionKey.get(sessionKey);
   if (!entry) return null;
 
   if (Date.now() - entry.updatedAt > SESSION_BLOCKLIST_TTL_MS) {
-    blocklistByUser.delete(userId);
+    blocklistBySessionKey.delete(sessionKey);
     return null;
   }
 
@@ -31,17 +32,21 @@ function sanitizeIds(blockedIds: Iterable<number>) {
   return out;
 }
 
-export function getSessionBlockedCourseIds(userId: string): Set<number> {
-  const entry = getFreshEntry(userId);
+export function getSessionBlockedCourseIds(sessionKey: string): Set<number> {
+  const entry = getFreshEntry(sessionKey);
   if (!entry) return new Set<number>();
   return new Set<number>(entry.blockedCourseIds);
 }
 
 export function mergeSessionBlockedCourseIds(
-  userId: string,
+  sessionKey: string,
   blockedIds: Iterable<number>
 ): Set<number> {
-  const existing = getFreshEntry(userId);
+  if (!sessionKey) {
+    return sanitizeIds(blockedIds);
+  }
+
+  const existing = getFreshEntry(sessionKey);
   const merged = new Set<number>(existing ? existing.blockedCourseIds : []);
   const incoming = sanitizeIds(blockedIds);
 
@@ -50,11 +55,11 @@ export function mergeSessionBlockedCourseIds(
   }
 
   if (merged.size === 0) {
-    blocklistByUser.delete(userId);
+    blocklistBySessionKey.delete(sessionKey);
     return merged;
   }
 
-  blocklistByUser.set(userId, {
+  blocklistBySessionKey.set(sessionKey, {
     blockedCourseIds: merged,
     updatedAt: Date.now(),
   });
@@ -62,6 +67,7 @@ export function mergeSessionBlockedCourseIds(
   return new Set<number>(merged);
 }
 
-export function clearSessionBlockedCourseIds(userId: string): void {
-  blocklistByUser.delete(userId);
+export function clearSessionBlockedCourseIds(sessionKey: string): void {
+  if (!sessionKey) return;
+  blocklistBySessionKey.delete(sessionKey);
 }
