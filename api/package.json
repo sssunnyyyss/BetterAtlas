@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "vitest run",
+    "test:ai:gates": "pnpm run build && pnpm run test -- src/routes/ai.intent-routing.test.ts src/routes/ai.grounding-safety.test.ts src/routes/ai.relevance-calibration.test.ts src/routes/ai.memory-context.test.ts src/routes/ai.observability.test.ts",
     "test:watch": "vitest",
     "atlas:sync": "tsx src/jobs/atlasSync.ts",
     "programs:sync": "tsx src/jobs/programsSync.ts",
