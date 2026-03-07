@@ -10,7 +10,7 @@
 
 **Goal:** Deliver a natural conversational AI counselor that recommends accurate BetterAtlas catalog courses when contextually appropriate, without forcing recommendations in every turn.
 
-**Status:** Phase 6 complete (4/4 plans complete); Phase 7 complete (4/4 plans complete); Phase 8 in progress (2/3 plans complete)  
+**Status:** Phase 6 complete (4/4 plans complete); Phase 7 complete (4/4 plans complete); Phase 8 complete (3/3 plans complete)  
 **Phase range:** 5-9  
 **Requirement coverage:** 18/18 mapped (100%)
 
@@ -21,7 +21,7 @@
 | 5 | Intent Routing and Conversation Cadence | AIINT-01, AIINT-02, AIINT-03, AIINT-04 | Complete (3/3, 2026-03-05) |
 | 6 | Atlas Grounding and Recommendation Safety | AIGRD-01, AIGRD-02, AIGRD-03, AIGRD-04 | Complete (4/4, 2026-03-06) |
 | 7 | Retrieval and Ranking Relevance Calibration | AIREL-01, AIREL-02, AIREL-03, AIREL-04 | Complete (4/4, 2026-03-06) |
-| 8 | Memory and Multi-Turn Context Reliability | AIMEM-01, AIMEM-02, AIMEM-03 | In Progress (2/3, 2026-03-07) |
+| 8 | Memory and Multi-Turn Context Reliability | AIMEM-01, AIMEM-02, AIMEM-03 | Complete (3/3, 2026-03-07) |
 | 9 | Observability and Regression Gates | AIOPS-01, AIOPS-02, AIOPS-03 | Ready |
 
 ## Phase Details
@@ -86,7 +86,7 @@
 
 ## Next Up
 
-- Continue Phase 8 execution: complete plan `08-03` to finish remaining memory/multi-turn reliability scope and phase closeout.
+- Start Phase 9 execution for observability and regression gates (`09-01` next).
 
 ---
-*Last updated: 2026-03-07 after completing Phase 8 Plan 02*
+*Last updated: 2026-03-07 after completing Phase 8 Plan 03*

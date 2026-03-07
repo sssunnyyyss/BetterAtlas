@@ -30,9 +30,9 @@ Requirements for milestone v1.2. Each requirement must map to exactly one roadma
 
 ### Memory and Multi-Turn Context Reliability
 
-- [ ] **AIMEM-01**: User chat memory is isolated per user session, TTL-bounded, and clearable through explicit reset behavior.
-- [ ] **AIMEM-02**: User topic shifts cause stale recommendation constraints to decay or reset so new intent is prioritized.
-- [ ] **AIMEM-03**: User latest-turn intent and constraints are prioritized over older turns during recommendation generation.
+- [x] **AIMEM-01**: User chat memory is isolated per user session, TTL-bounded, and clearable through explicit reset behavior.
+- [x] **AIMEM-02**: User topic shifts cause stale recommendation constraints to decay or reset so new intent is prioritized.
+- [x] **AIMEM-03**: User latest-turn intent and constraints are prioritized over older turns during recommendation generation.
 
 ### Observability and Regression Gates
 
@@ -96,4 +96,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-03-05*
-*Last updated: 2026-03-06 after completing Phase 7 Plan 04*
+*Last updated: 2026-03-07 after completing Phase 8 Plan 03*

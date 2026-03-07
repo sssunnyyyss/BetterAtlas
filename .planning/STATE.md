@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: in_progress
-last_updated: "2026-03-07T01:02:49Z"
+last_updated: "2026-03-07T01:11:12Z"
 progress:
   total_phases: 8
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 25
-  completed_plans: 24
+  completed_plans: 25
 ---
 
 # Project State
@@ -18,29 +18,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 phase 8 execution, with route-level memory/session reliability integration and regressions now completed for plan 08-02.
+**Current focus:** Milestone v1.2 phase 9 kickoff prep, with phase 8 now complete across route and first-party frontend session-memory flows.
 
 ## Current Position
 
-Phase: 8 - Memory and Multi-Turn Context Reliability (in progress)
-Plan: 08-02 complete (02/03 summaries)
-Status: Phase 8 in progress; route-level session memory/blocklist isolation plus topic-shift/precedence orchestration are now integrated and regression-locked.
-Last activity: 2026-03-07 - completed 08-02 session-aware route integration with dedicated memory-context regressions (AIMEM-01..03)
+Phase: 8 - Memory and Multi-Turn Context Reliability (complete)
+Plan: 08-03 complete (03/03 summaries)
+Status: Phase 8 complete; first-party chat now sends prompt/sessionId requests, reset reuses session scope, and hook-level payload regressions lock behavior.
+Last activity: 2026-03-07 - completed 08-03 frontend prompt/session contract alignment with send/retry/reset/deep-link regressions (AIMEM-01, AIMEM-03)
 
-Progress: [██████████] 96%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 24
+- Total plans completed: 25
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
-- Latest execution: Plan 08-02 in 12 min (3 tasks, 6 implementation/test files + planning docs)
+- Latest execution: Plan 08-03 in 4 min (3 tasks, 4 implementation/test files + planning docs)
 
 ## Accumulated Context
 
 ### Decisions
 
+- [Plan 08-03 frontend request contract]: Extend frontend AI request typing to support prompt/session and reset/session payloads while preserving `messages` compatibility for non-first-party callers.
+- [Plan 08-03 first-party payload policy]: Use stable per-tab `sessionId` from `sessionStorage` and send prompt-first mutation payloads for send/retry/deep-link flows.
+- [Plan 08-03 reset parity]: Route reset through `{ reset: true, sessionId }` to clear server memory on the same session channel used by active turns.
 - [Plan 08-02 session-key route contract]: Extend `POST /ai/course-recommendations` with optional `sessionId`, resolve stable session keys, and route memory/blocklist reads/writes/clears through session-keyed helpers (including anonymous session-key support).
 - [Plan 08-02 blocklist parity]: Align `sessionBlocklistState` with chat session keys so exclusions/dislikes and reset semantics remain isolated per session ID for the same authenticated user.
 - [Plan 08-02 recommend context policy]: Apply deterministic precedence (explicit current > latest-turn inferred > prior inferred), run topic-shift decay before recommend-mode context reuse, and persist resolved constraints/fingerprint in session context after each recommend turn.
@@ -119,5 +122,5 @@ Progress: [██████████] 96%
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 08-02-PLAN.md
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None
