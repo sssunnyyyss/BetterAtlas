@@ -202,10 +202,15 @@ describe("AiChat foundation", () => {
     setViewportSize(390, 844);
     const mobileStandalone = renderAiChat();
     try {
-      const standaloneContainer = mobileStandalone.container.querySelector(
-        'div[class*="min-h-[calc(100dvh-4rem)]"]',
-      );
+      const standaloneContainer = mobileStandalone.container
+        .firstElementChild as HTMLElement | null;
       expect(standaloneContainer).not.toBeNull();
+      expect(standaloneContainer?.className ?? "").toContain(
+        "h-[calc(100dvh-4rem)]",
+      );
+      expect(standaloneContainer?.className ?? "").toContain(
+        "max-h-[calc(100dvh-4rem)]",
+      );
       expect(
         mobileStandalone.container.querySelector('[data-testid="chat-shell-standalone"]'),
       ).not.toBeNull();
