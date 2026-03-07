@@ -53,3 +53,30 @@
 - GSD utility closeout commands required manual metadata correction during archive prep.
 
 ---
+
+## v1.2 Conversational Atlas-Grounded Chat (Shipped: 2026-03-07)
+
+**Delivered:** A conversational, atlas-grounded AI counseling milestone with deterministic intent routing, strict grounding safety, bounded relevance calibration, session-scoped memory reliability, and release-blocking AI observability gates.
+
+**Phases completed:** 5 phases (17 plans, 50 tasks)
+
+**Key accomplishments:**
+- Enforced deterministic `conversation`/`clarify`/`recommend` intent routing and clarify-first recommendation cadence.
+- Added strict grounding safety gates with fail-closed fallback behavior and hard filter enforcement over catalog-backed candidates.
+- Shipped bounded hybrid retrieval + ranking/diversity calibration with low-relevance refine-first fallback behavior.
+- Introduced session-scoped memory/topic-shift reliability across API + first-party chat payload contracts.
+- Packaged production-safe telemetry and a single release-blocking `test:ai:gates` command with observability regressions and runbook.
+
+**Stats:**
+- 83 files changed
+- +12637 / -377 lines (net +12260)
+- Timeline: ~1 day (2026-03-05 14:34 -0800 -> 2026-03-06 18:38 -0800)
+- Codebase size at ship: ~121,099 JS/TS lines (`frontend`, `api`, `packages`)
+
+**Git range:** `feat(05-01)` -> `docs(phase-9)`
+
+### Known Gaps
+
+- Milestone audit file (`.planning/v1.2-MILESTONE-AUDIT.md`) was not present at completion time.
+
+---

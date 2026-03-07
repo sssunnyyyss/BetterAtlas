@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
+milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
-status: unknown
-last_updated: "2026-03-07T02:37:52.118Z"
+status: between_milestones
+last_updated: "2026-03-07T02:42:42Z"
 progress:
   total_phases: 9
   completed_phases: 9
@@ -15,17 +15,17 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-05)
+See: .planning/PROJECT.md (updated 2026-03-07)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 phase 9 completed; observability regressions and release-blocking AI gate command are now packaged and documented.
+**Current focus:** Milestone v1.2 archived and shipped; preparing next milestone definition.
 
 ## Current Position
 
-Phase: 9 - Observability and Regression Gates (complete)
-Plan: 09-03 complete (03/03 summaries)
-Status: Phase 9 complete; AI observability and behavior regressions are now enforced through a single release-blocking gate command with runbook guidance.
-Last activity: 2026-03-07 - completed 09-03 observability route regressions + gate scripts + release policy runbook (AIOPS-02, AIOPS-01 reinforcement)
+Phase: none (between milestones)
+Plan: none
+Status: Milestone v1.2 complete and archived.
+Last activity: 2026-03-07 - completed milestone closeout, archive generation, and release tagging prep.
 
 Progress: [██████████] 100%
 
