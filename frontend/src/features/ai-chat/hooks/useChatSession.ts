@@ -20,6 +20,7 @@ import type {
 } from "../model/chatTypes.js";
 
 const PREFERENCES_KEY = "betteratlas.ai.preferences.v1";
+const CHAT_SESSION_ID_KEY = "betteratlas.ai.chat.session-id.v1";
 const REQUEST_SETTLE_MS = 1200;
 
 type PromptSendSource = Extract<
@@ -29,6 +30,30 @@ type PromptSendSource = Extract<
 
 function createTurnId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function createChatSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function loadChatSessionId(): string {
+  const fallback = createChatSessionId();
+  if (typeof window === "undefined") {
+    return fallback;
+  }
+
+  try {
+    const existing = window.sessionStorage.getItem(CHAT_SESSION_ID_KEY)?.trim();
+    if (existing) return existing;
+    window.sessionStorage.setItem(CHAT_SESSION_ID_KEY, fallback);
+  } catch {
+    // Ignore storage access failures and keep an in-memory fallback session.
+  }
+
+  return fallback;
 }
 
 function loadPreferences(): StoredPreferences {
@@ -108,6 +133,7 @@ export function useChatSession(): ChatSessionApi {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const [preferences] = useState(loadPreferences);
+  const [sessionId] = useState(loadChatSessionId);
   const aiRec = useAiCourseRecommendations();
 
   useEffect(() => {
@@ -191,6 +217,7 @@ export function useChatSession(): ChatSessionApi {
     ) => {
       const trimmed = text.trim();
       if (!trimmed || aiRec.isPending) return;
+      const requestSessionId = retryPayload?.sessionId ?? sessionId;
 
       clearSettleTimer();
       const requestToken = activeRequestTokenRef.current + 1;
@@ -206,11 +233,7 @@ export function useChatSession(): ChatSessionApi {
           : { lastFailedPrompt: null, lastFailedPromptPayload: null }),
       });
 
-      const isPayloadRetry =
-        source === "retry" &&
-        retryPayload != null &&
-        Array.isArray(retryPayload.messages) &&
-        retryPayload.messages.length > 0;
+      const isPayloadRetry = source === "retry" && retryPayload != null;
 
       if (!isPayloadRetry) {
         const nextUserTurn: ChatTurn = {
@@ -222,21 +245,19 @@ export function useChatSession(): ChatSessionApi {
         setDraft("");
       }
 
-      const nextMessages: AiMessage[] = isPayloadRetry
-        ? retryPayload.messages.map((message) => ({
-            role: message.role as AiMessage["role"],
-            content: message.content,
-          }))
-        : [
-            ...aiMessagesRef.current,
-            { role: "user" as const, content: trimmed },
-          ].slice(-12);
-      aiMessagesRef.current = nextMessages;
-      setAiMessages(nextMessages);
+      if (!isPayloadRetry) {
+        const nextMessages: AiMessage[] = [
+          ...aiMessagesRef.current,
+          { role: "user" as const, content: trimmed },
+        ].slice(-12);
+        aiMessagesRef.current = nextMessages;
+        setAiMessages(nextMessages);
+      }
 
       const failedPromptPayload: ChatFailedPromptPayload = {
         prompt: trimmed,
-        messages: nextMessages.map((message) => ({
+        sessionId: requestSessionId,
+        messages: aiMessagesRef.current.map((message) => ({
           role: message.role,
           content: message.content,
         })),
@@ -244,7 +265,8 @@ export function useChatSession(): ChatSessionApi {
 
       aiRec.mutate(
         {
-          messages: nextMessages,
+          prompt: trimmed,
+          sessionId: requestSessionId,
           preferences:
             preferences.liked.length > 0 || preferences.disliked.length > 0
               ? {
@@ -313,6 +335,7 @@ export function useChatSession(): ChatSessionApi {
       clearSettleTimer,
       preferences.disliked,
       preferences.liked,
+      sessionId,
       scheduleSettleToIdle,
     ],
   );
@@ -360,8 +383,8 @@ export function useChatSession(): ChatSessionApi {
       lastFailedPromptPayload: null,
       lastErrorMessage: null,
     }));
-    aiRec.mutate({ reset: true });
-  }, [aiRec, clearSettleTimer]);
+    aiRec.mutate({ reset: true, sessionId });
+  }, [aiRec, clearSettleTimer, sessionId]);
 
   useEffect(() => {
     if (deepLinkAppliedRef.current) return;
