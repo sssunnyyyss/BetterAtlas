@@ -1,14 +1,14 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.0
+milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
-status: unknown
-last_updated: "2026-03-06T23:18:23.712Z"
+status: in_progress
+last_updated: "2026-03-07T00:44:47Z"
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 7
-  total_plans: 22
-  completed_plans: 22
+  total_plans: 25
+  completed_plans: 23
 ---
 
 # Project State
@@ -18,29 +18,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 phase 7 completion and transition readiness for phase 8 memory/context reliability.
+**Current focus:** Milestone v1.2 phase 8 execution, starting with memory/session reliability foundations.
 
 ## Current Position
 
-Phase: 7 - Retrieval and Ranking Relevance Calibration (complete)
-Plan: 07-04 complete (04/04 summaries)
-Status: Phase 7 complete; ready to proceed to phase 8 planning/execution.
-Last activity: 2026-03-06 - completed 07-04 recommend-mode lexical fallback gap closure with empty-derived-term retrieval regression coverage (AIREL-01..04)
+Phase: 8 - Memory and Multi-Turn Context Reliability (in progress)
+Plan: 08-01 complete (01/03 summaries)
+Status: Phase 8 in progress; memory policy foundations complete and ready for route integration work in 08-02.
+Last activity: 2026-03-06 - completed 08-01 session-context memory and topic-shift policy primitives with regression coverage (AIMEM-01..03)
 
-Progress: [██████████] 100%
+Progress: [█████████░] 92%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
+- Total plans completed: 23
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
-- Latest execution: Plan 07-04 in 2 min (2 tasks, 2 files)
+- Latest execution: Plan 08-01 in 3 min (3 tasks, 4 files)
 
 ## Accumulated Context
 
 ### Decisions
 
+- [Plan 08-01 session context isolation]: Introduce `sessionContextState` as the canonical session-keyed context store with authenticated/anonymous/fallback key derivation, TTL expiry, bounded history, and explicit clear/upsert APIs.
+- [Plan 08-01 topic-shift policy]: Detect topic shifts deterministically from shift phrases, token-overlap signals, and explicit negation contradictions, then decay stale inferred context predictably.
+- [Plan 08-01 precedence contract]: Resolve constraints by strict deterministic ordering: explicit current request > latest-turn inferred > prior inferred.
 - [Plan 06-04 title-only grounding]: Treat bounded course-like title spans after recommendation triggers as `unknown_mention` violations when they do not map to active candidate titles.
 - [Plan 06-04 hard-filter metadata policy]: Enforce fail-closed behavior for active semester/component/instruction filters when recommendation metadata is missing.
 - [Plan 06-04 regression matrix]: Route-level grounding safety tests must cover title-only hallucinations and hard-filter enforcement across semester/credits/attributes/instructor/campus/component/instruction dimensions.
@@ -111,5 +114,5 @@ Progress: [██████████] 100%
 ## Session Continuity
 
 Last session: 2026-03-06
-Stopped at: Completed 07-04-PLAN.md
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
