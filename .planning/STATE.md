@@ -3,12 +3,12 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: Conversational Atlas-Grounded Chat
 status: unknown
-last_updated: "2026-03-07T01:19:41.516Z"
+last_updated: "2026-03-07T02:11:18Z"
 progress:
   total_phases: 9
   completed_phases: 8
-  total_plans: 25
-  completed_plans: 25
+  total_plans: 26
+  completed_plans: 26
 ---
 
 # Project State
@@ -18,29 +18,32 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-05)
 
 **Core value:** Students can coordinate course planning with friends while quickly discovering fitting classes with AI guidance.
-**Current focus:** Milestone v1.2 phase 9 kickoff prep, with phase 8 now complete across route and first-party frontend session-memory flows.
+**Current focus:** Milestone v1.2 phase 9 execution, with 09-01 complete for production-safe AI telemetry instrumentation and admin monitoring exposure.
 
 ## Current Position
 
-Phase: 8 - Memory and Multi-Turn Context Reliability (complete)
-Plan: 08-03 complete (03/03 summaries)
-Status: Phase 8 complete; first-party chat now sends prompt/sessionId requests, reset reuses session scope, and hook-level payload regressions lock behavior.
-Last activity: 2026-03-07 - completed 08-03 frontend prompt/session contract alignment with send/retry/reset/deep-link regressions (AIMEM-01, AIMEM-03)
+Phase: 9 - Observability and Regression Gates (in progress)
+Plan: 09-01 complete (01/03 summaries)
+Status: Phase 9 started; bounded AI quality telemetry now records route outcomes and admin metrics expose aggregate telemetry snapshots.
+Last activity: 2026-03-07 - completed 09-01 telemetry foundation + route instrumentation + admin metrics exposure (AIOPS-01)
 
-Progress: [██████████] 100%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25
+- Total plans completed: 26
 - Average duration: 6-9 min per plan (recent phase)
 - Total execution time: >1 hour cumulative
-- Latest execution: Plan 08-03 in 4 min (3 tasks, 4 implementation/test files + planning docs)
+- Latest execution: Plan 09-01 in 3 min (3 tasks, 4 implementation/test files + planning docs)
 
 ## Accumulated Context
 
 ### Decisions
 
+- [Plan 09-01 telemetry contract]: Added a dedicated bounded telemetry recorder with enum/boolean-only dimensions and deterministic aggregate snapshot/rate APIs.
+- [Plan 09-01 route instrumentation]: Instrumented every terminal response branch in `POST /ai/course-recommendations` to emit exactly one quality telemetry event per outcome.
+- [Plan 09-01 admin monitoring]: Exposed `aiQualityTelemetry` snapshot in `/api/admin/system/metrics` under existing `requireAuth` + admin middleware protections.
 - [Plan 08-03 frontend request contract]: Extend frontend AI request typing to support prompt/session and reset/session payloads while preserving `messages` compatibility for non-first-party callers.
 - [Plan 08-03 first-party payload policy]: Use stable per-tab `sessionId` from `sessionStorage` and send prompt-first mutation payloads for send/retry/deep-link flows.
 - [Plan 08-03 reset parity]: Route reset through `{ reset: true, sessionId }` to clear server memory on the same session channel used by active turns.
@@ -122,5 +125,5 @@ Progress: [██████████] 100%
 ## Session Continuity
 
 Last session: 2026-03-07
-Stopped at: Completed 08-03-PLAN.md
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
