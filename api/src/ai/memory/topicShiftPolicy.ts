@@ -98,6 +98,37 @@ function clampKeepRecentMessages(value: number | undefined) {
   return Math.max(0, Math.min(6, Math.trunc(value as number)));
 }
 
+export function buildTopicFingerprint(input: {
+  latestUser: string;
+  resolvedConstraints: ConstraintMap;
+  maxTokens?: number;
+}): string[] {
+  const maxTokens = Number.isFinite(input.maxTokens) ? Math.max(1, Math.trunc(input.maxTokens!)) : 12;
+  const ordered: string[] = [];
+  const seen = new Set<string>();
+  const pushToken = (token: string) => {
+    if (!token || seen.has(token)) return;
+    seen.add(token);
+    ordered.push(token);
+  };
+
+  for (const token of tokenizeText(String(input.latestUser ?? ""))) {
+    pushToken(token);
+    if (ordered.length >= maxTokens) return ordered;
+  }
+
+  const normalizedConstraints = normalizeConstraintMap(input.resolvedConstraints);
+  for (const value of Object.values(normalizedConstraints)) {
+    if (typeof value !== "string") continue;
+    for (const token of tokenizeText(value)) {
+      pushToken(token);
+      if (ordered.length >= maxTokens) return ordered;
+    }
+  }
+
+  return ordered;
+}
+
 export function detectTopicShift(input: {
   previousFingerprint: string[];
   latestUser: string;

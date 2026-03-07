@@ -19,8 +19,15 @@ import {
   clearSessionContext,
   getSessionContext,
   resolveAiSessionKey,
+  type AiSessionContext,
   upsertSessionContext,
 } from "../ai/memory/sessionContextState.js";
+import {
+  buildTopicFingerprint,
+  decayContextForTopicShift,
+  detectTopicShift,
+  resolveConstraintPrecedence,
+} from "../ai/memory/topicShiftPolicy.js";
 import { getUserById } from "../services/userService.js";
 import {
   listCourses,
@@ -440,12 +447,6 @@ async function getTrainerScoresCached(): Promise<Map<number, number>> {
   return trainerScoresInFlight;
 }
 
-function getSessionMessages(sessionKey: string | null): AiMessage[] {
-  if (!sessionKey) return [];
-  const context = getSessionContext(sessionKey);
-  return context?.messages ?? [];
-}
-
 function persistSessionMessages(sessionKey: string | null, messages: AiMessage[]) {
   if (!sessionKey) return;
   upsertSessionContext(sessionKey, { messages: messages.slice(-12) });
@@ -551,6 +552,114 @@ function normalizeAiFilters(raw: AiCourseFilters | undefined) {
       ? Math.max(1, Math.trunc(raw.credits))
       : undefined;
 
+  return out;
+}
+
+type ConstraintValue = string | number | null | undefined;
+type ConstraintMap = Record<string, ConstraintValue>;
+type SessionInferredConstraints = AiSessionContext["inferredConstraints"];
+
+function inferSemesterFromText(text: string) {
+  const match = text.match(/\b(Spring|Summer|Fall|Winter)\s+(20\d{2})\b/i);
+  if (!match) return undefined;
+  const term = `${match[1]?.slice(0, 1).toUpperCase()}${match[1]?.slice(1).toLowerCase()}`;
+  return `${term} ${match[2]}`;
+}
+
+function inferWorkloadFromText(text: string): SessionInferredConstraints["workload"] {
+  const lower = text.toLowerCase();
+  if (/\b(easy|easier|chill|light(?:er)?|low[\s-]?workload)\b/.test(lower)) {
+    return "easy";
+  }
+  if (/\b(hard|harder|rigorous|intense|heavy|challenging)\b/.test(lower)) {
+    return "hard";
+  }
+  if (/\b(moderate|balanced|manageable)\b/.test(lower)) {
+    return "moderate";
+  }
+  return undefined;
+}
+
+function inferDepartmentFromText(text: string, deps: DepartmentMini[]) {
+  const courseCodeMatch = text.match(/\b([A-Za-z]{2,8})\s*-?\s*(\d{3,4}[A-Za-z]?)\b/);
+  if (courseCodeMatch) {
+    const normalized = courseCodeMatch[1]!.toUpperCase();
+    if (deps.some((dep) => dep.code.toUpperCase() === normalized)) {
+      return normalized;
+    }
+  }
+
+  for (const dep of deps) {
+    const re = new RegExp(`\\b${escapeRegExp(dep.code)}\\b`, "i");
+    if (re.test(text)) return dep.code.toUpperCase();
+  }
+
+  const lower = text.toLowerCase();
+  for (const dep of deps) {
+    if (lower.includes(dep.name.toLowerCase())) {
+      return dep.code.toUpperCase();
+    }
+  }
+
+  return undefined;
+}
+
+function inferLatestTurnConstraints(input: {
+  latestUser: string;
+  deps: DepartmentMini[];
+}): SessionInferredConstraints {
+  return {
+    department: inferDepartmentFromText(input.latestUser, input.deps),
+    semester: inferSemesterFromText(input.latestUser),
+    workload: inferWorkloadFromText(input.latestUser),
+  };
+}
+
+function buildExplicitConstraintMap(activeFilters: AiCourseFilters): ConstraintMap {
+  return {
+    department: activeFilters.department,
+    semester: activeFilters.semester,
+  };
+}
+
+function toSessionInferredConstraints(resolved: Record<string, string | number>): SessionInferredConstraints {
+  const departmentRaw = typeof resolved.department === "string" ? resolved.department.trim() : "";
+  const semesterRaw = typeof resolved.semester === "string" ? resolved.semester.trim() : "";
+  const workloadRaw = typeof resolved.workload === "string" ? resolved.workload.trim().toLowerCase() : "";
+
+  return {
+    department: departmentRaw ? truncate(departmentRaw, 20).toUpperCase() : undefined,
+    semester: semesterRaw ? truncate(semesterRaw, 80) : undefined,
+    workload:
+      workloadRaw === "easy" || workloadRaw === "moderate" || workloadRaw === "hard"
+        ? workloadRaw
+        : undefined,
+  };
+}
+
+function deriveConstraintSearchTerms(resolved: Record<string, string | number>): string[] {
+  const out: string[] = [];
+  const department = typeof resolved.department === "string" ? resolved.department.trim().toUpperCase() : "";
+  if (department) out.push(department);
+  const workload = typeof resolved.workload === "string" ? resolved.workload.trim().toLowerCase() : "";
+  if (workload === "easy" || workload === "moderate" || workload === "hard") out.push(workload);
+  return out;
+}
+
+function deriveEffectiveSearchTerms(input: {
+  latestUser: string;
+  deps: DepartmentMini[];
+  resolvedConstraints: Record<string, string | number>;
+}) {
+  const base = deriveAiSearchTerms(input.latestUser, input.deps);
+  const out = [...base];
+  const seen = new Set(base.map((term) => term.toLowerCase()));
+  for (const term of deriveConstraintSearchTerms(input.resolvedConstraints)) {
+    const normalized = term.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(term);
+  }
   return out;
 }
 
@@ -870,6 +979,7 @@ router.post(
         clearSessionContext(sessionKey);
         clearSessionBlockedCourseIds(sessionKey);
       }
+      const priorSessionContext = sessionKey ? getSessionContext(sessionKey) : null;
 
       const effectiveMessages: AiMessage[] = (() => {
         if (Array.isArray(messages)) return messages as AiMessage[];
@@ -877,7 +987,7 @@ router.post(
         if (!sessionKey) {
           return nextUser ? [{ role: "user" as const, content: nextUser }] : [];
         }
-        const mem = getSessionMessages(sessionKey);
+        const mem = priorSessionContext?.messages ?? [];
         const merged = nextUser ? [...mem, { role: "user" as const, content: nextUser }] : mem;
         // Keep model context bounded.
         return merged.slice(-12);
@@ -1029,7 +1139,7 @@ router.post(
         });
       }
 
-      const activeFilters = normalizeAiFilters(filters);
+      const explicitFilters = normalizeAiFilters(filters);
       const likedCourses = normalizePreferenceCourses(preferences?.liked);
       const dislikedCourses = normalizePreferenceCourses(preferences?.disliked);
       const preferenceProfile = buildPreferenceProfile(likedCourses, dislikedCourses);
@@ -1056,6 +1166,58 @@ router.post(
         getDepartmentsCached(),
         getTrainerScoresCached(),
       ]);
+      const latestTurnInferred = inferLatestTurnConstraints({
+        latestUser,
+        deps,
+      });
+      const explicitConstraintMap = buildExplicitConstraintMap(explicitFilters);
+      const priorInferredConstraints: ConstraintMap = priorSessionContext?.inferredConstraints ?? {};
+      const preShiftResolved = resolveConstraintPrecedence({
+        explicitCurrent: explicitConstraintMap,
+        latestTurnInferred,
+        priorInferred: priorInferredConstraints,
+      });
+      const topicShift = detectTopicShift({
+        previousFingerprint: priorSessionContext?.topicFingerprint ?? [],
+        latestUser,
+        resolvedConstraints: preShiftResolved,
+      });
+      const decayedContext = decayContextForTopicShift({
+        detected: topicShift.detected,
+        keepRecentMessages: 2,
+        context: {
+          messages: priorSessionContext?.messages ?? [],
+          inferredConstraints: priorSessionContext?.inferredConstraints ?? {},
+          topicFingerprint: priorSessionContext?.topicFingerprint ?? [],
+        },
+      });
+      const resolvedConstraints = resolveConstraintPrecedence({
+        explicitCurrent: explicitConstraintMap,
+        latestTurnInferred,
+        priorInferred: decayedContext.inferredConstraints,
+      });
+      const activeFilters = explicitFilters;
+      const inferredConstraintsForSession = toSessionInferredConstraints(resolvedConstraints);
+      const nextTopicFingerprint = buildTopicFingerprint({
+        latestUser,
+        resolvedConstraints,
+      });
+      const recommendContextMessages: AiMessage[] =
+        topicShift.detected && !Array.isArray(messages)
+          ? [
+              ...decayedContext.messages,
+              ...(latestUser ? [{ role: "user" as const, content: latestUser }] : []),
+            ].slice(-12)
+          : effectiveMessages;
+      const persistRecommendationContext = (assistantMessage: string) => {
+        if (!sessionKey) return;
+        upsertSessionContext(sessionKey, {
+          messages: [...recommendContextMessages, { role: "assistant", content: assistantMessage }],
+          inferredConstraints: inferredConstraintsForSession,
+          topicFingerprint: nextTopicFingerprint,
+        });
+      };
+
       const deptCode = findDepartmentCodeFromMajor(
         user?.major ?? null,
         deps
@@ -1063,7 +1225,11 @@ router.post(
       const depsMs = Date.now() - tDepsStart;
 
       const candidateQuery = normalizeSearchQuery(latestUser);
-      const searchTerms = deriveAiSearchTerms(latestUser, deps).slice(0, 3);
+      const searchTerms = deriveEffectiveSearchTerms({
+        latestUser,
+        deps,
+        resolvedConstraints,
+      }).slice(0, 3);
       const termsLower = searchTerms.map((t) => t.toLowerCase()).filter(Boolean);
 
       const tCandidatesStart = Date.now();
@@ -1218,6 +1384,9 @@ router.post(
       const semanticCandidateCount = candidates.filter((c) => semanticIds.has(c.id)).length;
 
       if (candidates.length === 0) {
+        persistRecommendationContext(
+          "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again."
+        );
         persistSessionBlockedIds();
         return res.json({
           assistantMessage:
@@ -1303,6 +1472,7 @@ router.post(
         `Student graduationYear: ${user?.graduationYear ?? "unknown"}`,
         `Student deptCode (hint): ${deptCode ?? "unknown"}`,
         `Active filters (hard constraints): ${summarizeAiFilters(activeFilters)}`,
+        `Resolved memory constraints: ${JSON.stringify(inferredConstraintsForSession)}`,
         `Liked feedback examples: ${
           likedCourses.length > 0
             ? likedCourses
@@ -1344,7 +1514,7 @@ router.post(
           content:
             "Context:\n" + counselorContextText,
         },
-        ...effectiveMessages.map((m) => ({
+        ...recommendContextMessages.map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
         })),
@@ -1405,12 +1575,7 @@ router.post(
 
       if (!groundingResult.ok) {
         const safeFallback = buildSafeGroundingFallback();
-        if (sessionKey) {
-          persistSessionMessages(sessionKey, [
-            ...effectiveMessages,
-            { role: "assistant" as const, content: safeFallback.assistantMessage },
-          ]);
-        }
+        persistRecommendationContext(safeFallback.assistantMessage);
         persistSessionBlockedIds();
 
         const totalMs = Date.now() - tStart;
@@ -1492,12 +1657,7 @@ router.post(
           retrievalMode: retrievalEnvelope.mode,
           matchedTermCoverage,
         });
-        if (sessionKey) {
-          persistSessionMessages(sessionKey, [
-            ...effectiveMessages,
-            { role: "assistant" as const, content: refineGuidance.assistantMessage },
-          ]);
-        }
+        persistRecommendationContext(refineGuidance.assistantMessage);
         persistSessionBlockedIds();
 
         return res.json({
@@ -1639,12 +1799,7 @@ router.post(
 
       if (filterConstraintDroppedCount > 0 && recommendations.length === 0) {
         const safeFallback = buildSafeGroundingFallback();
-        if (sessionKey) {
-          persistSessionMessages(sessionKey, [
-            ...effectiveMessages,
-            { role: "assistant" as const, content: safeFallback.assistantMessage },
-          ]);
-        }
+        persistRecommendationContext(safeFallback.assistantMessage);
         persistSessionBlockedIds();
 
         const totalMs = Date.now() - tStart;
@@ -1714,13 +1869,7 @@ router.post(
         });
       }
 
-      // Persist per-user memory (isolated by user id).
-      if (sessionKey) {
-        persistSessionMessages(sessionKey, [
-          ...effectiveMessages,
-          { role: "assistant" as const, content: modelResult.assistant_message },
-        ]);
-      }
+      persistRecommendationContext(modelResult.assistant_message);
       persistSessionBlockedIds();
 
       const totalMs = Date.now() - tStart;

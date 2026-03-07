@@ -135,6 +135,10 @@ export function getSessionContext(sessionKey: string): AiSessionContext | null {
   return cloneContext(existing);
 }
 
+export function getSessionContextOrDefault(sessionKey: string): AiSessionContext {
+  return getSessionContext(sessionKey) ?? buildDefaultContext();
+}
+
 export function upsertSessionContext(
   sessionKey: string,
   patch: SessionContextPatch
