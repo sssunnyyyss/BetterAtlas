@@ -10,6 +10,7 @@ import { syncPrograms } from "../jobs/programsSync.js";
 import { requireAuth } from "../middleware/auth.js";
 import { isAdminEmail } from "../utils/admin.js";
 import { db, supabase } from "../db/index.js";
+import { getAiQualityTelemetrySnapshot } from "../ai/observability/aiQualityTelemetry.js";
 import { courses, friendships, programs, reviews, sections, terms, users } from "../db/schema.js";
 import { desc, eq, gte, ilike, or, sql } from "drizzle-orm";
 
@@ -1354,6 +1355,7 @@ router.get("/system/metrics", async (_req, res) => {
   const disk = await measureDisk();
   const loadAvg = os.loadavg();
   const memory = process.memoryUsage();
+  const aiQualityTelemetry = getAiQualityTelemetrySnapshot();
 
   res.json({
     ts: nowIso(),
@@ -1382,6 +1384,7 @@ router.get("/system/metrics", async (_req, res) => {
       pid: process.pid,
       uptimeSec: process.uptime(),
     },
+    aiQualityTelemetry,
   });
 });
 
