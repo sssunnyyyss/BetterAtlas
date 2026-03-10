@@ -23,6 +23,7 @@ interface AuthContextType {
     inviteCode?: string;
   }) => Promise<{ requiresEmailVerification: boolean }>;
   resendVerificationEmail: (email: string) => Promise<void>;
+  verifySignupCode: (params: { email: string; code: string }) => Promise<void>;
   requestPasswordResetCode: (email: string) => Promise<void>;
   verifyPasswordResetCode: (params: {
     email: string;
@@ -154,6 +155,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await api.post<{ message: string }>("/auth/resend-verification", { email });
   }, []);
 
+  const verifySignupCode = useCallback(async (params: { email: string; code: string }) => {
+    await api.post<{ message: string }>("/auth/register/verify-code", params);
+  }, []);
+
   const requestPasswordResetCode = useCallback(async (email: string) => {
     await api.post<{ message: string }>("/auth/password-reset/request", { email });
   }, []);
@@ -185,6 +190,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         register,
         resendVerificationEmail,
+        verifySignupCode,
         requestPasswordResetCode,
         verifyPasswordResetCode,
         completePasswordReset,

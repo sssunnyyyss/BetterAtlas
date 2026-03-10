@@ -81,7 +81,7 @@ export const programsQuerySchema = z.object({
 });
 
 export const programCoursesQuerySchema = courseQuerySchema
-  .omit({ department: true, semester: true })
+  .omit({ department: true })
   .extend({
     tab: z.enum(["required", "electives"]).default("required"),
     q: z.string().max(200).optional(),

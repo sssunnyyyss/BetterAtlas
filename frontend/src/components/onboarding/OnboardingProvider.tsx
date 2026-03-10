@@ -15,6 +15,20 @@ interface OnboardingContextValue {
 
 const OnboardingContext = createContext<OnboardingContextValue | null>(null);
 
+function isJohnDoeInFriendsQuery(data: unknown): boolean {
+  if (!Array.isArray(data)) return false;
+
+  return data.some((entry) => {
+    if (!entry || typeof entry !== "object") return false;
+
+    const user = (entry as { user?: unknown }).user;
+    if (!user || typeof user !== "object") return false;
+
+    const username = (user as { username?: unknown }).username;
+    return typeof username === "string" && username.toLowerCase() === "johndoe";
+  });
+}
+
 const TOUR_STEPS: TourStep[] = [
   {
     id: "catalog-search-filters",
@@ -22,13 +36,6 @@ const TOUR_STEPS: TourStep[] = [
     targetId: "catalog-search-filters",
     title: "Start in Catalog",
     body: "Use filters and search together to narrow from broad ideas to specific classes quickly.",
-  },
-  {
-    id: "catalog-ai-entry",
-    route: "/catalog",
-    targetId: "catalog-ai-entry",
-    title: "Ask AI for Suggestions",
-    body: "Switch to Ask AI when you want recommendation-style guidance instead of keyword filtering.",
   },
   {
     id: "course-detail-reviews",
@@ -53,21 +60,15 @@ const TOUR_STEPS: TourStep[] = [
     body: "Send requests, manage your network, and quickly jump to your friends' public course lists.",
   },
   {
-    id: "profile-badge-area",
-    route: "/profile",
-    targetId: "profile-badge-area",
-    title: "Track Your Progress",
-    body: "Your profile stores badges and activity history so you can revisit progress anytime.",
-  },
-  {
     id: "friends-add-friend",
     route: "/friends",
     targetId: "friends-add-form",
     title: "Add Your First Friend",
-    body: "Search for johndoe, click their profile, and hit Add Friend — they already have a schedule loaded.",
+    body: "Search for John Doe (@johndoe), click their profile, and hit Add Friend.",
     interactive: {
-      actionLabel: "Search johndoe, open their profile, and click Add Friend",
+      actionLabel: "Search John Doe, open profile, and click Add Friend",
       completionQueryKey: ["friends"],
+      completionQueryCheck: isJohnDoeInFriendsQuery,
     },
   },
   {

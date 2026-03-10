@@ -599,6 +599,10 @@ WHERE icon IS NULL;
 ALTER TABLE badges
   ALTER COLUMN icon SET NOT NULL;
 
+UPDATE badges
+SET name = 'Early Adopter'
+WHERE slug = 'early-adopter';
+
 CREATE TABLE IF NOT EXISTS user_badges (
   id SERIAL PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

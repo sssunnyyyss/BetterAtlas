@@ -73,13 +73,33 @@ export default function AdminUsers() {
     }
     setMessage("");
     try {
-      await api.delete<{ ok: boolean; userId: string; profileDeleted: boolean }>(
+      await api.delete<{ ok: boolean; userId: string; profileDeleted: boolean; permanent: boolean }>(
         `/admin/users/${userId}`
       );
       setMessage("User deleted.");
       await loadUsers();
     } catch (err: any) {
       setMessage(err.message || "Failed to delete user");
+    }
+  }
+
+  async function handlePermanentDeleteUser(userId: string) {
+    if (
+      !confirm(
+        "Permanently delete this user and all associated data? This cannot be undone."
+      )
+    ) {
+      return;
+    }
+    setMessage("");
+    try {
+      await api.delete<{ ok: boolean; userId: string; profileDeleted: boolean; permanent: boolean }>(
+        `/admin/users/${userId}?permanent=true`
+      );
+      setMessage("User permanently deleted.");
+      await loadUsers();
+    } catch (err: any) {
+      setMessage(err.message || "Failed to permanently delete user");
     }
   }
 
@@ -247,6 +267,12 @@ export default function AdminUsers() {
                         className="px-2 py-1 rounded text-xs border border-red-300 text-red-700 hover:bg-red-50"
                       >
                         Delete
+                      </button>
+                      <button
+                        onClick={() => handlePermanentDeleteUser(user.id)}
+                        className="px-2 py-1 rounded text-xs border border-red-700 bg-red-700 text-white hover:bg-red-800"
+                      >
+                        Permanent Delete
                       </button>
                     </div>
                   </td>

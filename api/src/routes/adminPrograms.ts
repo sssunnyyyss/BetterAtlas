@@ -11,8 +11,26 @@ import { requireAuth } from "../middleware/auth.js";
 import { isAdminEmail } from "../utils/admin.js";
 import { db, supabase } from "../db/index.js";
 import { getAiQualityTelemetrySnapshot } from "../ai/observability/aiQualityTelemetry.js";
-import { courses, friendships, programs, reviews, sections, terms, users } from "../db/schema.js";
-import { desc, eq, gte, ilike, or, sql } from "drizzle-orm";
+import {
+  aiTrainerRatings,
+  courseLists,
+  courses,
+  feedbackPostComments,
+  feedbackPosts,
+  feedbackPostVotes,
+  feedbackReports,
+  friendships,
+  oauthAccessTokens,
+  oauthAuthorizationCodes,
+  oauthClients,
+  programs,
+  reviews,
+  sections,
+  terms,
+  users,
+  userBadges,
+} from "../db/schema.js";
+import { and, desc, eq, gte, ilike, ne, or, sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -119,6 +137,8 @@ const MAX_LOGS_PER_RUN = 1000;
 const MAX_APP_ERRORS = 500;
 const BAN_DURATION = "876000h";
 const DEFAULT_COURSE_SCHEDULE_TIMEZONE = "America/New_York";
+const RMP_IMPORT_USERNAME = "rmp-import";
+const RMP_IMPORT_EMAIL = "system+rmp@betteratlas.app";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiRootDir = path.resolve(__dirname, "../..");
@@ -153,6 +173,37 @@ let courseScheduleLastTriggerKey: string | null = null;
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function isAuthTombstoneEmail(email: string) {
+  return email.trim().toLowerCase().endsWith("@invalid.local");
+}
+
+function parseTruthyQuery(value: unknown) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+async function permanentlyDeleteUserData(userId: string) {
+  await db.transaction(async (tx) => {
+    await tx.delete(userBadges).where(eq(userBadges.userId, userId));
+    await tx.delete(aiTrainerRatings).where(eq(aiTrainerRatings.userId, userId));
+    await tx.delete(oauthAuthorizationCodes).where(eq(oauthAuthorizationCodes.userId, userId));
+    await tx.delete(oauthAccessTokens).where(eq(oauthAccessTokens.userId, userId));
+    await tx.update(oauthClients).set({ createdBy: null }).where(eq(oauthClients.createdBy, userId));
+    await tx.delete(feedbackPostVotes).where(eq(feedbackPostVotes.userId, userId));
+    await tx.delete(feedbackPostComments).where(eq(feedbackPostComments.authorUserId, userId));
+    await tx.delete(feedbackPosts).where(eq(feedbackPosts.authorUserId, userId));
+    await tx.delete(feedbackReports).where(eq(feedbackReports.userId, userId));
+    await tx.delete(reviews).where(eq(reviews.userId, userId));
+    await tx.delete(courseLists).where(eq(courseLists.userId, userId));
+    await tx
+      .delete(friendships)
+      .where(or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)));
+    await tx.delete(users).where(eq(users.id, userId));
+  });
 }
 
 function summarizeRun(run: SyncRun) {
@@ -1493,18 +1544,26 @@ router.get("/users", async (req, res) => {
     })
     .from(users);
 
+  const visibleUsersFilter = and(
+    ne(users.username, RMP_IMPORT_USERNAME),
+    ne(users.email, RMP_IMPORT_EMAIL),
+  );
+
   const rows = q
     ? await base
         .where(
-          or(
-            ilike(users.email, `%${q}%`),
-            ilike(users.username, `%${q}%`),
-            ilike(users.displayName, `%${q}%`)
+          and(
+            visibleUsersFilter,
+            or(
+              ilike(users.email, `%${q}%`),
+              ilike(users.username, `%${q}%`),
+              ilike(users.displayName, `%${q}%`)
+            )
           )
         )
         .orderBy(desc(users.createdAt))
         .limit(limit)
-    : await base.orderBy(desc(users.createdAt)).limit(limit);
+    : await base.where(visibleUsersFilter).orderBy(desc(users.createdAt)).limit(limit);
 
   res.json(
     rows.map((row) => ({
@@ -1611,6 +1670,7 @@ router.post("/users/:id/ban", async (req, res) => {
 
 router.delete("/users/:id", async (req, res) => {
   const userId = String(req.params.id || "");
+  const permanent = parseTruthyQuery(req.query.permanent);
   if (!userId) return res.status(400).json({ error: "User id is required" });
   if (userId === req.user!.id) {
     return res.status(400).json({ error: "You cannot delete your own account" });
@@ -1625,7 +1685,7 @@ router.delete("/users/:id", async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
 
-  const isAlreadyAuthTombstone = existingUser.email.endsWith("@invalid.local");
+  const isAlreadyAuthTombstone = isAuthTombstoneEmail(existingUser.email);
   if (!isAlreadyAuthTombstone) {
     const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
     if (authDeleteError) {
@@ -1639,6 +1699,17 @@ router.delete("/users/:id", async (req, res) => {
         return res.status(400).json({ error: "Failed to delete user" });
       }
     }
+  }
+
+  if (permanent) {
+    try {
+      await permanentlyDeleteUserData(userId);
+    } catch (err: any) {
+      const message = String(err?.message || "Failed to permanently delete user");
+      console.error("Permanent user deletion failed:", message);
+      return res.status(500).json({ error: "Failed to permanently delete user" });
+    }
+    return res.json({ ok: true, userId, profileDeleted: true, permanent: true });
   }
 
   // Keep relational integrity: try to delete profile row, and if blocked by FKs,
@@ -1667,7 +1738,7 @@ router.delete("/users/:id", async (req, res) => {
     }
   }
 
-  res.json({ ok: true, userId, profileDeleted });
+  res.json({ ok: true, userId, profileDeleted, permanent: false });
 });
 
 router.get("/logs", async (_req, res) => {

@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import { Github, Twitter } from "lucide-react";
 import { useLocation } from "react-router-dom";
 
@@ -8,6 +9,24 @@ export default function Footer() {
   const uptimeStatusUrl =
     import.meta.env.VITE_UPTIME_STATUS_URL?.trim() || "https://status.betteratlas.net/status/main";
   const uptimeLabel = import.meta.env.VITE_UPTIME_LABEL?.trim() || "All systems operational";
+  const xUrl = import.meta.env.VITE_SOCIAL_X_URL?.trim();
+  const githubUrl = import.meta.env.VITE_SOCIAL_GITHUB_URL?.trim();
+  const socialLinks = [
+    xUrl
+      ? ({
+          icon: <Twitter className="h-5 w-5" />,
+          href: xUrl,
+          label: "X",
+        } satisfies { icon: ReactElement; href: string; label: string })
+      : null,
+    githubUrl
+      ? ({
+          icon: <Github className="h-5 w-5" />,
+          href: githubUrl,
+          label: "GitHub",
+        } satisfies { icon: ReactElement; href: string; label: string })
+      : null,
+  ].filter((link): link is { icon: ReactElement; href: string; label: string } => link !== null);
 
   // Hide footer on the landing/login page
   if (location.pathname === "/login") return null;
@@ -24,23 +43,11 @@ export default function Footer() {
           BetterAtlas
         </span>
       }
-      socialLinks={[
-        {
-          icon: <Twitter className="h-5 w-5" />,
-          href: "https://twitter.com",
-          label: "Twitter",
-        },
-        {
-          icon: <Github className="h-5 w-5" />,
-          href: "https://github.com",
-          label: "GitHub",
-        },
-      ]}
+      socialLinks={socialLinks}
       mainLinks={[
         { href: "/catalog", label: "Catalog" },
         { href: "/feedback-hub", label: "Feedback" },
         { href: "/faq", label: "FAQ" },
-        { href: "/about", label: "About Us" },
       ]}
       legalLinks={[
         { href: "/privacy", label: "Privacy Policy" },

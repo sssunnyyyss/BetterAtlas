@@ -6,6 +6,7 @@ import {
   departments,
   courseRatings,
   instructors,
+  instructorRatings,
   programs,
   programRequirementNodes,
   programCourseCodes,
@@ -38,6 +39,23 @@ async function getSingleActiveTermCode(): Promise<string> {
     );
   }
   return active[0]!.srcdb;
+}
+
+function avgEnrollmentPercentExpr() {
+  return sql<number>`avg(
+    case
+      when ${sections.enrollmentCap} is not null and ${sections.enrollmentCap} > 0
+      then (coalesce(${sections.enrollmentCur}, 0)::float / nullif(${sections.enrollmentCap}, 0)) * 100
+      else null
+    end
+  )`;
+}
+
+function toRoundedPercent(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
 }
 
 function programSortOrder(sort: string) {
@@ -289,6 +307,7 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
   const {
     tab,
     q,
+    semester,
     minRating,
     credits,
     attributes,
@@ -302,7 +321,7 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
   } = query;
 
   const offset = (page - 1) * limit;
-  const termCode = await getSingleActiveTermCode();
+  const termCode = semester ? null : await getSingleActiveTermCode();
   let aiSummaryTokens: string[] = [];
   let hasProgramSubjectCodes = false;
 
@@ -328,10 +347,13 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
     hasProgramSubjectCodes = subjectCodes.length > 0;
   }
 
-  const baseConditions: any[] = [
-    eq(sections.termCode, termCode),
-    eq(sections.isActive, true),
-  ];
+  const baseConditions: any[] = [];
+  if (semester) {
+    baseConditions.push(eq(terms.name, semester));
+  } else if (termCode) {
+    baseConditions.push(eq(sections.termCode, termCode));
+    baseConditions.push(eq(sections.isActive, true));
+  }
 
   if (credits) baseConditions.push(eq(courses.credits, credits));
   if (minRating) baseConditions.push(gte(courseRatings.avgQuality, String(minRating)));
@@ -418,10 +440,6 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
 
   const where = and(...baseConditions);
 
-  // Always join sections (active term gating).
-  // Conditionally join instructors when filtering by instructor.
-  const needInstructorJoin = !!instructor;
-
   let queryBase: any = db
     .select({
       id: courses.id,
@@ -437,15 +455,21 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
       avgDifficulty: courseRatings.avgDifficulty,
       avgWorkload: courseRatings.avgWorkload,
       reviewCount: courseRatings.reviewCount,
+      classScore: sql<string>`avg(DISTINCT ${instructorRatings.avgQuality})::numeric(3,2)`,
+      avgEnrollmentPercent: avgEnrollmentPercentExpr(),
+      instructors: sql<any>`coalesce(
+        json_agg(DISTINCT ${instructors.name})
+          FILTER (WHERE ${instructors.name} IS NOT NULL),
+        '[]'::json
+      )`,
     })
     .from(courses)
     .innerJoin(sections, eq(courses.id, sections.courseId))
+    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+    .leftJoin(instructors, eq(sections.instructorId, instructors.id))
     .leftJoin(departments, eq(courses.departmentId, departments.id))
-    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId));
-
-  if (needInstructorJoin) {
-    queryBase = queryBase.innerJoin(instructors, eq(sections.instructorId, instructors.id));
-  }
+    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
+    .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId));
 
   if (tab !== "required") {
     queryBase = queryBase.innerJoin(programSubjectCodes, eq(programSubjectCodes.subjectCode, departments.code));
@@ -457,12 +481,10 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
     .select({ count: sql<number>`count(DISTINCT ${courses.id})` })
     .from(courses)
     .innerJoin(sections, eq(courses.id, sections.courseId))
+    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+    .leftJoin(instructors, eq(sections.instructorId, instructors.id))
     .leftJoin(departments, eq(courses.departmentId, departments.id))
     .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId));
-
-  if (needInstructorJoin) {
-    countQuery = countQuery.innerJoin(instructors, eq(sections.instructorId, instructors.id));
-  }
 
   if (tab !== "required") {
     countQuery = countQuery.innerJoin(
@@ -515,6 +537,23 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
       avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
       avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
       reviewCount: row.reviewCount ?? 0,
+      classScore: row.classScore ? parseFloat(row.classScore) : null,
+      avgEnrollmentPercent: toRoundedPercent(row.avgEnrollmentPercent),
+      instructors: Array.isArray(row.instructors)
+        ? (row.instructors.filter((s: any) => typeof s === "string" && s.trim()) as string[])
+        : (() => {
+            if (typeof row.instructors === "string") {
+              try {
+                const parsed = JSON.parse(row.instructors);
+                return Array.isArray(parsed)
+                  ? (parsed.filter((s: any) => typeof s === "string" && s.trim()) as string[])
+                  : [];
+              } catch {
+                return [];
+              }
+            }
+            return [];
+          })(),
     })),
     meta: {
       page,

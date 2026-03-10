@@ -1,6 +1,6 @@
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
-import { and, eq, ilike, ne, or } from "drizzle-orm";
+import { and, eq, ilike, ne, or, sql } from "drizzle-orm";
 import type { RegisterInput } from "@betteratlas/shared";
 
 const userProfileSelect = {
@@ -90,6 +90,10 @@ export async function searchUsers(query: string, excludeId: string) {
     .where(
       and(
         ne(users.id, excludeId),
+        sql`lower(${users.email}) NOT LIKE '%@invalid.local'`,
+        sql`lower(${users.username}) NOT LIKE 'deleted_%'`,
+        sql`lower(${users.username}) <> 'rmp-import'`,
+        sql`lower(${users.email}) <> 'system+rmp@betteratlas.app'`,
         or(ilike(users.username, pattern), ilike(users.displayName, pattern))
       )
     )

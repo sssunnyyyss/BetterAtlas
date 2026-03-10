@@ -8,7 +8,13 @@ import { SignInPage } from "../components/ui/sign-in.js";
 const LOGIN_HERO_IMAGE =
   "https://images.unsplash.com/photo-1642615835477-d303d7dc9ee9?w=2160&q=80";
 
-type AuthMode = "login" | "register" | "resetRequest" | "resetVerify" | "resetCreatePassword";
+type AuthMode =
+  | "login"
+  | "register"
+  | "registerVerify"
+  | "resetRequest"
+  | "resetVerify"
+  | "resetCreatePassword";
 
 function isSafeInternalPath(raw: string): boolean {
   return raw.startsWith("/") && !raw.startsWith("//");
@@ -30,6 +36,7 @@ export default function Landing() {
     login,
     register,
     resendVerificationEmail,
+    verifySignupCode,
     requestPasswordResetCode,
     verifyPasswordResetCode,
     completePasswordReset,
@@ -44,6 +51,7 @@ export default function Landing() {
   const [major, setMajor] = useState("");
   const [resetEmail, setResetEmail] = useState("");
   const [resetCode, setResetCode] = useState("");
+  const [registerCode, setRegisterCode] = useState("");
   const [resetToken, setResetToken] = useState("");
   const [resetNewPassword, setResetNewPassword] = useState("");
   const [confirmResetPassword, setConfirmResetPassword] = useState("");
@@ -128,10 +136,11 @@ export default function Landing() {
         major: major || undefined,
       });
       if (result.requiresEmailVerification) {
-        setMode("login");
+        setMode("registerVerify");
         setPassword("");
+        setRegisterCode("");
         setNotice(
-          "Check your email for a verification link. You need to verify your email before signing in.",
+          "We sent a 6-digit verification code to your email. Enter it to finish signing up.",
         );
       }
     } catch (err: unknown) {
@@ -152,11 +161,62 @@ export default function Landing() {
     try {
       await resendVerificationEmail(email.trim());
       setError("");
-      setNotice("Verification email sent. Check your inbox (and spam folder).");
+      setRegisterCode("");
+      setMode("registerVerify");
+      setNotice("Verification code sent. Check your inbox (and spam folder), then enter it below.");
     } catch (err: unknown) {
       setError(getErrorMessage(err));
     } finally {
       setResendingVerification(false);
+    }
+  }
+
+  async function handleRegisterVerify(codeFromUi?: string) {
+    const code = (codeFromUi ?? registerCode).replace(/\D/g, "").slice(0, 6);
+    setRegisterCode(code);
+    setError("");
+    setNotice("");
+
+    if (!email.trim()) {
+      setError("Missing signup email. Start signup again.");
+      return;
+    }
+    if (code.length !== 6) {
+      setError("Enter the 6-digit code.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await verifySignupCode({
+        email: email.trim(),
+        code,
+      });
+      setMode("login");
+      setRegisterCode("");
+      setNotice("Email verified. You can sign in now.");
+      setError("");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRegisterResend() {
+    if (!email.trim()) {
+      setError("Missing signup email. Start signup again.");
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      await resendVerificationEmail(email.trim());
+      setNotice("A new verification code has been sent.");
+    } catch (err: unknown) {
+      setError(getErrorMessage(err));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -292,11 +352,13 @@ export default function Landing() {
     setMode("register");
     setError("");
     setNotice("");
+    setRegisterCode("");
   }
 
   function switchToLogin() {
     setMode("login");
     setError("");
+    setRegisterCode("");
   }
 
   const loginDescription: ReactNode = (
@@ -324,7 +386,7 @@ export default function Landing() {
               disabled={resendingVerification || loading}
               className="mt-2 font-medium underline underline-offset-2 hover:text-red-900 disabled:opacity-50"
             >
-              {resendingVerification ? "Sending..." : "Resend verification email"}
+              {resendingVerification ? "Sending..." : "Resend verification code"}
             </button>
           )}
         </div>
@@ -608,6 +670,68 @@ export default function Landing() {
               isVerifying={loading}
               verifyLabel="Verify Code"
               description={`We sent a 6-digit code to ${resetEmail}`}
+            />
+
+            <p className="text-center text-sm text-muted-foreground">
+              Back to{" "}
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  switchToLogin();
+                }}
+                className="text-violet-500 transition-colors hover:underline"
+              >
+                Sign in
+              </a>
+            </p>
+          </div>
+        </section>
+
+        <section className="relative hidden flex-1 p-4 md:block">
+          <div
+            className="animate-slide-right animate-delay-300 absolute inset-4 rounded-3xl bg-cover bg-center"
+            style={{ backgroundImage: `url(${LOGIN_HERO_IMAGE})` }}
+          />
+        </section>
+      </div>
+    );
+  }
+
+  if (mode === "registerVerify") {
+    return (
+      <div className="flex min-h-[100svh] w-full flex-col overflow-y-auto bg-background font-geist text-foreground md:flex-row">
+        <section className="flex flex-1 items-center justify-center p-6 py-10 md:p-8 md:py-12">
+          <div className="w-full max-w-md space-y-5">
+            <h1 className="text-4xl font-semibold leading-tight md:text-5xl">Verify your email</h1>
+            <p className="text-sm text-muted-foreground">
+              Enter the 6-digit code sent to <span className="font-medium">{email}</span>.
+            </p>
+
+            {error && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+            {notice && (
+              <div className="rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                {notice}
+              </div>
+            )}
+
+            <OTPInput
+              value={registerCode}
+              onChange={setRegisterCode}
+              onVerify={(code) => {
+                void handleRegisterVerify(code);
+              }}
+              onResend={() => {
+                void handleRegisterResend();
+              }}
+              verifyDisabled={loading}
+              isVerifying={loading}
+              verifyLabel="Verify Code"
+              description={`We sent a 6-digit code to ${email}`}
             />
 
             <p className="text-center text-sm text-muted-foreground">

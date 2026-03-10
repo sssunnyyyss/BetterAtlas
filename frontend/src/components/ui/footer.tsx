@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 import { Button } from "./button.js";
 
@@ -25,6 +26,35 @@ interface FooterProps {
   };
 }
 
+function FooterLink({
+  href,
+  className,
+  children,
+}: {
+  href: string;
+  className: string;
+  children: ReactNode;
+}) {
+  if (href.startsWith("/")) {
+    return (
+      <Link to={href} className={className}>
+        {children}
+      </Link>
+    );
+  }
+
+  return (
+    <a
+      href={href}
+      className={className}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {children}
+    </a>
+  );
+}
+
 export function Footer({
   logo,
   brandName,
@@ -38,10 +68,10 @@ export function Footer({
     <footer className="pb-6 pt-16 lg:pb-8 lg:pt-24">
       <div className="mx-auto w-full max-w-7xl px-4 lg:px-8">
         <div className="md:flex md:items-start md:justify-between">
-          <a href="/" className="flex items-center gap-x-2" aria-label={brandName}>
+          <Link to="/" className="flex items-center gap-x-2" aria-label={brandName}>
             {logo}
             {brandNode ?? <span className="text-xl font-bold">{brandName}</span>}
-          </a>
+          </Link>
           <ul className="mt-6 flex list-none space-x-3 md:mt-0">
             {socialLinks.map((link, i) => (
               <li key={i}>
@@ -59,12 +89,12 @@ export function Footer({
             <ul className="-mx-2 -my-1 flex list-none flex-wrap lg:justify-end">
               {mainLinks.map((link, i) => (
                 <li key={i} className="mx-2 my-1 shrink-0">
-                  <a
+                  <FooterLink
                     href={link.href}
                     className="text-sm text-primary underline-offset-4 hover:underline"
                   >
                     {link.label}
-                  </a>
+                  </FooterLink>
                 </li>
               ))}
             </ul>
@@ -73,12 +103,12 @@ export function Footer({
             <ul className="-mx-3 -my-1 flex list-none flex-wrap lg:justify-end">
               {legalLinks.map((link, i) => (
                 <li key={i} className="mx-3 my-1 shrink-0">
-                  <a
+                  <FooterLink
                     href={link.href}
                     className="text-sm text-muted-foreground underline-offset-4 hover:underline"
                   >
                     {link.label}
-                  </a>
+                  </FooterLink>
                 </li>
               ))}
             </ul>

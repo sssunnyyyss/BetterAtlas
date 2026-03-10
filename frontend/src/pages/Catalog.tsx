@@ -16,6 +16,7 @@ import {
   type CourseTopicDetail,
 } from "../lib/courseTopics.js";
 import { canonicalizeProgramTab } from "../lib/programVariantSelection.js";
+import { useMediaQuery } from "../hooks/useMediaQuery.js";
 
 function Spinner({ className = "" }: { className?: string }) {
   return (
@@ -131,11 +132,11 @@ function applyProgramRelevanceOrder(
 
 export default function Catalog() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialMode =
+  const isCompactCatalog = useMediaQuery("(max-width: 1023px)");
+  const mode =
     searchParams.get("mode") === "ai" || searchParams.get("ai") === "1"
       ? "ai"
       : "search";
-  const [mode, setMode] = useState<"search" | "ai">(initialMode);
 
   const [searchInput, setSearchInput] = useState(searchParams.get("q") || "");
   const [debouncedSearch, setDebouncedSearch] = useState(searchInput);
@@ -219,6 +220,22 @@ export default function Catalog() {
         }
         // Reset pagination when changing filters/search, but not when changing the page itself.
         if (key !== "page") prev.set("page", "1");
+        return prev;
+      });
+    },
+    [setSearchParams]
+  );
+
+  const handleModeChange = useCallback(
+    (nextMode: "search" | "ai") => {
+      setSearchParams((prev) => {
+        if (nextMode === "ai") {
+          prev.set("mode", "ai");
+        } else {
+          prev.delete("mode");
+          prev.delete("ai");
+          prev.delete("prompt");
+        }
         return prev;
       });
     },
@@ -310,6 +327,7 @@ export default function Catalog() {
     },
     [baseCourses, specialTopicDetailsByCourseId, filters.semester, isProgramMode, aiSummary]
   );
+  const effectiveCatalogView: "grid" | "list" = isCompactCatalog ? "grid" : catalogView;
 
   return (
     <div className="flex min-h-[calc(100dvh-4rem)] pt-2 md:pt-3" data-tour-id="catalog-search-filters">
@@ -330,7 +348,7 @@ export default function Catalog() {
         />
       </Sidebar>
 
-      <main className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
+      <main className="flex min-h-0 flex-1 flex-col p-4 pb-24 sm:p-6 lg:pb-6">
         <div className="mb-3 flex items-center justify-start">
           <div
             className="ba-segmented"
@@ -342,7 +360,7 @@ export default function Catalog() {
             <span className="ba-segmented-glider" aria-hidden="true" />
             <button
               type="button"
-              onClick={() => setMode("search")}
+              onClick={() => handleModeChange("search")}
               className={`ba-segmented-btn ba-segmented-btn-compact ${
                 mode === "search" ? "ba-segmented-btn-active" : ""
               }`}
@@ -351,7 +369,7 @@ export default function Catalog() {
             </button>
             <button
               type="button"
-              onClick={() => setMode("ai")}
+              onClick={() => handleModeChange("ai")}
               className={`ba-segmented-btn ba-segmented-btn-compact ${
                 mode === "ai" ? "ba-segmented-btn-active" : ""
               }`}
@@ -369,101 +387,101 @@ export default function Catalog() {
           <>
             {/* Search bar */}
             <div className="mb-6">
-          <form
-            className="flex w-full max-w-3xl gap-2 items-stretch"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const q = searchInput.trim();
-              setSearchInput(q);
-              setDebouncedSearch(q);
-              setSearchParams((prev) => {
-                if (q) prev.set("q", q);
-                else prev.delete("q");
-                prev.set("page", "1");
-                return prev;
-              });
-            }}
-          >
-            <input
-              type="text"
-              value={searchInput}
-              onChange={(e) => {
-                setSearchInput(e.target.value);
-              }}
-              placeholder="Search by anything: course code, title, description, professor, department..."
-              className="w-full rounded-full border text-sm px-5 py-2.5 shadow-sm transition-colors focus:outline-none focus:border-primary-500 border-gray-300 bg-white"
-            />
-            <button
-              type="submit"
-              className="shrink-0 px-5 rounded-full text-sm font-medium border transition-colors bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
-            >
-              Search
-            </button>
-          </form>
+              <form
+                className="flex w-full max-w-3xl flex-col items-stretch gap-2 sm:flex-row"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const q = searchInput.trim();
+                  setSearchInput(q);
+                  setDebouncedSearch(q);
+                  setSearchParams((prev) => {
+                    if (q) prev.set("q", q);
+                    else prev.delete("q");
+                    prev.set("page", "1");
+                    return prev;
+                  });
+                }}
+              >
+                <input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => {
+                    setSearchInput(e.target.value);
+                  }}
+                  placeholder="Search by anything: course code, title, description, professor, department..."
+                  className="w-full rounded-full border border-gray-300 bg-white px-5 py-2.5 text-sm shadow-sm transition-colors focus:border-primary-500 focus:outline-none"
+                />
+                <button
+                  type="submit"
+                  className="shrink-0 rounded-full border border-gray-300 bg-white px-5 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 sm:min-w-[7rem]"
+                >
+                  Search
+                </button>
+              </form>
 
-          <div className="mt-2 max-w-3xl text-xs text-gray-600">
-            <span className="font-semibold text-primary-700">Filters are hard constraints.</span>{" "}
-            Set filters in the left panel first. Search will always stay within them.
-          </div>
+              <div className="mt-2 max-w-3xl text-xs leading-5 text-gray-600">
+                <span className="font-semibold text-primary-700">Filters are hard constraints.</span>{" "}
+                Set filters in the left panel first. Search will always stay within them.
+              </div>
 
-          {isProgramMode && (
-            <div className="mt-4 max-w-3xl">
-              <div className="bg-white rounded-lg border border-gray-200 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-gray-900">
-                      AI Summary: {program ? `${program.name}` : "Program"}
+              {isProgramMode && (
+                <div className="mt-4 max-w-3xl">
+                  <div className="rounded-lg border border-gray-200 bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="text-sm font-semibold text-gray-900">
+                          AI Summary: {program ? `${program.name}` : "Program"}
+                        </div>
+                        <div className="mt-0.5 text-xs text-gray-500">
+                          Based on the catalog requirements text (may miss "approved elective" lists).
+                        </div>
+                      </div>
+                      {aiSummaryQuery.isLoading && (
+                        <div className="shrink-0 text-gray-500">
+                          <Spinner />
+                        </div>
+                      )}
                     </div>
-                    <div className="text-xs text-gray-500 mt-0.5">
-                      Based on the catalog requirements text (may miss "approved elective" lists).
-                    </div>
-                  </div>
-                  {aiSummaryQuery.isLoading && (
-                    <div className="shrink-0 text-gray-500">
-                      <Spinner />
-                    </div>
-                  )}
-                </div>
 
-                {aiSummaryQuery.isError && (
-                  <div className="mt-3 text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                    {(aiSummaryQuery.error as any)?.message || "Failed to load AI summary"}
-                  </div>
-                )}
-
-                {!aiSummaryQuery.isError && aiSummary && (
-                  <div className="mt-3 space-y-2">
-                    {aiSummary.summary && (
-                      <p className="text-sm text-gray-700">{aiSummary.summary}</p>
-                    )}
-                    {aiSummary.highlights && aiSummary.highlights.length > 0 && (
-                      <ul className="text-sm text-gray-700 list-disc pl-5 space-y-1">
-                        {aiSummary.highlights.slice(0, 7).map((h, i) => (
-                          <li key={i}>{h}</li>
-                        ))}
-                      </ul>
-                    )}
-                    {!aiSummary.available && !aiSummary.summary && (
-                      <div className="text-sm text-gray-500">
-                        AI summary is not available on this server.
+                    {aiSummaryQuery.isError && (
+                      <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                        {(aiSummaryQuery.error as any)?.message || "Failed to load AI summary"}
                       </div>
                     )}
-                    {aiSummary.sourceUrl && (
-                      <a
-                        href={aiSummary.sourceUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-gray-500 hover:text-gray-700 underline underline-offset-2"
-                      >
-                        View in Emory catalog
-                      </a>
+
+                    {!aiSummaryQuery.isError && aiSummary && (
+                      <div className="mt-3 space-y-2">
+                        {aiSummary.summary && (
+                          <p className="text-sm text-gray-700">{aiSummary.summary}</p>
+                        )}
+                        {aiSummary.highlights && aiSummary.highlights.length > 0 && (
+                          <ul className="list-disc space-y-1 pl-5 text-sm text-gray-700">
+                            {aiSummary.highlights.slice(0, 7).map((h, i) => (
+                              <li key={i}>{h}</li>
+                            ))}
+                          </ul>
+                        )}
+                        {!aiSummary.available && !aiSummary.summary && (
+                          <div className="text-sm text-gray-500">
+                            AI summary is not available on this server.
+                          </div>
+                        )}
+                        {aiSummary.sourceUrl && (
+                          <a
+                            href={aiSummary.sourceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-gray-500 underline underline-offset-2 hover:text-gray-700"
+                          >
+                            View in Emory catalog
+                          </a>
+                        )}
+                      </div>
                     )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
         {isProgramMode && (
           <div className="flex items-center gap-2 mb-4">
@@ -513,17 +531,25 @@ export default function Catalog() {
           <div
             className="ml-auto ba-segmented"
             style={{
-              ["--ba-segment-index" as any]: catalogView === "list" ? 0 : 1,
+              ["--ba-segment-index" as any]: effectiveCatalogView === "list" ? 0 : 1,
               ["--ba-segments" as any]: 2,
             }}
           >
             <span className="ba-segmented-glider" aria-hidden="true" />
             <button
               type="button"
-              onClick={() => setCatalogView("list")}
+              onClick={() => {
+                if (!isCompactCatalog) setCatalogView("list");
+              }}
+              disabled={isCompactCatalog}
               className={`ba-segmented-btn ba-segmented-btn-compact ${
-                catalogView === "list" ? "ba-segmented-btn-active" : ""
-              }`}
+                effectiveCatalogView === "list" ? "ba-segmented-btn-active" : ""
+              } ${isCompactCatalog ? "cursor-not-allowed opacity-50" : ""}`}
+              title={
+                isCompactCatalog
+                  ? "List view is disabled on smaller screens to keep the catalog readable."
+                  : undefined
+              }
             >
               List
             </button>
@@ -531,7 +557,7 @@ export default function Catalog() {
               type="button"
               onClick={() => setCatalogView("grid")}
               className={`ba-segmented-btn ba-segmented-btn-compact ${
-                catalogView === "grid" ? "ba-segmented-btn-active" : ""
+                effectiveCatalogView === "grid" ? "ba-segmented-btn-active" : ""
               }`}
             >
               Cards
@@ -539,7 +565,14 @@ export default function Catalog() {
           </div>
         </div>
 
-        <CourseGrid courses={courses} isLoading={result.isLoading} view={catalogView} />
+        {isCompactCatalog && (
+          <p className="mb-4 text-xs leading-5 text-gray-500">
+            Smaller screens use the card layout automatically so course browsing stays readable.
+            Desktop still gives you the full comparison table.
+          </p>
+        )}
+
+        <CourseGrid courses={courses} isLoading={result.isLoading} view={effectiveCatalogView} />
 
         {/* Pagination */}
         {meta && meta.totalPages > 1 && (
