@@ -42,7 +42,7 @@ function parseHHMMColon(s: string) {
 
 function hashColor(key: string) {
   // Deterministic pastel-ish palette.
-  const palette = ["#0ea5e9", "#00c853", "#f97316", "#a855f7", "#ef4444", "#14b8a6", "#eab308"];
+  const palette = ["#0ea5e9", "#00db47", "#f97316", "#a855f7", "#ef4444", "#14b8a6", "#eab308"];
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return palette[h % palette.length];

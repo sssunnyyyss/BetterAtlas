@@ -16,7 +16,7 @@ export const RATING_LABELS = {
 } as const;
 
 export const RATING_COLORS = {
-  high: "#00c853", // vibrant green
+  high: "#00db47", // brighter green
   medium: "#eab308", // yellow-500
   low: "#ef4444", // red-500
 } as const;
