@@ -3,7 +3,7 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: Conversational Atlas-Grounded Chat
 status: between_milestones
-last_updated: "2026-03-10T17:55:50Z"
+last_updated: "2026-03-10T18:03:44Z"
 progress:
   total_phases: 9
   completed_phases: 9
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 Phase: none (between milestones)
 Plan: none
 Status: Milestone v1.2 complete and archived.
-Last activity: 2026-03-10 - Completed quick task 4: Brighten the highest rating green across shared frontend color helpers.
+Last activity: 2026-03-10 - Completed quick task 5: Route home page AI queries to the AI development placeholder.
 
 Progress: [██████████] 100%
 
@@ -136,6 +136,7 @@ Progress: [██████████] 100%
 | 2 | Revert mobile navbar and schedule polish while restoring desktop liquid nav behavior | 2026-03-10 | 8b2ab7b | [2-revert-mobile-navbar-and-schedule-polish](./quick/2-revert-mobile-navbar-and-schedule-polish/) |
 | 3 | Restore mobile schedule UI without reintroducing navbar or global CSS changes | 2026-03-10 | 64c023e | [3-restore-mobile-schedule-ui-without-reint](./quick/3-restore-mobile-schedule-ui-without-reint/) |
 | 4 | Brighten the highest rating green across shared frontend color helpers | 2026-03-10 | cc38038 | [4-brighten-the-highest-rating-green-across](./quick/4-brighten-the-highest-rating-green-across/) |
+| 5 | Route home page AI queries to the AI development placeholder | 2026-03-10 | fe2ab08 | [5-route-home-page-ai-queries-to-the-ai-dev](./quick/5-route-home-page-ai-queries-to-the-ai-dev/) |
 
 ## Session Continuity
 
