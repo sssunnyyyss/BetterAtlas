@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import type { FriendScheduleResponse, ScheduleCourseBlock } from "@betteratlas/shared";
-import { useFriendsSchedules, useMySchedule, useRemoveFromSchedule } from "../hooks/useSchedule.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { FriendScheduleResponse, ScheduleCourseBlock, Section } from "@betteratlas/shared";
+import { useFriendsSchedules, useMySchedule, useRemoveFromSchedule, useSwapSection } from "../hooks/useSchedule.js";
+import { api } from "../api/client.js";
 import { formatTimeRange12h } from "../lib/time.js";
 import Modal from "../components/ui/Modal.js";
+import AppDropdown from "../components/ui/AppDropdown.js";
 import { Link } from "react-router-dom";
 import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
-import { SEMESTERS } from "@betteratlas/shared";
 import { layoutOverlaps } from "../lib/calendarLayout.js";
 
 const DAYS: Array<{ key: string; label: string }> = [
@@ -74,6 +75,10 @@ function compareTermValues(a: string, b: string) {
 
   // Fallback for raw codes/labels.
   return a.localeCompare(b);
+}
+
+function normalizeTermLabel(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
 type CalendarBlock = {
@@ -161,54 +166,53 @@ function WeeklyCalendar({
             ))}
 
             {layoutOverlaps(blocks.filter((b) => b.day === d.key)).map((b) => {
-                const top = (b.startMin - minMinute) * pxPerMin;
-                const blockHeight = Math.max(22, (b.endMin - b.startMin) * pxPerMin);
-                return (
-                  <button
-                    key={b.id}
-                    type="button"
-                    onClick={() => onBlockClick?.(b)}
-                    className={`absolute rounded-md border px-2 py-1 text-xs shadow-sm ${
-                      b.owner === "me" ? "border-gray-200" : "border-gray-200 opacity-75"
+              const top = (b.startMin - minMinute) * pxPerMin;
+              const blockHeight = Math.max(22, (b.endMin - b.startMin) * pxPerMin);
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => onBlockClick?.(b)}
+                  className={`absolute rounded-md border px-2 py-1 text-xs shadow-sm ${b.owner === "me" ? "border-gray-200" : "border-gray-200 opacity-75"
                     } text-left`}
-                    style={{
-                      top,
-                      height: blockHeight,
-                      left: `calc(100% * ${b.col} / ${b.colCount})`,
-                      right: `calc(100% * ${b.colCount - b.col - 1} / ${b.colCount})`,
-                      marginLeft: 8,
-                      marginRight: 8,
-                      backgroundColor: `${b.color}22`,
-                      borderLeft: `4px solid ${b.color}`,
-                    }}
-                    title={`${b.title} (${b.subtitle})`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-gray-900 truncate">
-                          {b.title}
-                          {b.sectionNumber ? (
-                            <span className="font-medium text-gray-700">
-                              {" "}
-                              · {b.sectionNumber}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="text-[11px] text-gray-700 truncate">{b.courseTitle}</div>
+                  style={{
+                    top,
+                    height: blockHeight,
+                    left: `calc(100% * ${b.col} / ${b.colCount})`,
+                    right: `calc(100% * ${b.colCount - b.col - 1} / ${b.colCount})`,
+                    marginLeft: 8,
+                    marginRight: 8,
+                    backgroundColor: `${b.color}22`,
+                    borderLeft: `4px solid ${b.color}`,
+                  }}
+                  title={`${b.title} (${b.subtitle})`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-gray-900 truncate">
+                        {b.title}
+                        {b.sectionNumber ? (
+                          <span className="font-medium text-gray-700">
+                            {" "}
+                            · {b.sectionNumber}
+                          </span>
+                        ) : null}
                       </div>
-                      {b.owner === "friend" && b.friend?.username ? (
-                        <span className="text-[10px] text-gray-700 bg-white/70 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
-                          @{b.friend.username}
-                        </span>
-                      ) : null}
+                      <div className="text-[11px] text-gray-700 truncate">{b.courseTitle}</div>
                     </div>
-                    <div className="text-[11px] text-gray-700 truncate mt-0.5">{b.subtitle}</div>
-                    {b.owner === "friend" && (
-                      <div className="text-[10px] text-gray-600 truncate">{b.ownerLabel}</div>
-                    )}
-                  </button>
-                );
-              })}
+                    {b.owner === "friend" && b.friend?.username ? (
+                      <span className="text-[10px] text-gray-700 bg-white/70 border border-gray-200 rounded px-1.5 py-0.5 shrink-0">
+                        @{b.friend.username}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="text-[11px] text-gray-700 truncate mt-0.5">{b.subtitle}</div>
+                  {b.owner === "friend" && (
+                    <div className="text-[10px] text-gray-600 truncate">{b.ownerLabel}</div>
+                  )}
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -281,18 +285,48 @@ export default function Schedule() {
     const n = raw ? Number(raw) : NaN;
     return Number.isFinite(n) ? n : 7;
   });
-  const [selectedTerm, setSelectedTerm] = useState<string>("Spring 2026");
+  const [selectedTerm, setSelectedTerm] = useState<string>("");
   const [friendView, setFriendView] = useState(false);
   const [selectedFriendIds, setSelectedFriendIds] = useState<Record<string, boolean>>({});
   const [activeBlock, setActiveBlock] = useState<CalendarBlock | null>(null);
+  const [siblingOpen, setSiblingOpen] = useState(false);
+  const [siblingSections, setSiblingSections] = useState<Section[]>([]);
+  const [siblingsLoading, setSiblingsLoading] = useState(false);
+  const siblingLoadSeqRef = useRef(0);
   const { data: mine, isLoading } = useMySchedule(selectedTerm || undefined);
   const friendTerm = selectedTerm || mine?.term.code;
   const { data: friends, isLoading: friendsLoading } = useFriendsSchedules(friendTerm || undefined);
   const removeItem = useRemoveFromSchedule();
+  const swapSection = useSwapSection();
+
+  async function loadSiblings(courseId: number) {
+    const requestSeq = ++siblingLoadSeqRef.current;
+    setSiblingsLoading(true);
+    try {
+      const data = await api.get<{ sections: Section[] }>(`/courses/${courseId}`);
+      if (requestSeq !== siblingLoadSeqRef.current) return;
+      setSiblingSections(data.sections ?? []);
+    } catch {
+      if (requestSeq !== siblingLoadSeqRef.current) return;
+      setSiblingSections([]);
+    } finally {
+      if (requestSeq !== siblingLoadSeqRef.current) return;
+      setSiblingsLoading(false);
+    }
+  }
 
   useEffect(() => {
     localStorage.setItem("schedule_start_hour", String(startHour));
   }, [startHour]);
+
+  useEffect(() => {
+    // Reset section-switcher state whenever the opened tile changes.
+    // Also invalidates any in-flight sibling-section request from a previous tile.
+    siblingLoadSeqRef.current += 1;
+    setSiblingOpen(false);
+    setSiblingSections([]);
+    setSiblingsLoading(false);
+  }, [activeBlock?.id]);
 
   useEffect(() => {
     if (!friendView) return;
@@ -315,7 +349,10 @@ export default function Schedule() {
 
   const termOptions = useMemo(() => {
     const set = new Set<string>();
-    for (const semester of SEMESTERS) set.add(semester);
+    for (const t of mine?.availableTerms ?? []) {
+      const label = t.name ?? t.code;
+      if (label) set.add(label);
+    }
     if (mine?.term.name) set.add(mine.term.name);
     else if (mine?.term.code) set.add(mine.term.code);
     for (const item of mine?.items ?? []) {
@@ -324,6 +361,23 @@ export default function Schedule() {
     if (selectedTerm) set.add(selectedTerm);
     return Array.from(set).sort(compareTermValues);
   }, [mine, selectedTerm]);
+  const semesterDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "My latest / default" },
+      ...termOptions.map((term) => ({ value: term, label: term })),
+    ],
+    [termOptions]
+  );
+  const startDropdownOptions = useMemo(
+    () => [
+      ...[6, 7, 8, 9, 10].map((h) => ({ value: String(h), label: `${h}:00 AM` })),
+      { value: "11", label: "11:00 AM" },
+    ],
+    []
+  );
+  const activeCalendarTerm = useMemo(() => {
+    return selectedTerm || mine?.term.name || mine?.term.code || "";
+  }, [selectedTerm, mine?.term.name, mine?.term.code]);
 
   const myBlocks = useMemo(
     () => blocksFromSchedule(mine?.items ?? [], "me", "me"),
@@ -361,6 +415,15 @@ export default function Schedule() {
     () => (mine?.items ?? []).filter((i) => schedulesForScheduleItem(i).length === 0),
     [mine?.items]
   );
+  const swappableSiblingSections = useMemo(() => {
+    if (!activeBlock) return [];
+    const targetTerm = normalizeTermLabel(activeCalendarTerm);
+    return siblingSections.filter((s: Section) => {
+      if (s.id === activeBlock.sectionId) return false;
+      if (!targetTerm) return true;
+      return normalizeTermLabel(s.semester) === targetTerm;
+    });
+  }, [activeBlock, siblingSections, activeCalendarTerm]);
 
   if (isLoading) {
     return (
@@ -385,37 +448,21 @@ export default function Schedule() {
         <div className="flex items-center gap-4">
           <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
             <span className="text-sm text-gray-600">Semester</span>
-            <select
+            <AppDropdown
               value={selectedTerm}
-              onChange={(e) => setSelectedTerm(e.target.value)}
-              className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="">My latest / default</option>
-              {termOptions.map((term) => (
-                <option key={term} value={term}>
-                  {term}
-                </option>
-              ))}
-            </select>
+              options={semesterDropdownOptions}
+              onChange={(value) => setSelectedTerm(value)}
+              className="w-52"
+            />
           </label>
           <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
             <span className="text-sm text-gray-600">Start</span>
-            <select
-              value={startHour}
-              onChange={(e) => setStartHour(parseInt(e.target.value, 10))}
-              className="rounded-md border-gray-300 shadow-sm text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              {[6, 7, 8, 9, 10].map((h) => (
-                <option key={h} value={h}>
-                  {h}:00 AM
-                </option>
-              ))}
-              {[11].map((h) => (
-                <option key={h} value={h}>
-                  {h}:00 AM
-                </option>
-              ))}
-            </select>
+            <AppDropdown
+              value={String(startHour)}
+              options={startDropdownOptions}
+              onChange={(value) => setStartHour(parseInt(value, 10))}
+              className="w-32"
+            />
           </label>
           <label className="flex items-center gap-2 text-sm text-gray-700 select-none" data-tour-id="schedule-friend-toggle">
             <input
@@ -651,7 +698,7 @@ export default function Schedule() {
                 <span className="text-gray-900">
                   {activeBlock.instructionMethod
                     ? (INSTRUCTION_METHOD_OPTIONS as any)[activeBlock.instructionMethod] ??
-                      activeBlock.instructionMethod
+                    activeBlock.instructionMethod
                     : "—"}
                 </span>
               </div>
@@ -660,7 +707,7 @@ export default function Schedule() {
                 <span className="text-gray-900">
                   {activeBlock.enrollmentStatus
                     ? ENROLLMENT_STATUS_LABELS[activeBlock.enrollmentStatus] ??
-                      activeBlock.enrollmentStatus
+                    activeBlock.enrollmentStatus
                     : "—"}
                 </span>
               </div>
@@ -673,18 +720,98 @@ export default function Schedule() {
             </div>
 
             {activeBlock.owner === "me" && typeof activeBlock.itemId === "number" ? (
-              <div className="pt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={async () => {
-                    await removeItem.mutateAsync(activeBlock.itemId!);
-                    setActiveBlock(null);
-                  }}
-                  disabled={removeItem.isPending}
-                  className="text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
-                >
-                  Remove from schedule
-                </button>
+              <div className="pt-2 space-y-3">
+                {!siblingOpen ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSiblingOpen(true);
+                      loadSiblings(activeBlock.courseId);
+                    }}
+                    className="text-sm text-primary-600 hover:text-primary-800 font-medium"
+                  >
+                    Switch Section
+                  </button>
+                ) : (
+                  <div className="rounded-lg border border-gray-200 p-3 space-y-2">
+                    <div className="text-xs font-medium text-gray-700">Pick a different section:</div>
+                    {siblingsLoading ? (
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <div className="animate-spin h-3 w-3 border-2 border-gray-400 border-t-transparent rounded-full" />
+                        Loading sections...
+                      </div>
+                    ) : siblingSections.length === 0 ? (
+                      <div className="text-xs text-gray-500">No other sections found.</div>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto space-y-1">
+                        {swappableSiblingSections.map((s: Section) => {
+                            const scheds = Array.isArray(s.schedules) && s.schedules.length > 0
+                              ? s.schedules
+                              : s.schedule
+                                ? [s.schedule]
+                                : [];
+                            return (
+                              <button
+                                key={s.id}
+                                type="button"
+                                onClick={async () => {
+                                  await swapSection.mutateAsync({
+                                    itemId: activeBlock.itemId!,
+                                    newSectionId: s.id,
+                                  });
+                                  setActiveBlock(null);
+                                  setSiblingOpen(false);
+                                  setSiblingSections([]);
+                                }}
+                                disabled={swapSection.isPending}
+                                className="w-full text-left rounded-md border border-gray-200 p-2 hover:border-primary-300 hover:bg-primary-50 transition-colors text-xs disabled:opacity-50"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-medium text-gray-900">
+                                    Section {s.sectionNumber ?? "—"}
+                                  </span>
+                                  <span className={`font-medium ${s.enrollmentStatus === "O" ? "text-green-600" : "text-red-500"
+                                    }`}>
+                                    {ENROLLMENT_STATUS_LABELS[s.enrollmentStatus ?? ""] ?? s.enrollmentStatus ?? "—"}
+                                  </span>
+                                </div>
+                                <div className="text-gray-600 mt-0.5">
+                                  {s.instructor?.name ?? "Instructor TBD"}
+                                  {scheds.length > 0 && (
+                                    <span>
+                                      {" · "}
+                                      {scheds.map((sched: any) =>
+                                        `${sched.days?.join("/") ?? ""} ${formatTimeRange12h(sched.start, sched.end)}`
+                                      ).join("; ")}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-gray-500 mt-0.5">
+                                  {s.enrollmentCur ?? 0}/{s.enrollmentCap ?? "?"} enrolled
+                                </div>
+                              </button>
+                            );
+                          })}
+                        {swappableSiblingSections.length === 0 && (
+                          <div className="text-xs text-gray-500">No other sections available.</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await removeItem.mutateAsync(activeBlock.itemId!);
+                      setActiveBlock(null);
+                    }}
+                    disabled={removeItem.isPending}
+                    className="text-sm text-red-600 hover:text-red-800 disabled:opacity-50"
+                  >
+                    Remove from schedule
+                  </button>
+                </div>
               </div>
             ) : null}
           </div>

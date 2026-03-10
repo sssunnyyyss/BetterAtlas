@@ -490,6 +490,23 @@ CREATE INDEX IF NOT EXISTS idx_admin_course_sync_schedule_updated_at
 
 -- Supabase ships pgvector; this enables semantic (meaning-based) search.
 CREATE EXTENSION IF NOT EXISTS vector;
+-- Enable trigram similarity for typo-tolerant lexical search.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
+CREATE INDEX IF NOT EXISTS idx_courses_code_trgm
+  ON courses USING gin (lower(code) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_courses_title_trgm
+  ON courses USING gin (lower(title) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_departments_code_trgm
+  ON departments USING gin (lower(code) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_departments_name_trgm
+  ON departments USING gin (lower(name) gin_trgm_ops);
+
+CREATE INDEX IF NOT EXISTS idx_instructors_name_trgm
+  ON instructors USING gin (lower(name) gin_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS course_embeddings (
   course_id INTEGER PRIMARY KEY REFERENCES courses(id) ON DELETE CASCADE,
@@ -581,6 +598,10 @@ WHERE icon IS NULL;
 
 ALTER TABLE badges
   ALTER COLUMN icon SET NOT NULL;
+
+UPDATE badges
+SET name = 'Early Adopter'
+WHERE slug = 'early-adopter';
 
 CREATE TABLE IF NOT EXISTS user_badges (
   id SERIAL PRIMARY KEY,
@@ -888,4 +909,65 @@ JOIN (
   ON c.board_slug = b.slug
 ON CONFLICT (board_id, slug) DO NOTHING;
 
+-- ============================================================
+-- 16. ALTER reviews — RMP metadata (tags + reported grade)
+-- ============================================================
+ALTER TABLE reviews
+  ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}'::text[],
+  ADD COLUMN IF NOT EXISTS reported_grade VARCHAR(12),
+  ADD COLUMN IF NOT EXISTS grade_points NUMERIC(3,2);
+
+DROP INDEX IF EXISTS reviews_user_section_unique;
+CREATE UNIQUE INDEX IF NOT EXISTS reviews_user_section_unique
+  ON reviews (user_id, section_id)
+  WHERE source = 'native' AND section_id IS NOT NULL;
+
+-- ============================================================
+-- 17. ALTER reviews — support half-point ratings (1.0 to 5.0, step 0.5)
+-- ============================================================
+ALTER TABLE reviews
+  ALTER COLUMN rating_quality TYPE NUMERIC(2,1)
+    USING rating_quality::numeric(2,1),
+  ALTER COLUMN rating_difficulty TYPE NUMERIC(2,1)
+    USING rating_difficulty::numeric(2,1),
+  ALTER COLUMN rating_workload TYPE NUMERIC(2,1)
+    USING rating_workload::numeric(2,1);
+
+ALTER TABLE reviews
+  DROP CONSTRAINT IF EXISTS chk_reviews_rating_quality_half_step,
+  DROP CONSTRAINT IF EXISTS chk_reviews_rating_difficulty_half_step,
+  DROP CONSTRAINT IF EXISTS chk_reviews_rating_workload_half_step;
+
+ALTER TABLE reviews
+  ADD CONSTRAINT chk_reviews_rating_quality_half_step
+    CHECK (
+      rating_quality >= 1
+      AND rating_quality <= 5
+      AND mod(rating_quality * 2, 1) = 0
+    ),
+  ADD CONSTRAINT chk_reviews_rating_difficulty_half_step
+    CHECK (
+      rating_difficulty >= 1
+      AND rating_difficulty <= 5
+      AND mod(rating_difficulty * 2, 1) = 0
+    ),
+  ADD CONSTRAINT chk_reviews_rating_workload_half_step
+    CHECK (
+      rating_workload IS NULL
+      OR (
+        rating_workload >= 1
+        AND rating_workload <= 5
+        AND mod(rating_workload * 2, 1) = 0
+      )
+    );
+
 COMMIT;
+
+-- Course review summaries (LLM-generated)
+CREATE TABLE IF NOT EXISTS course_review_summaries (
+  course_id INTEGER PRIMARY KEY REFERENCES courses(id),
+  summary TEXT NOT NULL,
+  review_count INTEGER NOT NULL,
+  review_hash VARCHAR(64) NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);

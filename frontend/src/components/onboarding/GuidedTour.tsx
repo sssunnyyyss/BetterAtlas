@@ -16,6 +16,7 @@ export interface TourStep {
   interactive?: {
     actionLabel: string;
     completionQueryKey?: string[];
+    completionQueryCheck?: (data: unknown) => boolean;
     completionCheck?: () => boolean;
   };
 }
@@ -185,20 +186,37 @@ export default function GuidedTour({
     if (!onInteractionComplete) return;
 
     const targetKey = currentStep.interactive.completionQueryKey;
+    const queryCheck = currentStep.interactive.completionQueryCheck;
     const cache = queryClient.getQueryCache();
+    const keyMatches = (queryKey: readonly unknown[]) =>
+      targetKey.every((part, i) => queryKey[i] === part);
+
+    // If we already have matching data in cache, mark the interaction as complete immediately.
+    const existing = cache.findAll({ queryKey: targetKey })[0];
+    if (
+      queryCheck &&
+      existing &&
+      keyMatches(existing.queryKey) &&
+      queryCheck(existing.state.data)
+    ) {
+      onInteractionComplete();
+      return;
+    }
 
     // Record the current dataUpdatedAt so we only trigger on new fetches.
-    const existing = cache.findAll({ queryKey: targetKey })[0];
     const initialTimestamp = existing?.state.dataUpdatedAt ?? 0;
 
     const unsubscribe = cache.subscribe((event) => {
       if (!event?.query) return;
       const qk = event.query.queryKey;
-      if (targetKey.every((part, i) => qk[i] === part)) {
-        if (event.query.state.dataUpdatedAt > initialTimestamp) {
-          onInteractionComplete();
-        }
+      if (!keyMatches(qk)) return;
+      if (event.query.state.dataUpdatedAt <= initialTimestamp) return;
+
+      if (queryCheck && !queryCheck(event.query.state.data)) {
+        return;
       }
+
+      onInteractionComplete();
     });
 
     return unsubscribe;

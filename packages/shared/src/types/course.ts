@@ -4,6 +4,14 @@ export interface Department {
   name: string;
 }
 
+export interface Term {
+  srcdb: string;
+  name: string;
+  season: string;
+  year: number;
+  isActive: boolean | null;
+}
+
 export interface Instructor {
   id: number;
   name: string;
@@ -29,6 +37,7 @@ export interface CourseWithRatings extends Course {
   avgQuality: number | null;
   avgDifficulty: number | null;
   avgWorkload: number | null;
+  avgGradePoints?: number | null;
   reviewCount: number;
   // "Class" score: aggregate of professor scores for instructors teaching this course.
   classScore?: number | null;
@@ -102,6 +111,7 @@ export interface CourseDetail extends CourseWithRatings {
     avgQuality: number | null;
     avgDifficulty: number | null;
     avgWorkload: number | null;
+    avgGradePoints?: number | null;
     reviewCount: number;
   }>;
   /** Other course codes that represent the same class (cross-listed). */

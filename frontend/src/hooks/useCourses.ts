@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../api/client.js";
-import type { CourseWithRatings, CourseDetail, Department } from "@betteratlas/shared";
+import type { CourseWithRatings, CourseDetail, Department, Term } from "@betteratlas/shared";
 
 interface PaginatedResponse<T> {
   data: T[];
@@ -44,6 +44,14 @@ export function useDepartments() {
   return useQuery({
     queryKey: ["departments"],
     queryFn: () => api.get<Department[]>("/departments"),
+    staleTime: Infinity,
+  });
+}
+
+export function useTerms() {
+  return useQuery({
+    queryKey: ["terms"],
+    queryFn: () => api.get<Term[]>("/terms"),
     staleTime: Infinity,
   });
 }

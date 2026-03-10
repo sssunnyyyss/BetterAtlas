@@ -81,19 +81,27 @@ export const programsQuerySchema = z.object({
 });
 
 export const programCoursesQuerySchema = courseQuerySchema
-  .omit({ department: true, semester: true })
+  .omit({ department: true })
   .extend({
     tab: z.enum(["required", "electives"]).default("required"),
     q: z.string().max(200).optional(),
   });
 
 // Reviews
+const halfStepRatingSchema = z
+  .number()
+  .min(1)
+  .max(5)
+  .refine((value) => Number.isInteger(value * 2), {
+    message: "Rating must use 0.5 increments",
+  });
+
 export const createReviewSchema = z.object({
   semester: z.string().min(1),
   sectionId: z.number().int().positive(),
-  ratingQuality: z.number().int().min(1).max(5),
-  ratingDifficulty: z.number().int().min(1).max(5),
-  ratingWorkload: z.number().int().min(1).max(5),
+  ratingQuality: halfStepRatingSchema,
+  ratingDifficulty: halfStepRatingSchema,
+  ratingWorkload: halfStepRatingSchema.nullable().default(null),
   comment: z.string().max(5000).optional(),
   isAnonymous: z.boolean().default(true),
 });
@@ -223,6 +231,10 @@ export const addListItemSchema = z.object({
     .optional(),
 });
 
+export const swapSectionSchema = z.object({
+  newSectionId: z.number().int().positive(),
+});
+
 // Pagination response
 export const paginationMeta = z.object({
   page: z.number(),
@@ -257,3 +269,4 @@ export type FeedbackHubCreateChangelogInput = z.infer<typeof feedbackHubCreateCh
 export type FriendRequestInput = z.infer<typeof friendRequestSchema>;
 export type CreateListInput = z.infer<typeof createListSchema>;
 export type AddListItemInput = z.infer<typeof addListItemSchema>;
+export type SwapSectionInput = z.infer<typeof swapSectionSchema>;

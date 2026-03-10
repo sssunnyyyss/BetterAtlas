@@ -8,6 +8,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "test": "vitest run",
+    "test:ai:gates": "pnpm run build && pnpm run test -- src/routes/ai.intent-routing.test.ts src/routes/ai.grounding-safety.test.ts src/routes/ai.relevance-calibration.test.ts src/routes/ai.memory-context.test.ts src/routes/ai.observability.test.ts",
     "test:watch": "vitest",
     "atlas:sync": "tsx src/jobs/atlasSync.ts",
     "programs:sync": "tsx src/jobs/programsSync.ts",
@@ -15,7 +16,8 @@
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
     "db:apply-schema-migration": "tsx src/db/applySchemaMigration.ts",
-    "db:seed": "tsx src/db/seed.ts"
+    "db:seed": "tsx src/db/seed.ts",
+    "rmp:seed": "tsx src/jobs/rmpSeed.ts"
   },
   "dependencies": {
     "@betteratlas/shared": "workspace:*",
@@ -25,8 +27,10 @@
     "drizzle-orm": "^0.33.0",
     "express": "^4.21.0",
     "express-rate-limit": "^7.4.0",
+    "fastest-levenshtein": "^1.0.16",
     "helmet": "^7.1.0",
     "postgres": "^3.4.4",
+    "rate-my-professor-api-ts": "^1.0.5",
     "zod": "^3.23.0"
   },
   "devDependencies": {

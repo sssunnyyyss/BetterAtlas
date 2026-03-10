@@ -3,7 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import { env } from "./config/env.js";
 import authRoutes from "./routes/auth.js";
-import courseRoutes, { departmentsRouter } from "./routes/courses.js";
+import courseRoutes, { departmentsRouter, termsRouter } from "./routes/courses.js";
 import instructorRoutes from "./routes/instructors.js";
 import reviewRoutes from "./routes/reviews.js";
 import userRoutes from "./routes/users.js";
@@ -19,6 +19,7 @@ import inviteCodeRoutes from "./routes/inviteCodes.js";
 import oauthRoutes from "./routes/oauth.js";
 import adminOAuthRoutes from "./routes/adminOAuth.js";
 import cannySsoRoutes from "./routes/cannySso.js";
+import wishlistRoutes from "./routes/wishlist.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 import { ensureJohnDoe } from "./bootstrap.js";
 
@@ -59,6 +60,7 @@ app.use(generalLimiter);
 app.use("/api/auth", authRoutes);
 app.use("/api/courses", courseRoutes);
 app.use("/api/departments", departmentsRouter);
+app.use("/api/terms", termsRouter);
 app.use("/api/programs", programsRoutes);
 app.use("/api/admin", adminProgramsRoutes);
 app.use("/api/admin/ai-trainer", aiTrainerRoutes);
@@ -74,6 +76,7 @@ app.use("/api", feedbackRoutes);
 app.use("/api/feedback-hub", feedbackHubRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api", aiRoutes);
+app.use("/api", wishlistRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {

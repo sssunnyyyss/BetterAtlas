@@ -10,8 +10,27 @@ import { syncPrograms } from "../jobs/programsSync.js";
 import { requireAuth } from "../middleware/auth.js";
 import { isAdminEmail } from "../utils/admin.js";
 import { db, supabase } from "../db/index.js";
-import { courses, friendships, programs, reviews, sections, terms, users } from "../db/schema.js";
-import { desc, eq, gte, ilike, or, sql } from "drizzle-orm";
+import { getAiQualityTelemetrySnapshot } from "../ai/observability/aiQualityTelemetry.js";
+import {
+  aiTrainerRatings,
+  courseLists,
+  courses,
+  feedbackPostComments,
+  feedbackPosts,
+  feedbackPostVotes,
+  feedbackReports,
+  friendships,
+  oauthAccessTokens,
+  oauthAuthorizationCodes,
+  oauthClients,
+  programs,
+  reviews,
+  sections,
+  terms,
+  users,
+  userBadges,
+} from "../db/schema.js";
+import { and, desc, eq, gte, ilike, ne, or, sql } from "drizzle-orm";
 
 const router = Router();
 
@@ -82,6 +101,23 @@ type EmbeddingSyncRun = {
   finishedAt: string | null;
   requestedBy: string;
   requestedEmail: string;
+  termCode: string | null;
+  semester: string | null;
+  error: string | null;
+  logs: SyncRunLog[];
+};
+
+type RmpSyncRun = {
+  id: number;
+  type: "rmp_sync";
+  status: RunStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  requestedBy: string;
+  requestedEmail: string;
+  onlyInstructorIds: number[];
+  onlyTeacherIds: string[];
   error: string | null;
   logs: SyncRunLog[];
 };
@@ -101,6 +137,8 @@ const MAX_LOGS_PER_RUN = 1000;
 const MAX_APP_ERRORS = 500;
 const BAN_DURATION = "876000h";
 const DEFAULT_COURSE_SCHEDULE_TIMEZONE = "America/New_York";
+const RMP_IMPORT_USERNAME = "rmp-import";
+const RMP_IMPORT_EMAIL = "system+rmp@betteratlas.app";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const apiRootDir = path.resolve(__dirname, "../..");
@@ -109,10 +147,12 @@ const embeddingsBackfillDistPath = path.resolve(
   apiRootDir,
   "dist/jobs/courseEmbeddingsBackfill.js"
 );
+const rmpSeedDistPath = path.resolve(apiRootDir, "dist/jobs/rmpSeed.js");
 
 const syncRuns: SyncRun[] = [];
 const courseSyncRuns: CourseSyncRun[] = [];
 const embeddingSyncRuns: EmbeddingSyncRun[] = [];
+const rmpSyncRuns: RmpSyncRun[] = [];
 const appErrors: AdminAppError[] = [];
 let nextRunId = 1;
 let nextRunLogId = 1;
@@ -133,6 +173,37 @@ let courseScheduleLastTriggerKey: string | null = null;
 
 function nowIso() {
   return new Date().toISOString();
+}
+
+function isAuthTombstoneEmail(email: string) {
+  return email.trim().toLowerCase().endsWith("@invalid.local");
+}
+
+function parseTruthyQuery(value: unknown) {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+async function permanentlyDeleteUserData(userId: string) {
+  await db.transaction(async (tx) => {
+    await tx.delete(userBadges).where(eq(userBadges.userId, userId));
+    await tx.delete(aiTrainerRatings).where(eq(aiTrainerRatings.userId, userId));
+    await tx.delete(oauthAuthorizationCodes).where(eq(oauthAuthorizationCodes.userId, userId));
+    await tx.delete(oauthAccessTokens).where(eq(oauthAccessTokens.userId, userId));
+    await tx.update(oauthClients).set({ createdBy: null }).where(eq(oauthClients.createdBy, userId));
+    await tx.delete(feedbackPostVotes).where(eq(feedbackPostVotes.userId, userId));
+    await tx.delete(feedbackPostComments).where(eq(feedbackPostComments.authorUserId, userId));
+    await tx.delete(feedbackPosts).where(eq(feedbackPosts.authorUserId, userId));
+    await tx.delete(feedbackReports).where(eq(feedbackReports.userId, userId));
+    await tx.delete(reviews).where(eq(reviews.userId, userId));
+    await tx.delete(courseLists).where(eq(courseLists.userId, userId));
+    await tx
+      .delete(friendships)
+      .where(or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)));
+    await tx.delete(users).where(eq(users.id, userId));
+  });
 }
 
 function summarizeRun(run: SyncRun) {
@@ -254,6 +325,25 @@ function summarizeEmbeddingSyncRun(run: EmbeddingSyncRun) {
     finishedAt: run.finishedAt,
     requestedBy: run.requestedBy,
     requestedEmail: run.requestedEmail,
+    termCode: run.termCode,
+    semester: run.semester,
+    error: run.error,
+    logCount: run.logs.length,
+  };
+}
+
+function summarizeRmpSyncRun(run: RmpSyncRun) {
+  return {
+    id: run.id,
+    type: run.type,
+    status: run.status,
+    createdAt: run.createdAt,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    requestedBy: run.requestedBy,
+    requestedEmail: run.requestedEmail,
+    onlyInstructorIds: run.onlyInstructorIds,
+    onlyTeacherIds: run.onlyTeacherIds,
     error: run.error,
     logCount: run.logs.length,
   };
@@ -271,6 +361,10 @@ function getRunningEmbeddingSyncRun() {
   );
 }
 
+function getRunningRmpSyncRun() {
+  return rmpSyncRuns.find((run) => run.status === "queued" || run.status === "running") || null;
+}
+
 function findCourseSyncRunById(rawId: string) {
   const id = Number.parseInt(rawId, 10);
   if (!Number.isFinite(id)) return null;
@@ -281,6 +375,12 @@ function findEmbeddingSyncRunById(rawId: string) {
   const id = Number.parseInt(rawId, 10);
   if (!Number.isFinite(id)) return null;
   return embeddingSyncRuns.find((run) => run.id === id) || null;
+}
+
+function findRmpSyncRunById(rawId: string) {
+  const id = Number.parseInt(rawId, 10);
+  if (!Number.isFinite(id)) return null;
+  return rmpSyncRuns.find((run) => run.id === id) || null;
 }
 
 function createCourseSyncRun(input: {
@@ -318,7 +418,12 @@ function createCourseSyncRun(input: {
   return run;
 }
 
-function createEmbeddingSyncRun(input: { requestedBy: string; requestedEmail: string }) {
+function createEmbeddingSyncRun(input: {
+  requestedBy: string;
+  requestedEmail: string;
+  termCode: string | null;
+  semester: string | null;
+}) {
   const run: EmbeddingSyncRun = {
     id: nextRunId++,
     type: "embeddings_sync",
@@ -328,12 +433,62 @@ function createEmbeddingSyncRun(input: { requestedBy: string; requestedEmail: st
     finishedAt: null,
     requestedBy: input.requestedBy,
     requestedEmail: input.requestedEmail,
+    termCode: input.termCode,
+    semester: input.semester,
     error: null,
     logs: [],
   };
   embeddingSyncRuns.unshift(run);
   if (embeddingSyncRuns.length > MAX_RUNS) {
     embeddingSyncRuns.splice(MAX_RUNS);
+  }
+  return run;
+}
+
+function normalizeStringList(values: unknown): string[] {
+  if (!Array.isArray(values)) return [];
+  return Array.from(
+    new Set(
+      values
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function normalizeIntList(values: unknown): number[] {
+  if (!Array.isArray(values)) return [];
+  const out = new Set<number>();
+  for (const value of values) {
+    const parsed = Number.parseInt(String(value ?? "").trim(), 10);
+    if (Number.isFinite(parsed)) out.add(parsed);
+  }
+  return Array.from(out);
+}
+
+function createRmpSyncRun(input: {
+  requestedBy: string;
+  requestedEmail: string;
+  onlyInstructorIds: number[];
+  onlyTeacherIds: string[];
+}) {
+  const run: RmpSyncRun = {
+    id: nextRunId++,
+    type: "rmp_sync",
+    status: "queued",
+    createdAt: nowIso(),
+    startedAt: null,
+    finishedAt: null,
+    requestedBy: input.requestedBy,
+    requestedEmail: input.requestedEmail,
+    onlyInstructorIds: Array.from(new Set(input.onlyInstructorIds)),
+    onlyTeacherIds: Array.from(new Set(input.onlyTeacherIds)),
+    error: null,
+    logs: [],
+  };
+  rmpSyncRuns.unshift(run);
+  if (rmpSyncRuns.length > MAX_RUNS) {
+    rmpSyncRuns.splice(MAX_RUNS);
   }
   return run;
 }
@@ -568,21 +723,33 @@ async function executeCourseSyncRun(run: CourseSyncRun) {
 async function executeEmbeddingSyncRun(run: EmbeddingSyncRun) {
   run.status = "running";
   run.startedAt = nowIso();
-  pushRunLog(run, "info", "Embeddings sync started");
+  const scopeLabel = run.semester ? `${run.semester}${run.termCode ? ` (${run.termCode})` : ""}` : "all semesters";
+  pushRunLog(run, "info", `Embeddings sync started (${scopeLabel})`);
 
   const useEmbDistScript = existsSync(embeddingsBackfillDistPath);
   const command = useEmbDistScript ? process.execPath : "pnpm";
   const args = useEmbDistScript ? [embeddingsBackfillDistPath] : ["embeddings:backfill"];
+  const envVars: NodeJS.ProcessEnv = { ...process.env };
+  if (run.semester) {
+    envVars.EMBEDDINGS_SEMESTER = run.semester;
+  } else {
+    delete envVars.EMBEDDINGS_SEMESTER;
+  }
+  if (run.termCode) {
+    envVars.EMBEDDINGS_TERM_CODE = run.termCode;
+  } else {
+    delete envVars.EMBEDDINGS_TERM_CODE;
+  }
 
   pushRunLog(
     run,
     "info",
-    `Launching ${useEmbDistScript ? `node ${embeddingsBackfillDistPath}` : "pnpm embeddings:backfill"}`
+    `Launching ${useEmbDistScript ? `node ${embeddingsBackfillDistPath}` : "pnpm embeddings:backfill"}${run.semester ? ` with semester=${run.semester}` : ""}`
   );
 
   const child = spawn(command, args, {
     cwd: apiRootDir,
-    env: process.env,
+    env: envVars,
     shell: !useEmbDistScript && process.platform === "win32",
   });
 
@@ -624,6 +791,93 @@ async function executeEmbeddingSyncRun(run: EmbeddingSyncRun) {
         run.status = "failed";
         run.finishedAt = nowIso();
         run.error = `Embeddings sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
+        pushRunLog(run, "error", run.error);
+      }
+      resolve();
+    });
+  });
+}
+
+async function executeRmpSyncRun(run: RmpSyncRun) {
+  run.status = "running";
+  run.startedAt = nowIso();
+  const isTargeted = run.onlyInstructorIds.length > 0 || run.onlyTeacherIds.length > 0;
+  pushRunLog(run, "info", isTargeted ? "RMP sync started (targeted)" : "RMP sync started");
+
+  const useDistScript = existsSync(rmpSeedDistPath);
+  const command = useDistScript ? process.execPath : "pnpm";
+  const args = useDistScript ? [rmpSeedDistPath] : ["rmp:seed"];
+
+  const envVars: NodeJS.ProcessEnv = { ...process.env };
+  // Force a dedicated checkpoint per run so manual resyncs never skip prior-processed instructors.
+  envVars.RMP_CHECKPOINT = `/tmp/rmp-sync-run-${run.id}.json`;
+  if (run.onlyInstructorIds.length > 0) {
+    envVars.RMP_ONLY_INSTRUCTOR_IDS = run.onlyInstructorIds.join(",");
+  } else {
+    delete envVars.RMP_ONLY_INSTRUCTOR_IDS;
+  }
+  if (run.onlyTeacherIds.length > 0) {
+    envVars.RMP_ONLY_TEACHER_IDS = run.onlyTeacherIds.join(",");
+  } else {
+    delete envVars.RMP_ONLY_TEACHER_IDS;
+  }
+
+  pushRunLog(
+    run,
+    "info",
+    `Launching ${useDistScript ? `node ${rmpSeedDistPath}` : "pnpm rmp:seed"}`
+  );
+  if (run.onlyInstructorIds.length > 0) {
+    pushRunLog(run, "info", `Filter instructor IDs: ${run.onlyInstructorIds.join(", ")}`);
+  }
+  if (run.onlyTeacherIds.length > 0) {
+    pushRunLog(run, "info", `Filter RMP teacher IDs: ${run.onlyTeacherIds.join(", ")}`);
+  }
+
+  const child = spawn(command, args, {
+    cwd: apiRootDir,
+    env: envVars,
+    shell: !useDistScript && process.platform === "win32",
+  });
+
+  const stdoutBuffer = { value: "" };
+  const stderrBuffer = { value: "" };
+
+  child.stdout?.setEncoding("utf8");
+  child.stderr?.setEncoding("utf8");
+
+  child.stdout?.on("data", (chunk: string) => {
+    lineSplitPump(run, "info", chunk, stdoutBuffer);
+  });
+  child.stderr?.on("data", (chunk: string) => {
+    lineSplitPump(run, "warn", chunk, stderrBuffer);
+  });
+
+  await new Promise<void>((resolve) => {
+    child.on("error", (err) => {
+      run.status = "failed";
+      run.finishedAt = nowIso();
+      run.error = err.message || "Failed to launch RMP sync process";
+      pushRunLog(run, "error", run.error);
+      resolve();
+    });
+
+    child.on("close", (code, signal) => {
+      if (stdoutBuffer.value.trim()) {
+        pushRunLog(run, "info", stdoutBuffer.value.trim());
+      }
+      if (stderrBuffer.value.trim()) {
+        pushRunLog(run, "warn", stderrBuffer.value.trim());
+      }
+
+      if (code === 0) {
+        run.status = "succeeded";
+        run.finishedAt = nowIso();
+        pushRunLog(run, "info", "RMP sync completed successfully");
+      } else {
+        run.status = "failed";
+        run.finishedAt = nowIso();
+        run.error = `RMP sync exited with code=${code ?? "null"} signal=${signal ?? "null"}`;
         pushRunLog(run, "error", run.error);
       }
       resolve();
@@ -1047,9 +1301,27 @@ router.post("/embeddings-sync/runs", async (req, res) => {
     });
   }
 
+  const termCodeRaw = String(req.body?.termCode || "").trim();
+  const semesterRaw = String(req.body?.semester || "").trim();
+  let termCode: string | null = null;
+  let semester: string | null = null;
+
+  if (termCodeRaw) {
+    const ensuredTerm = await ensureTermExists(termCodeRaw);
+    if (!ensuredTerm) {
+      return res.status(400).json({ error: `Invalid termCode: ${termCodeRaw}` });
+    }
+    termCode = ensuredTerm.srcdb;
+    semester = ensuredTerm.name;
+  } else if (semesterRaw) {
+    semester = semesterRaw;
+  }
+
   const run = createEmbeddingSyncRun({
     requestedBy: req.user!.id,
     requestedEmail: req.user!.email,
+    termCode,
+    semester,
   });
   queueMicrotask(() => {
     void executeEmbeddingSyncRun(run);
@@ -1081,11 +1353,60 @@ router.get("/embeddings-sync/runs/:id/logs", async (req, res) => {
   res.json(logs);
 });
 
+router.post("/rmp-sync/runs", async (req, res) => {
+  const running = getRunningRmpSyncRun();
+  if (running) {
+    return res.status(409).json({
+      error: "An RMP sync run is already in progress",
+      run: summarizeRmpSyncRun(running),
+    });
+  }
+
+  const onlyInstructorIds = normalizeIntList(req.body?.onlyInstructorIds);
+  const onlyTeacherIds = normalizeStringList(req.body?.onlyTeacherIds);
+
+  const run = createRmpSyncRun({
+    requestedBy: req.user!.id,
+    requestedEmail: req.user!.email,
+    onlyInstructorIds,
+    onlyTeacherIds,
+  });
+  queueMicrotask(() => {
+    void executeRmpSyncRun(run);
+  });
+
+  res.status(202).json(summarizeRmpSyncRun(run));
+});
+
+router.get("/rmp-sync/runs", async (_req, res) => {
+  res.json(rmpSyncRuns.map(summarizeRmpSyncRun));
+});
+
+router.get("/rmp-sync/runs/:id", async (req, res) => {
+  const run = findRmpSyncRunById(req.params.id);
+  if (!run) return res.status(404).json({ error: "Run not found" });
+  res.json(summarizeRmpSyncRun(run));
+});
+
+router.get("/rmp-sync/runs/:id/logs", async (req, res) => {
+  const run = findRmpSyncRunById(req.params.id);
+  if (!run) return res.status(404).json({ error: "Run not found" });
+
+  const afterIdRaw = String(req.query.afterId || "0");
+  const afterId = Number.parseInt(afterIdRaw, 10);
+  const logs = Number.isFinite(afterId)
+    ? run.logs.filter((log) => log.id > afterId)
+    : run.logs;
+
+  res.json(logs);
+});
+
 router.get("/system/metrics", async (_req, res) => {
   const dbHealth = await measureDbHealth();
   const disk = await measureDisk();
   const loadAvg = os.loadavg();
   const memory = process.memoryUsage();
+  const aiQualityTelemetry = getAiQualityTelemetrySnapshot();
 
   res.json({
     ts: nowIso(),
@@ -1114,6 +1435,31 @@ router.get("/system/metrics", async (_req, res) => {
       pid: process.pid,
       uptimeSec: process.uptime(),
     },
+    aiQualityTelemetry,
+  });
+});
+
+router.post("/system/test-email", async (req, res) => {
+  const email = String(req.body?.email || "")
+    .trim()
+    .toLowerCase();
+  if (!email) {
+    return res.status(400).json({ error: "email is required" });
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: "Invalid email address" });
+  }
+
+  const redirectTo = `${env.frontendUrl.replace(/\/+$/, "")}/login?emailReset=1`;
+  const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+  if (error) {
+    console.error("Admin test email failed:", error.message);
+    return res.status(500).json({ error: "Failed to send test email" });
+  }
+
+  return res.json({
+    message:
+      "If an account exists for this email, a password reset test email has been sent.",
   });
 });
 
@@ -1198,18 +1544,26 @@ router.get("/users", async (req, res) => {
     })
     .from(users);
 
+  const visibleUsersFilter = and(
+    ne(users.username, RMP_IMPORT_USERNAME),
+    ne(users.email, RMP_IMPORT_EMAIL),
+  );
+
   const rows = q
     ? await base
         .where(
-          or(
-            ilike(users.email, `%${q}%`),
-            ilike(users.username, `%${q}%`),
-            ilike(users.displayName, `%${q}%`)
+          and(
+            visibleUsersFilter,
+            or(
+              ilike(users.email, `%${q}%`),
+              ilike(users.username, `%${q}%`),
+              ilike(users.displayName, `%${q}%`)
+            )
           )
         )
         .orderBy(desc(users.createdAt))
         .limit(limit)
-    : await base.orderBy(desc(users.createdAt)).limit(limit);
+    : await base.where(visibleUsersFilter).orderBy(desc(users.createdAt)).limit(limit);
 
   res.json(
     rows.map((row) => ({
@@ -1316,6 +1670,7 @@ router.post("/users/:id/ban", async (req, res) => {
 
 router.delete("/users/:id", async (req, res) => {
   const userId = String(req.params.id || "");
+  const permanent = parseTruthyQuery(req.query.permanent);
   if (!userId) return res.status(400).json({ error: "User id is required" });
   if (userId === req.user!.id) {
     return res.status(400).json({ error: "You cannot delete your own account" });
@@ -1330,7 +1685,7 @@ router.delete("/users/:id", async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
 
-  const isAlreadyAuthTombstone = existingUser.email.endsWith("@invalid.local");
+  const isAlreadyAuthTombstone = isAuthTombstoneEmail(existingUser.email);
   if (!isAlreadyAuthTombstone) {
     const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
     if (authDeleteError) {
@@ -1344,6 +1699,17 @@ router.delete("/users/:id", async (req, res) => {
         return res.status(400).json({ error: "Failed to delete user" });
       }
     }
+  }
+
+  if (permanent) {
+    try {
+      await permanentlyDeleteUserData(userId);
+    } catch (err: any) {
+      const message = String(err?.message || "Failed to permanently delete user");
+      console.error("Permanent user deletion failed:", message);
+      return res.status(500).json({ error: "Failed to permanently delete user" });
+    }
+    return res.json({ ok: true, userId, profileDeleted: true, permanent: true });
   }
 
   // Keep relational integrity: try to delete profile row, and if blocked by FKs,
@@ -1372,7 +1738,7 @@ router.delete("/users/:id", async (req, res) => {
     }
   }
 
-  res.json({ ok: true, userId, profileDeleted });
+  res.json({ ok: true, userId, profileDeleted, permanent: false });
 });
 
 router.get("/logs", async (_req, res) => {
@@ -1388,12 +1754,17 @@ router.get("/logs", async (_req, res) => {
     ...summarizeEmbeddingSyncRun(run),
     latestLogs: run.logs.slice(-20),
   }));
+  const recentRmpRuns = rmpSyncRuns.slice(0, 20).map((run) => ({
+    ...summarizeRmpSyncRun(run),
+    latestLogs: run.logs.slice(-20),
+  }));
 
   res.json({
     appErrors: appErrors.slice(0, 200),
     recentRuns,
     recentCourseRuns,
     recentEmbeddingRuns,
+    recentRmpRuns,
   });
 });
 

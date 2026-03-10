@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../../api/client.js";
 import { useOnboarding } from "../../components/onboarding/OnboardingProvider.js";
+import { useAuth } from "../../lib/auth.js";
 
 type SystemMetrics = {
   ts: string;
@@ -59,9 +60,14 @@ function toDuration(seconds: number) {
 
 export default function AdminSystem() {
   const { restartIntro, restartTour } = useOnboarding();
+  const { user } = useAuth();
   const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
+  const [testEmail, setTestEmail] = useState("");
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [testEmailError, setTestEmailError] = useState("");
+  const [testEmailResult, setTestEmailResult] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -87,6 +93,38 @@ export default function AdminSystem() {
       clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    if (!testEmail && user?.email) {
+      setTestEmail(user.email);
+    }
+  }, [testEmail, user?.email]);
+
+  async function sendTestEmail() {
+    const email = testEmail.trim().toLowerCase();
+    if (!email) {
+      setTestEmailError("Enter an email address.");
+      setTestEmailResult("");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setTestEmailError("Enter a valid email address.");
+      setTestEmailResult("");
+      return;
+    }
+
+    setIsSendingTestEmail(true);
+    setTestEmailError("");
+    setTestEmailResult("");
+    try {
+      const result = await api.post<{ message: string }>("/admin/system/test-email", { email });
+      setTestEmailResult(result.message);
+    } catch (err: any) {
+      setTestEmailError(err.message || "Failed to send test email");
+    } finally {
+      setIsSendingTestEmail(false);
+    }
+  }
 
   if (isLoading) {
     return <div className="text-sm text-gray-600">Loading system metrics...</div>;
@@ -186,6 +224,41 @@ export default function AdminSystem() {
             Launch Guided Tour
           </button>
         </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-gray-200 p-4">
+        <h3 className="font-medium text-gray-900 mb-2">SMTP Test Email</h3>
+        <p className="text-sm text-gray-500 mb-3">
+          Send a test password-reset email through Supabase Auth using your configured SMTP sender.
+        </p>
+        <form
+          className="flex flex-col gap-2 sm:flex-row sm:items-center"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void sendTestEmail();
+          }}
+        >
+          <input
+            type="email"
+            value={testEmail}
+            onChange={(event) => setTestEmail(event.target.value)}
+            placeholder="you@example.com"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+          />
+          <button
+            type="submit"
+            disabled={isSendingTestEmail}
+            className="rounded-md bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSendingTestEmail ? "Sending..." : "Send Test Email"}
+          </button>
+        </form>
+        {testEmailError && (
+          <p className="mt-2 text-sm text-red-600">{testEmailError}</p>
+        )}
+        {testEmailResult && (
+          <p className="mt-2 text-sm text-emerald-700">{testEmailResult}</p>
+        )}
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">

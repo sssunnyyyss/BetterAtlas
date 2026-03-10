@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../api/client.js";
+import AppDropdown from "../../components/ui/AppDropdown.js";
 
 type RunStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -48,6 +49,23 @@ type EmbeddingsSyncRunSummary = {
   finishedAt: string | null;
   requestedBy: string;
   requestedEmail: string;
+  termCode?: string | null;
+  semester?: string | null;
+  error: string | null;
+  logCount: number;
+};
+
+type RmpSyncRunSummary = {
+  id: number;
+  type: "rmp_sync";
+  status: RunStatus;
+  createdAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  requestedBy: string;
+  requestedEmail: string;
+  onlyInstructorIds: number[];
+  onlyTeacherIds: string[];
   error: string | null;
   logCount: number;
 };
@@ -87,6 +105,7 @@ const STATUS_STYLE: Record<RunStatus, string> = {
   succeeded: "bg-green-100 text-green-800",
   failed: "bg-red-100 text-red-800",
 };
+const EMBEDDING_RUN_LOG_CAP = 1000;
 
 function formatTs(ts: string | null) {
   if (!ts) return "N/A";
@@ -115,6 +134,26 @@ function runLogClass(level: SyncRunLog["level"]) {
 
 function normalizeTermCodes(values: string[]) {
   return Array.from(new Set(values.map((v) => String(v || "").trim()).filter(Boolean)));
+}
+
+function parseCsvNumbers(value: string): number[] {
+  const out = new Set<number>();
+  for (const token of value.split(",")) {
+    const parsed = Number.parseInt(token.trim(), 10);
+    if (Number.isFinite(parsed)) out.add(parsed);
+  }
+  return Array.from(out);
+}
+
+function parseCsvStrings(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((token) => token.trim())
+        .filter(Boolean)
+    )
+  );
 }
 
 function runTermCodes(run: Pick<CourseSyncRunSummary, "termCode" | "termCodes">): string[] {
@@ -150,11 +189,20 @@ export default function AdminSync() {
     null
   );
   const [embeddingLogs, setEmbeddingLogs] = useState<SyncRunLog[]>([]);
+  const [embeddingTermCode, setEmbeddingTermCode] = useState("");
+
+  const [rmpRuns, setRmpRuns] = useState<RmpSyncRunSummary[]>([]);
+  const [selectedRmpRunId, setSelectedRmpRunId] = useState<number | null>(null);
+  const [selectedRmpRun, setSelectedRmpRun] = useState<RmpSyncRunSummary | null>(null);
+  const [rmpLogs, setRmpLogs] = useState<SyncRunLog[]>([]);
+  const [rmpInstructorIdsInput, setRmpInstructorIdsInput] = useState("");
+  const [rmpTeacherIdsInput, setRmpTeacherIdsInput] = useState("");
 
   const [isSavingCourseConfig, setIsSavingCourseConfig] = useState(false);
   const [isStartingCourseRun, setIsStartingCourseRun] = useState(false);
   const [isStartingProgramRun, setIsStartingProgramRun] = useState(false);
   const [isStartingEmbeddingRun, setIsStartingEmbeddingRun] = useState(false);
+  const [isStartingRmpRun, setIsStartingRmpRun] = useState(false);
   const [message, setMessage] = useState("");
 
   const selectedCourseRunIsActive =
@@ -163,6 +211,8 @@ export default function AdminSync() {
     selectedProgramRun?.status === "queued" || selectedProgramRun?.status === "running";
   const selectedEmbeddingRunIsActive =
     selectedEmbeddingRun?.status === "queued" || selectedEmbeddingRun?.status === "running";
+  const selectedRmpRunIsActive =
+    selectedRmpRun?.status === "queued" || selectedRmpRun?.status === "running";
 
   const courseLastLogId = useMemo(
     () => (courseLogs.length > 0 ? courseLogs[courseLogs.length - 1]!.id : 0),
@@ -175,6 +225,10 @@ export default function AdminSync() {
   const embeddingLastLogId = useMemo(
     () => (embeddingLogs.length > 0 ? embeddingLogs[embeddingLogs.length - 1]!.id : 0),
     [embeddingLogs]
+  );
+  const rmpLastLogId = useMemo(
+    () => (rmpLogs.length > 0 ? rmpLogs[rmpLogs.length - 1]!.id : 0),
+    [rmpLogs]
   );
 
   const loadCourseConfig = useCallback(async () => {
@@ -189,6 +243,7 @@ export default function AdminSync() {
       [data.schedule.termCode || "", data.activeTermCode || ""].filter(Boolean)
     );
     setManualRunTermCodes(defaultManualTerms);
+    setEmbeddingTermCode((prev) => prev || data.activeTermCode || data.schedule.termCode || "");
   }, []);
 
   const loadCourseRuns = useCallback(async () => {
@@ -215,6 +270,16 @@ export default function AdminSync() {
     const data = await api.get<EmbeddingsSyncRunSummary[]>("/admin/embeddings-sync/runs");
     setEmbeddingRuns(data);
     setSelectedEmbeddingRunId((prev) => {
+      if (data.length === 0) return null;
+      if (prev && data.some((run) => run.id === prev)) return prev;
+      return data[0]!.id;
+    });
+  }, []);
+
+  const loadRmpRuns = useCallback(async () => {
+    const data = await api.get<RmpSyncRunSummary[]>("/admin/rmp-sync/runs");
+    setRmpRuns(data);
+    setSelectedRmpRunId((prev) => {
       if (data.length === 0) return null;
       if (prev && data.some((run) => run.id === prev)) return prev;
       return data[0]!.id;
@@ -267,6 +332,23 @@ export default function AdminSync() {
         setEmbeddingLogs(newLogs);
       } else if (newLogs.length > 0) {
         setEmbeddingLogs((prev) => [...prev, ...newLogs]);
+      }
+    },
+    []
+  );
+
+  const loadRmpRunDetails = useCallback(
+    async (runId: number, opts?: { resetLogs?: boolean; afterId?: number }) => {
+      const run = await api.get<RmpSyncRunSummary>(`/admin/rmp-sync/runs/${runId}`);
+      setSelectedRmpRun(run);
+      const afterId = opts?.resetLogs ? 0 : (opts?.afterId ?? 0);
+      const newLogs = await api.get<SyncRunLog[]>(
+        `/admin/rmp-sync/runs/${runId}/logs?afterId=${afterId}`
+      );
+      if (opts?.resetLogs) {
+        setRmpLogs(newLogs);
+      } else if (newLogs.length > 0) {
+        setRmpLogs((prev) => [...prev, ...newLogs]);
       }
     },
     []
@@ -346,7 +428,9 @@ export default function AdminSync() {
     setIsStartingEmbeddingRun(true);
     setMessage("");
     try {
-      const run = await api.post<EmbeddingsSyncRunSummary>("/admin/embeddings-sync/runs");
+      const run = await api.post<EmbeddingsSyncRunSummary>("/admin/embeddings-sync/runs", {
+        termCode: embeddingTermCode || null,
+      });
       setSelectedEmbeddingRunId(run.id);
       setSelectedEmbeddingRun(run);
       setEmbeddingLogs([]);
@@ -359,11 +443,39 @@ export default function AdminSync() {
     }
   }
 
+  async function handleStartRmpRun() {
+    setIsStartingRmpRun(true);
+    setMessage("");
+    try {
+      const onlyInstructorIds = parseCsvNumbers(rmpInstructorIdsInput);
+      const onlyTeacherIds = parseCsvStrings(rmpTeacherIdsInput);
+      const run = await api.post<RmpSyncRunSummary>("/admin/rmp-sync/runs", {
+        onlyInstructorIds,
+        onlyTeacherIds,
+      });
+      setSelectedRmpRunId(run.id);
+      setSelectedRmpRun(run);
+      setRmpLogs([]);
+      setMessage("RMP sync run started.");
+      await loadRmpRuns();
+    } catch (err: any) {
+      setMessage(err.message || "Failed to start RMP sync");
+    } finally {
+      setIsStartingRmpRun(false);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        await Promise.all([loadCourseConfig(), loadCourseRuns(), loadProgramRuns(), loadEmbeddingRuns()]);
+        await Promise.all([
+          loadCourseConfig(),
+          loadCourseRuns(),
+          loadProgramRuns(),
+          loadEmbeddingRuns(),
+          loadRmpRuns(),
+        ]);
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -371,16 +483,17 @@ export default function AdminSync() {
     return () => {
       cancelled = true;
     };
-  }, [loadCourseConfig, loadCourseRuns, loadProgramRuns, loadEmbeddingRuns]);
+  }, [loadCourseConfig, loadCourseRuns, loadProgramRuns, loadEmbeddingRuns, loadRmpRuns]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       void loadCourseRuns();
       void loadProgramRuns();
       void loadEmbeddingRuns();
+      void loadRmpRuns();
     }, 5000);
     return () => clearInterval(interval);
-  }, [loadCourseRuns, loadProgramRuns, loadEmbeddingRuns]);
+  }, [loadCourseRuns, loadProgramRuns, loadEmbeddingRuns, loadRmpRuns]);
 
   useEffect(() => {
     if (!selectedCourseRunId) return;
@@ -396,6 +509,11 @@ export default function AdminSync() {
     if (!selectedEmbeddingRunId) return;
     void loadEmbeddingRunDetails(selectedEmbeddingRunId, { resetLogs: true });
   }, [selectedEmbeddingRunId, loadEmbeddingRunDetails]);
+
+  useEffect(() => {
+    if (!selectedRmpRunId) return;
+    void loadRmpRunDetails(selectedRmpRunId, { resetLogs: true });
+  }, [selectedRmpRunId, loadRmpRunDetails]);
 
   useEffect(() => {
     if (!selectedCourseRunId || !selectedCourseRunIsActive) return;
@@ -425,6 +543,14 @@ export default function AdminSync() {
     embeddingLastLogId,
     loadEmbeddingRunDetails,
   ]);
+
+  useEffect(() => {
+    if (!selectedRmpRunId || !selectedRmpRunIsActive) return;
+    const interval = setInterval(() => {
+      void loadRmpRunDetails(selectedRmpRunId, { afterId: rmpLastLogId });
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [selectedRmpRunId, selectedRmpRunIsActive, rmpLastLogId, loadRmpRunDetails]);
 
   if (isLoading) {
     return <div className="text-sm text-gray-600">Loading sync dashboard...</div>;
@@ -836,14 +962,35 @@ export default function AdminSync() {
               <p className="text-sm text-gray-600">
                 Rebuilds vectors for new courses or courses whose content changed.
               </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Note: <code>course_review_summaries</code> only includes courses with reviews, while{" "}
+                <code>course_embeddings</code> includes all embedded courses.
+              </p>
             </div>
-            <button
-              onClick={handleStartEmbeddingRun}
-              disabled={isStartingEmbeddingRun}
-              className="bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
-            >
-              {isStartingEmbeddingRun ? "Starting..." : "Run Embeddings Update"}
-            </button>
+            <div className="space-y-2 w-full max-w-xs">
+              <label className="space-y-1 block">
+                <span className="text-xs text-gray-500">Semester Scope</span>
+                <AppDropdown
+                  value={embeddingTermCode}
+                  onChange={(value) => setEmbeddingTermCode(value)}
+                  options={[
+                    { value: "", label: "All semesters" },
+                    ...((courseConfig?.terms ?? []).map((term) => ({
+                      value: term.srcdb,
+                      label: `${term.name} (${term.srcdb})`,
+                    }))),
+                  ]}
+                  className="w-full"
+                />
+              </label>
+              <button
+                onClick={handleStartEmbeddingRun}
+                disabled={isStartingEmbeddingRun}
+                className="w-full bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
+              >
+                {isStartingEmbeddingRun ? "Starting..." : "Run Embeddings Update"}
+              </button>
+            </div>
           </div>
 
           <div className="space-y-2 max-h-[340px] overflow-auto">
@@ -867,6 +1014,11 @@ export default function AdminSync() {
                   </span>
                 </div>
                 <p className="text-xs text-gray-500">{formatTs(run.createdAt)}</p>
+                {(run.semester || run.termCode) && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Semester: {run.semester || "Unknown"} {run.termCode ? `(${run.termCode})` : ""}
+                  </p>
+                )}
                 <p className="text-xs text-gray-500 mt-1">Logs: {run.logCount}</p>
               </button>
             ))}
@@ -889,6 +1041,12 @@ export default function AdminSync() {
               <p className="text-xs text-gray-500">
                 Requested by {selectedEmbeddingRun.requestedEmail}
               </p>
+              {(selectedEmbeddingRun.semester || selectedEmbeddingRun.termCode) && (
+                <p className="text-xs text-gray-500">
+                  Semester: {selectedEmbeddingRun.semester || "Unknown"}{" "}
+                  {selectedEmbeddingRun.termCode ? `(${selectedEmbeddingRun.termCode})` : ""}
+                </p>
+              )}
               <p className="text-xs text-gray-500">
                 Started: {formatTs(selectedEmbeddingRun.startedAt)} | Finished:{" "}
                 {formatTs(selectedEmbeddingRun.finishedAt)}
@@ -896,12 +1054,160 @@ export default function AdminSync() {
               {selectedEmbeddingRun.error && (
                 <p className="text-sm text-red-700">{selectedEmbeddingRun.error}</p>
               )}
+              <p className="text-xs text-gray-500">
+                Showing latest logs only (max {EMBEDDING_RUN_LOG_CAP} lines per run).
+              </p>
 
               <div className="bg-gray-950 text-gray-100 rounded-md p-3 h-[280px] overflow-auto font-mono text-xs space-y-1">
                 {embeddingLogs.length === 0 && (
                   <p className="text-gray-400">No logs yet.</p>
                 )}
                 {embeddingLogs.map((log) => (
+                  <p key={log.id}>
+                    <span className="text-gray-400">
+                      {new Date(log.ts).toLocaleTimeString()}
+                    </span>{" "}
+                    <span className={runLogClass(log.level)}>
+                      [{log.level.toUpperCase()}]
+                    </span>{" "}
+                    <span>{log.message}</span>
+                  </p>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-gray-900">Rate My Professor Sync</h3>
+              <p className="text-sm text-gray-600">
+                Import or refresh RMP reviews and tags. Leave filters blank to run a full sync.
+              </p>
+            </div>
+            <button
+              onClick={handleStartRmpRun}
+              disabled={isStartingRmpRun}
+              className="bg-gray-900 text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-black disabled:opacity-50"
+            >
+              {isStartingRmpRun ? "Starting..." : "Run RMP Sync"}
+            </button>
+          </div>
+
+          <div className="grid gap-3">
+            <label className="space-y-1">
+              <span className="text-xs text-gray-500">
+                Instructor IDs (comma separated, optional)
+              </span>
+              <input
+                value={rmpInstructorIdsInput}
+                onChange={(e) => setRmpInstructorIdsInput(e.target.value)}
+                placeholder="e.g. 32,118,2047"
+                className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
+              />
+            </label>
+            <label className="space-y-1">
+              <span className="text-xs text-gray-500">
+                RMP Teacher IDs (comma separated, optional)
+              </span>
+              <input
+                value={rmpTeacherIdsInput}
+                onChange={(e) => setRmpTeacherIdsInput(e.target.value)}
+                placeholder="e.g. VGVhY2hlci0yNzI3MjYx"
+                className="w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
+              />
+            </label>
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setRmpInstructorIdsInput("");
+                  setRmpTeacherIdsInput("");
+                }}
+                className="px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-700 hover:bg-white"
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-2 max-h-[320px] overflow-auto">
+            {rmpRuns.length === 0 && (
+              <p className="text-sm text-gray-500">No RMP runs yet.</p>
+            )}
+            {rmpRuns.map((run) => (
+              <button
+                key={run.id}
+                onClick={() => setSelectedRmpRunId(run.id)}
+                className={`w-full text-left rounded-md border p-3 transition-colors ${
+                  selectedRmpRunId === run.id
+                    ? "border-primary-300 bg-primary-50"
+                    : "border-gray-200 hover:bg-gray-50"
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium text-gray-900">Run #{run.id}</span>
+                  <span className={`text-xs px-2 py-1 rounded ${STATUS_STYLE[run.status]}`}>
+                    {run.status}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500">{formatTs(run.createdAt)}</p>
+                <p className="text-xs text-gray-500 mt-1">Logs: {run.logCount}</p>
+                {run.onlyInstructorIds.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Instructors: {run.onlyInstructorIds.join(", ")}
+                  </p>
+                )}
+                {run.onlyTeacherIds.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Teachers: {run.onlyTeacherIds.join(", ")}
+                  </p>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
+          {!selectedRmpRun ? (
+            <p className="text-sm text-gray-500">Select an RMP sync run to inspect logs.</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold text-gray-900">RMP Run #{selectedRmpRun.id}</h3>
+                <span className={`text-xs px-2 py-1 rounded ${STATUS_STYLE[selectedRmpRun.status]}`}>
+                  {selectedRmpRun.status}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500">
+                Requested by {selectedRmpRun.requestedEmail}
+              </p>
+              <p className="text-xs text-gray-500">
+                Started: {formatTs(selectedRmpRun.startedAt)} | Finished:{" "}
+                {formatTs(selectedRmpRun.finishedAt)}
+              </p>
+              {selectedRmpRun.onlyInstructorIds.length > 0 && (
+                <p className="text-xs text-gray-500">
+                  Instructor filter: {selectedRmpRun.onlyInstructorIds.join(", ")}
+                </p>
+              )}
+              {selectedRmpRun.onlyTeacherIds.length > 0 && (
+                <p className="text-xs text-gray-500">
+                  Teacher filter: {selectedRmpRun.onlyTeacherIds.join(", ")}
+                </p>
+              )}
+              {selectedRmpRun.error && (
+                <p className="text-sm text-red-700">{selectedRmpRun.error}</p>
+              )}
+
+              <div className="bg-gray-950 text-gray-100 rounded-md p-3 h-[280px] overflow-auto font-mono text-xs space-y-1">
+                {rmpLogs.length === 0 && (
+                  <p className="text-gray-400">No logs yet.</p>
+                )}
+                {rmpLogs.map((log) => (
                   <p key={log.id}>
                     <span className="text-gray-400">
                       {new Date(log.ts).toLocaleTimeString()}

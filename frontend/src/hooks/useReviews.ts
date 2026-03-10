@@ -2,10 +2,15 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client.js";
 import type { ReviewWithAuthor, CreateReviewInput, UpdateReviewInput, UserReview } from "@betteratlas/shared";
 
-export function useReviews(courseId: number) {
+export type ReviewSourceFilter = "native" | "rmp";
+
+export function useReviews(courseId: number, source?: ReviewSourceFilter) {
   return useQuery({
-    queryKey: ["reviews", courseId],
-    queryFn: () => api.get<ReviewWithAuthor[]>(`/courses/${courseId}/reviews`),
+    queryKey: ["reviews", courseId, source ?? "all"],
+    queryFn: () =>
+      api.get<ReviewWithAuthor[]>(
+        `/courses/${courseId}/reviews${source ? `?source=${source}` : ""}`
+      ),
     enabled: courseId > 0,
   });
 }

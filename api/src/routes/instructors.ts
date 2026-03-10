@@ -2,10 +2,28 @@ import { Router } from "express";
 import { validate } from "../middleware/validate.js";
 import { instructorQuerySchema } from "@betteratlas/shared";
 import { db } from "../db/index.js";
-import { instructors, instructorRatings, sections, courses, departments, courseRatings } from "../db/schema.js";
-import { asc, and, eq, ilike, sql } from "drizzle-orm";
+import {
+  instructors,
+  instructorRatings,
+  sections,
+  courses,
+  departments,
+  courseRatings,
+  rmpProfessors,
+  rmpProfessorTags,
+  reviews,
+} from "../db/schema.js";
+import { asc, and, desc, eq, ilike, sql } from "drizzle-orm";
 
 const router = Router();
+
+function normalizeInstructorQueryLoose(value: string): string {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 // GET /api/instructors?q=...&limit=...
 router.get("/", validate(instructorQuerySchema, "query"), async (req, res) => {
@@ -23,8 +41,13 @@ router.get("/", validate(instructorQuerySchema, "query"), async (req, res) => {
     })
     .from(instructors);
 
-  const filtered = q
-    ? base.where(ilike(instructors.name, `%${q}%`))
+  const rawQuery = String(q ?? "").trim();
+  const looseQuery = normalizeInstructorQueryLoose(rawQuery);
+  const filtered = rawQuery
+    ? base.where(
+        sql`lower(${instructors.name}) like lower(${`%${rawQuery}%`})
+            or regexp_replace(lower(${instructors.name}), '[^a-z0-9 ]', ' ', 'g') like ${`%${looseQuery}%`}`
+      )
     : base;
 
   const rows = await filtered.orderBy(asc(instructors.name)).limit(limit);
@@ -55,6 +78,39 @@ router.get("/:id", async (req, res) => {
   if (!prof) {
     return res.status(404).json({ error: "Instructor not found" });
   }
+
+  const [rmpData] = await db
+    .select({
+      avgRating: rmpProfessors.rmpAvgRating,
+      avgDifficulty: rmpProfessors.rmpAvgDifficulty,
+      numRatings: rmpProfessors.rmpNumRatings,
+      wouldTakeAgain: rmpProfessors.rmpWouldTakeAgain,
+    })
+    .from(rmpProfessors)
+    .where(eq(rmpProfessors.instructorId, instructorId))
+    .limit(1);
+
+  const [rmpReviewAgg] = await db
+    .select({
+      avgRating: sql<string>`avg(${reviews.ratingQuality})::numeric(3,2)`,
+      avgDifficulty: sql<string>`avg(${reviews.ratingDifficulty})::numeric(3,2)`,
+      numRatings: sql<number>`count(*)::int`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.instructorId, instructorId),
+        eq(reviews.source, "rmp")
+      )
+    );
+
+  const rmpTags = rmpData || (rmpReviewAgg?.numRatings ?? 0) > 0
+    ? await db
+        .select({ tag: rmpProfessorTags.tag, count: rmpProfessorTags.count })
+        .from(rmpProfessorTags)
+        .where(eq(rmpProfessorTags.instructorId, instructorId))
+        .orderBy(desc(rmpProfessorTags.count), asc(rmpProfessorTags.tag))
+    : [];
 
   // Courses taught by this instructor (from active sections).
   const rows = await db
@@ -124,6 +180,28 @@ router.get("/:id", async (req, res) => {
     },
     avgQuality: prof.avgQuality ? parseFloat(prof.avgQuality) : null,
     reviewCount: prof.reviewCount ?? 0,
+    rmp: rmpData || (rmpReviewAgg?.numRatings ?? 0) > 0
+      ? {
+          avgRating: rmpReviewAgg?.avgRating
+            ? parseFloat(rmpReviewAgg.avgRating)
+            : rmpData?.avgRating
+              ? parseFloat(rmpData.avgRating)
+              : null,
+          avgDifficulty: rmpReviewAgg?.avgDifficulty
+            ? parseFloat(rmpReviewAgg.avgDifficulty)
+            : rmpData?.avgDifficulty
+              ? parseFloat(rmpData.avgDifficulty)
+            : null,
+          numRatings: rmpReviewAgg?.numRatings ?? rmpData?.numRatings ?? 0,
+          wouldTakeAgain: rmpData?.wouldTakeAgain
+            ? parseFloat(rmpData.wouldTakeAgain)
+            : null,
+          tags: rmpTags.map((t) => ({
+            tag: t.tag,
+            count: t.count ?? 0,
+          })),
+        }
+      : null,
     courses: rows.map((row: any) => ({
       id: row.id,
       code: row.code,

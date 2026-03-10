@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.js";
 import { validate } from "../middleware/validate.js";
-import { addListItemSchema } from "@betteratlas/shared";
+import { addListItemSchema, swapSectionSchema } from "@betteratlas/shared";
 import {
   addToMySchedule,
   getFriendsSchedules,
   getMySchedule,
   removeFromMySchedule,
+  swapScheduleSection,
 } from "../services/scheduleService.js";
 
 const router = Router();
@@ -48,5 +49,26 @@ router.get("/schedule/friends", requireAuth, async (req, res) => {
   res.json(schedules);
 });
 
-export default router;
+router.put(
+  "/schedule/items/:id/swap",
+  requireAuth,
+  validate(swapSectionSchema),
+  async (req, res) => {
+    const itemId = parseInt(req.params.id, 10);
+    if (isNaN(itemId)) {
+      return res.status(400).json({ error: "Invalid item ID" });
+    }
+    try {
+      const result = await swapScheduleSection(
+        req.user!.id,
+        itemId,
+        req.body.newSectionId
+      );
+      res.json(result);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || "Failed to swap section" });
+    }
+  }
+);
 
+export default router;

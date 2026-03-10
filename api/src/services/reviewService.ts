@@ -16,7 +16,31 @@ import type { CreateReviewInput, UpdateReviewInput } from "@betteratlas/shared";
 import { resolveTermCode } from "./termLookup.js";
 import { listBadgesForUsers } from "./badgeService.js";
 
-export async function getReviewsForCourse(courseId: number) {
+type ReviewSource = "native" | "rmp";
+
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function toHalfStepString(value: number): string {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) {
+    throw new Error("Invalid rating value");
+  }
+  return (Math.round(n * 2) / 2).toFixed(1);
+}
+
+export async function getReviewsForCourse(
+  courseId: number,
+  source?: ReviewSource
+) {
+  const conditions = [eq(reviews.courseId, courseId)];
+  if (source) {
+    conditions.push(eq(reviews.source, source));
+  }
+
   const data = await db
     .select({
       id: reviews.id,
@@ -27,8 +51,12 @@ export async function getReviewsForCourse(courseId: number) {
       ratingQuality: reviews.ratingQuality,
       ratingDifficulty: reviews.ratingDifficulty,
       ratingWorkload: reviews.ratingWorkload,
+      tags: reviews.tags,
+      reportedGrade: reviews.reportedGrade,
+      gradePoints: reviews.gradePoints,
       comment: reviews.comment,
       isAnonymous: reviews.isAnonymous,
+      source: reviews.source,
       createdAt: reviews.createdAt,
       updatedAt: reviews.updatedAt,
       username: users.username,
@@ -40,7 +68,7 @@ export async function getReviewsForCourse(courseId: number) {
     .leftJoin(users, eq(reviews.userId, users.id))
     .leftJoin(terms, eq(reviews.termCode, terms.srcdb))
     .leftJoin(instructors, eq(reviews.instructorId, instructors.id))
-    .where(eq(reviews.courseId, courseId))
+    .where(and(...conditions))
     .orderBy(desc(reviews.createdAt));
   const badgesByUser = await listBadgesForUsers(
     data.filter((r) => !r.isAnonymous).map((r) => r.userId)
@@ -54,11 +82,17 @@ export async function getReviewsForCourse(courseId: number) {
     sectionId: r.sectionId ?? null,
     instructorId: r.instructorId ?? null,
     instructor: r.instructorId && r.instructorName ? { id: r.instructorId, name: r.instructorName } : null,
-    ratingQuality: r.ratingQuality,
-    ratingDifficulty: r.ratingDifficulty,
-    ratingWorkload: r.ratingWorkload,
+    ratingQuality: toNullableNumber(r.ratingQuality) ?? 0,
+    ratingDifficulty: toNullableNumber(r.ratingDifficulty) ?? 0,
+    ratingWorkload: toNullableNumber(r.ratingWorkload),
+    tags: Array.isArray(r.tags)
+      ? r.tags.filter((tag: unknown): tag is string => typeof tag === "string" && tag.trim().length > 0)
+      : [],
+    reportedGrade: r.reportedGrade ?? null,
+    gradePoints: toNullableNumber(r.gradePoints),
     comment: r.comment,
     isAnonymous: r.isAnonymous,
+    source: r.source === "rmp" ? "rmp" : "native",
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
     author: r.isAnonymous
@@ -85,8 +119,12 @@ export async function getReviewsForUser(userId: string) {
       ratingQuality: reviews.ratingQuality,
       ratingDifficulty: reviews.ratingDifficulty,
       ratingWorkload: reviews.ratingWorkload,
+      tags: reviews.tags,
+      reportedGrade: reviews.reportedGrade,
+      gradePoints: reviews.gradePoints,
       comment: reviews.comment,
       isAnonymous: reviews.isAnonymous,
+      source: reviews.source,
       createdAt: reviews.createdAt,
       updatedAt: reviews.updatedAt,
       username: users.username,
@@ -119,11 +157,17 @@ export async function getReviewsForUser(userId: string) {
       : null,
     instructorId: r.instructorId ?? null,
     instructor: r.instructorId && r.instructorName ? { id: r.instructorId, name: r.instructorName } : null,
-    ratingQuality: r.ratingQuality,
-    ratingDifficulty: r.ratingDifficulty,
-    ratingWorkload: r.ratingWorkload,
+    ratingQuality: toNullableNumber(r.ratingQuality) ?? 0,
+    ratingDifficulty: toNullableNumber(r.ratingDifficulty) ?? 0,
+    ratingWorkload: toNullableNumber(r.ratingWorkload),
+    tags: Array.isArray(r.tags)
+      ? r.tags.filter((tag: unknown): tag is string => typeof tag === "string" && tag.trim().length > 0)
+      : [],
+    reportedGrade: r.reportedGrade ?? null,
+    gradePoints: toNullableNumber(r.gradePoints),
     comment: r.comment,
     isAnonymous: r.isAnonymous,
+    source: r.source === "rmp" ? "rmp" : "native",
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
     // This is a private "my reviews" view.
@@ -144,8 +188,12 @@ export async function getReviewsForSection(sectionId: number) {
       ratingQuality: reviews.ratingQuality,
       ratingDifficulty: reviews.ratingDifficulty,
       ratingWorkload: reviews.ratingWorkload,
+      tags: reviews.tags,
+      reportedGrade: reviews.reportedGrade,
+      gradePoints: reviews.gradePoints,
       comment: reviews.comment,
       isAnonymous: reviews.isAnonymous,
+      source: reviews.source,
       createdAt: reviews.createdAt,
       updatedAt: reviews.updatedAt,
       username: users.username,
@@ -170,11 +218,17 @@ export async function getReviewsForSection(sectionId: number) {
     sectionId: r.sectionId ?? null,
     instructorId: r.instructorId ?? null,
     instructor: r.instructorId && r.instructorName ? { id: r.instructorId, name: r.instructorName } : null,
-    ratingQuality: r.ratingQuality,
-    ratingDifficulty: r.ratingDifficulty,
-    ratingWorkload: r.ratingWorkload,
+    ratingQuality: toNullableNumber(r.ratingQuality) ?? 0,
+    ratingDifficulty: toNullableNumber(r.ratingDifficulty) ?? 0,
+    ratingWorkload: toNullableNumber(r.ratingWorkload),
+    tags: Array.isArray(r.tags)
+      ? r.tags.filter((tag: unknown): tag is string => typeof tag === "string" && tag.trim().length > 0)
+      : [],
+    reportedGrade: r.reportedGrade ?? null,
+    gradePoints: toNullableNumber(r.gradePoints),
     comment: r.comment,
     isAnonymous: r.isAnonymous,
+    source: r.source === "rmp" ? "rmp" : "native",
     createdAt: r.createdAt?.toISOString() ?? "",
     updatedAt: r.updatedAt?.toISOString() ?? "",
     author: r.isAnonymous
@@ -216,17 +270,20 @@ export async function createReview(
       sectionId: input.sectionId,
       instructorId: section.instructorId ?? null,
       termCode,
-      ratingQuality: input.ratingQuality,
-      ratingDifficulty: input.ratingDifficulty,
-      ratingWorkload: input.ratingWorkload,
+      ratingQuality: toHalfStepString(input.ratingQuality),
+      ratingDifficulty: toHalfStepString(input.ratingDifficulty),
+      ratingWorkload:
+        typeof input.ratingWorkload === "number"
+          ? toHalfStepString(input.ratingWorkload)
+          : null,
       comment: input.comment ?? null,
       isAnonymous: input.isAnonymous,
     })
     .returning();
 
+  await refreshSectionRatings(input.sectionId);
   await refreshCourseRatings(courseId);
   await refreshCourseInstructorRatings(courseId);
-  await refreshSectionRatings(input.sectionId);
   if (section.instructorId) await refreshInstructorRatings(section.instructorId);
   return review;
 }
@@ -263,9 +320,20 @@ export async function updateReview(
       termCode: termCode ?? undefined,
       sectionId: input.sectionId ?? undefined,
       instructorId: nextInstructorId,
-      ratingQuality: input.ratingQuality ?? undefined,
-      ratingDifficulty: input.ratingDifficulty ?? undefined,
-      ratingWorkload: input.ratingWorkload ?? undefined,
+      ratingQuality:
+        typeof input.ratingQuality === "number"
+          ? toHalfStepString(input.ratingQuality)
+          : undefined,
+      ratingDifficulty:
+        typeof input.ratingDifficulty === "number"
+          ? toHalfStepString(input.ratingDifficulty)
+          : undefined,
+      ratingWorkload:
+        input.ratingWorkload === undefined
+          ? undefined
+          : input.ratingWorkload === null
+            ? null
+            : toHalfStepString(input.ratingWorkload),
       comment: input.comment ?? undefined,
       isAnonymous: input.isAnonymous ?? undefined,
       updatedAt: new Date(),
@@ -273,10 +341,22 @@ export async function updateReview(
     .where(eq(reviews.id, reviewId))
     .returning();
 
+  const touchedSections = new Set<number>();
+  if (existing.sectionId) touchedSections.add(existing.sectionId);
+  if (updated.sectionId) touchedSections.add(updated.sectionId);
+  for (const sectionId of touchedSections) {
+    await refreshSectionRatings(sectionId);
+  }
+
   await refreshCourseRatings(existing.courseId);
   await refreshCourseInstructorRatings(existing.courseId);
-  if (existing.sectionId) await refreshSectionRatings(existing.sectionId);
-  if (existing.instructorId) await refreshInstructorRatings(existing.instructorId);
+
+  const touchedInstructors = new Set<number>();
+  if (existing.instructorId) touchedInstructors.add(existing.instructorId);
+  if (updated.instructorId) touchedInstructors.add(updated.instructorId);
+  for (const instructorId of touchedInstructors) {
+    await refreshInstructorRatings(instructorId);
+  }
   return updated;
 }
 
@@ -290,9 +370,9 @@ export async function deleteReview(reviewId: number, userId: string) {
   if (!existing) return false;
 
   await db.delete(reviews).where(eq(reviews.id, reviewId));
+  if (existing.sectionId) await refreshSectionRatings(existing.sectionId);
   await refreshCourseRatings(existing.courseId);
   await refreshCourseInstructorRatings(existing.courseId);
-  if (existing.sectionId) await refreshSectionRatings(existing.sectionId);
   if (existing.instructorId) await refreshInstructorRatings(existing.instructorId);
   return true;
 }
@@ -308,12 +388,29 @@ async function refreshCourseRatings(courseId: number) {
     .from(reviews)
     .where(eq(reviews.courseId, courseId));
 
+  // Course difficulty = average of section difficulties (unweighted by section size).
+  // Fallback to raw review average only for legacy rows with no section aggregates yet.
+  const [sectionAgg] = await db
+    .select({
+      avgDifficulty: sql<string>`avg(${sectionRatings.avgDifficulty})::numeric(3,2)`,
+    })
+    .from(sectionRatings)
+    .innerJoin(sections, eq(sectionRatings.sectionId, sections.id))
+    .where(
+      and(
+        eq(sections.courseId, courseId),
+        sql`${sectionRatings.avgDifficulty} is not null`
+      )
+    );
+  const sectionAvgDifficulty = sectionAgg?.avgDifficulty ?? null;
+  const resolvedCourseDifficulty = sectionAvgDifficulty ?? agg.avgDifficulty;
+
   await db
     .insert(courseRatings)
     .values({
       courseId,
       avgQuality: agg.avgQuality,
-      avgDifficulty: agg.avgDifficulty,
+      avgDifficulty: resolvedCourseDifficulty,
       avgWorkload: agg.avgWorkload,
       reviewCount: agg.count,
       updatedAt: new Date(),
@@ -322,7 +419,7 @@ async function refreshCourseRatings(courseId: number) {
       target: courseRatings.courseId,
       set: {
         avgQuality: agg.avgQuality,
-        avgDifficulty: agg.avgDifficulty,
+        avgDifficulty: resolvedCourseDifficulty,
         avgWorkload: agg.avgWorkload,
         reviewCount: agg.count,
         updatedAt: new Date(),

@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import RatingBadge from "./RatingBadge.js";
 import GerPills from "./GerPills.js";
 import type { CatalogCourseEntry } from "../../lib/courseTopics.js";
@@ -17,11 +17,8 @@ function enrollmentTone(percent: number) {
 }
 
 export default function CourseCard({ course, view = "grid" }: CourseCardProps) {
-  const location = useLocation();
   const instructors = course.instructors ?? [];
-  const semester = new URLSearchParams(location.search).get("semester");
   const detailSearch = buildCourseDetailSearch({
-    semester,
     topic: course.topic ?? null,
     sectionId: course.sectionId ?? null,
   });

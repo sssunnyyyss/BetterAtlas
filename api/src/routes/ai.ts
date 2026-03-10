@@ -1,11 +1,33 @@
 ﻿import { Router } from "express";
 import { z } from "zod";
 import { validate } from "../middleware/validate.js";
-import { requireAuth } from "../middleware/auth.js";
+import { optionalAuth } from "../middleware/optionalAuth.js";
 import { aiLimiter } from "../middleware/rateLimit.js";
 import { env } from "../config/env.js";
-import { openAiChatJson } from "../lib/openai.js";
+import { openAiChat, openAiChatJson } from "../lib/openai.js";
 import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
+import { buildClarifyResponse, classifyIntent } from "../ai/intent/intentRouter.js";
+import { validateAssistantGrounding } from "../ai/grounding/groundingValidator.js";
+import { buildSafeGroundingFallback } from "../ai/grounding/safeGroundingFallback.js";
+import { enforceRecommendationFilterConstraints } from "../ai/grounding/filterConstraintGuard.js";
+import {
+  clearSessionBlockedCourseIds,
+  getSessionBlockedCourseIds,
+  mergeSessionBlockedCourseIds,
+} from "../ai/grounding/sessionBlocklistState.js";
+import {
+  clearSessionContext,
+  getSessionContext,
+  resolveAiSessionKey,
+  type AiSessionContext,
+  upsertSessionContext,
+} from "../ai/memory/sessionContextState.js";
+import {
+  buildTopicFingerprint,
+  decayContextForTopicShift,
+  detectTopicShift,
+  resolveConstraintPrecedence,
+} from "../ai/memory/topicShiftPolicy.js";
 import { getUserById } from "../services/userService.js";
 import {
   listCourses,
@@ -15,6 +37,24 @@ import {
   semanticSearchCoursesByEmbedding,
 } from "../services/courseService.js";
 import { getAllAiTrainerScores } from "../services/aiTrainerService.js";
+import {
+  buildRetrievalEnvelope,
+  enforceSemanticCandidateQuota,
+} from "../ai/relevance/retrievalModePolicy.js";
+import { rankCandidatesWithBoundedSignals } from "../ai/relevance/rankingPolicy.js";
+import {
+  selectWithDepartmentDiversity,
+  shouldAllowDepartmentConcentration,
+} from "../ai/relevance/diversityPolicy.js";
+import {
+  buildLowRelevanceRefineGuidance,
+  isRelevanceSufficient,
+} from "../ai/relevance/relevanceSufficiencyPolicy.js";
+import { recordAiQualityEvent } from "../ai/observability/aiQualityTelemetry.js";
+import {
+  buildAiDebugDiagnostics,
+  buildRankingTopBreakdown,
+} from "../ai/observability/aiDebugDiagnostics.js";
 import type { CourseWithRatings } from "@betteratlas/shared";
 
 const router = Router();
@@ -61,6 +101,8 @@ const recommendSchema = z
     prompt: z.string().min(1).max(4000).optional(),
     // Back-compat: client may send the whole message list.
     messages: z.array(aiMessageSchema).min(1).max(12).optional(),
+    // Optional chat-session identifier to isolate memory/blocklist state per tab/conversation.
+    sessionId: z.string().max(120).optional(),
     // Avoid recommending already-shown courses (used by "Generate more").
     excludeCourseIds: z.array(z.number().int().positive()).max(200).optional(),
     // Apply active catalog filters as hard constraints to candidate retrieval.
@@ -77,54 +119,27 @@ const recommendSchema = z
 const modelResponseSchema = z.object({
   assistant_message: z.string().min(1).max(2500),
   follow_up_question: z.string().min(1).max(400).nullable().optional(),
-  recommendations: z
-    .array(
-      z.object({
-        course_id: z.number().int().positive(),
-        fit_score: z.number().int().min(1).max(10),
-        why: z.array(z.string().min(1).max(160)).min(1).max(5),
-        cautions: z.array(z.string().min(1).max(160)).max(4).optional(),
-      })
-    )
-    .min(1)
-    .max(16),
 });
 
-// OpenAI Structured Output schema — mirrors modelResponseSchema above.
-// Guarantees the model MUST produce valid JSON matching this exact shape.
-const modelResponseJsonSchema = {
-  name: "course_recommendations",
-  strict: true,
-  schema: {
-    type: "object",
-    properties: {
-      assistant_message: { type: "string" },
-      follow_up_question: {
-        anyOf: [{ type: "string" }, { type: "null" }],
-      },
-      recommendations: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            course_id: { type: "integer" },
-            fit_score: { type: "integer" },
-            why: {
-              type: "array",
-              items: { type: "string" },
-            },
-            cautions: {
-              type: "array",
-              items: { type: "string" },
-            },
-          },
-          required: ["course_id", "fit_score", "why", "cautions"],
-          additionalProperties: false,
+const courseRecommendationResponseFormat = {
+  type: "json_schema" as const,
+  json_schema: {
+    name: "course_recommendation_response",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        assistant_message: { type: "string", minLength: 1, maxLength: 2500 },
+        follow_up_question: {
+          anyOf: [
+            { type: "string", minLength: 1, maxLength: 400 },
+            { type: "null" },
+          ],
         },
       },
+      required: ["assistant_message", "follow_up_question"],
     },
-    required: ["assistant_message", "follow_up_question", "recommendations"],
-    additionalProperties: false,
   },
 };
 
@@ -138,6 +153,26 @@ function normalizeSearchQuery(text: string) {
   // This is only used to fetch candidates; the full user prompt still goes to the LLM.
   const cleaned = text.replace(/\s+/g, " ").trim();
   return truncate(cleaned, 200);
+}
+
+function deriveConcentrationIntentSignals(text: string): string[] {
+  const normalized = text.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
+
+  const signals = new Set<string>();
+  if (/\b(concentrat(e|ion)|focus(ed)? on)\b/.test(normalized)) {
+    signals.add("concentration_required");
+  }
+
+  const hasOnlyConstraint = /\b(only|just|strictly|exclusively)\b/.test(normalized);
+  if (hasOnlyConstraint && /\b(department|major|field|area)\b/.test(normalized)) {
+    signals.add("department_focus");
+  }
+  if (hasOnlyConstraint && /\b(courses?|classes?)\b/.test(normalized)) {
+    signals.add("single_department_request");
+  }
+
+  return Array.from(signals);
 }
 
 const GENERIC_WHY_RE =
@@ -310,10 +345,6 @@ function deriveAiSearchTerms(text: string, deps?: DepartmentMini[]) {
   return out;
 }
 
-const MEMORY_TTL_MS = 6 * 60 * 60 * 1000; // 6h
-const MEMORY_MAX_MESSAGES = 6; // last N user/assistant messages (keep context small for latency)
-const memoryByUser = new Map<string, { messages: AiMessage[]; updatedAt: number }>();
-
 type DepartmentMini = { code: string; name: string };
 type CacheEntry<T> = { value: T; updatedAt: number };
 type AiCourseFilters = z.infer<typeof aiFilterSchema>;
@@ -421,45 +452,9 @@ async function getTrainerScoresCached(): Promise<Map<number, number>> {
   return trainerScoresInFlight;
 }
 
-const GLOBAL_SCORE_WEIGHT = 2.0;
-
-function rankCandidatesWithGlobalBias(
-  courses: CourseWithRatings[],
-  profile: PreferenceProfile,
-  trainerScores: Map<number, number>,
-  globalWeight = GLOBAL_SCORE_WEIGHT
-) {
-  const hasPrefs = hasAnyPreferenceSignals(profile);
-  const hasTrainer = trainerScores.size > 0;
-  if (!hasPrefs && !hasTrainer) return courses;
-
-  return courses
-    .map((course, idx) => {
-      const prefScore = hasPrefs ? scoreCourseWithPreferenceSignals(course, profile) : 0;
-      const globalScore = (trainerScores.get(course.id) ?? 0) * globalWeight;
-      return { course, idx, score: prefScore + globalScore };
-    })
-    .sort((a, b) => b.score - a.score || a.idx - b.idx)
-    .map((x) => x.course);
-}
-
-function getUserMemory(userId: string): AiMessage[] {
-  const existing = memoryByUser.get(userId);
-  if (!existing) return [];
-  if (Date.now() - existing.updatedAt > MEMORY_TTL_MS) {
-    memoryByUser.delete(userId);
-    return [];
-  }
-  return existing.messages;
-}
-
-function setUserMemory(userId: string, messages: AiMessage[]) {
-  const trimmed = messages.slice(-MEMORY_MAX_MESSAGES);
-  memoryByUser.set(userId, { messages: trimmed, updatedAt: Date.now() });
-}
-
-function clearUserMemory(userId: string) {
-  memoryByUser.delete(userId);
+function persistSessionMessages(sessionKey: string | null, messages: AiMessage[]) {
+  if (!sessionKey) return;
+  upsertSessionContext(sessionKey, { messages: messages.slice(-12) });
 }
 
 function dedupeCourses(courses: CourseWithRatings[]) {
@@ -468,58 +463,6 @@ function dedupeCourses(courses: CourseWithRatings[]) {
     if (!map.has(c.id)) map.set(c.id, c);
   }
   return map;
-}
-
-function enforceSemanticCandidateQuota(input: {
-  candidates: CourseWithRatings[];
-  semanticRanked: CourseWithRatings[];
-  semanticIds: Set<number>;
-  excludeIds: Set<number>;
-  maxCandidates: number;
-  minSemantic: number;
-}) {
-  const { candidates, semanticRanked, semanticIds, excludeIds, maxCandidates, minSemantic } = input;
-
-  if (semanticIds.size === 0 || minSemantic <= 0) return candidates;
-
-  const target = Math.min(minSemantic, semanticIds.size, maxCandidates);
-  if (target <= 0) return candidates;
-
-  const out = [...candidates];
-  let semanticCount = out.filter((c) => semanticIds.has(c.id)).length;
-  if (semanticCount >= target) return out;
-
-  const selectedIds = new Set<number>(out.map((c) => c.id));
-  const addableSemantic = semanticRanked
-    .filter((c) => semanticIds.has(c.id))
-    .filter((c) => !excludeIds.has(c.id))
-    .filter((c) => !selectedIds.has(c.id));
-
-  for (const sem of addableSemantic) {
-    if (semanticCount >= target) break;
-
-    // Replace from the tail so higher-ranked/earlier candidates stay stable.
-    let replaceIdx = -1;
-    for (let i = out.length - 1; i >= 0; i--) {
-      if (!semanticIds.has(out[i].id)) {
-        replaceIdx = i;
-        break;
-      }
-    }
-
-    if (replaceIdx === -1) {
-      if (out.length >= maxCandidates) break;
-      out.push(sem);
-    } else {
-      selectedIds.delete(out[replaceIdx].id);
-      out[replaceIdx] = sem;
-    }
-
-    selectedIds.add(sem.id);
-    semanticCount += 1;
-  }
-
-  return out.slice(0, maxCandidates);
 }
 
 function findDepartmentCodeFromMajor(
@@ -541,18 +484,6 @@ function findDepartmentCodeFromMajor(
   }
 
   return null;
-}
-
-function isTrivialGreeting(text: string) {
-  const t = text.trim().toLowerCase();
-  if (!t) return true;
-  if (t.length <= 24) {
-    const alpha = t.replace(/[^a-z]/g, "");
-    if (/^(hi|hey|yo|sup|help|test|testing)$/.test(alpha)) return true;
-    // hello, hellooo, hellow, helo
-    if (/^h+e+l+o+w*$/.test(alpha)) return true;
-  }
-  return false;
 }
 
 function interleaveByDepartment(
@@ -626,6 +557,114 @@ function normalizeAiFilters(raw: AiCourseFilters | undefined) {
       ? Math.max(1, Math.trunc(raw.credits))
       : undefined;
 
+  return out;
+}
+
+type ConstraintValue = string | number | null | undefined;
+type ConstraintMap = Record<string, ConstraintValue>;
+type SessionInferredConstraints = AiSessionContext["inferredConstraints"];
+
+function inferSemesterFromText(text: string) {
+  const match = text.match(/\b(Spring|Summer|Fall|Winter)\s+(20\d{2})\b/i);
+  if (!match) return undefined;
+  const term = `${match[1]?.slice(0, 1).toUpperCase()}${match[1]?.slice(1).toLowerCase()}`;
+  return `${term} ${match[2]}`;
+}
+
+function inferWorkloadFromText(text: string): SessionInferredConstraints["workload"] {
+  const lower = text.toLowerCase();
+  if (/\b(easy|easier|chill|light(?:er)?|low[\s-]?workload)\b/.test(lower)) {
+    return "easy";
+  }
+  if (/\b(hard|harder|rigorous|intense|heavy|challenging)\b/.test(lower)) {
+    return "hard";
+  }
+  if (/\b(moderate|balanced|manageable)\b/.test(lower)) {
+    return "moderate";
+  }
+  return undefined;
+}
+
+function inferDepartmentFromText(text: string, deps: DepartmentMini[]) {
+  const courseCodeMatch = text.match(/\b([A-Za-z]{2,8})\s*-?\s*(\d{3,4}[A-Za-z]?)\b/);
+  if (courseCodeMatch) {
+    const normalized = courseCodeMatch[1]!.toUpperCase();
+    if (deps.some((dep) => dep.code.toUpperCase() === normalized)) {
+      return normalized;
+    }
+  }
+
+  for (const dep of deps) {
+    const re = new RegExp(`\\b${escapeRegExp(dep.code)}\\b`, "i");
+    if (re.test(text)) return dep.code.toUpperCase();
+  }
+
+  const lower = text.toLowerCase();
+  for (const dep of deps) {
+    if (lower.includes(dep.name.toLowerCase())) {
+      return dep.code.toUpperCase();
+    }
+  }
+
+  return undefined;
+}
+
+function inferLatestTurnConstraints(input: {
+  latestUser: string;
+  deps: DepartmentMini[];
+}): SessionInferredConstraints {
+  return {
+    department: inferDepartmentFromText(input.latestUser, input.deps),
+    semester: inferSemesterFromText(input.latestUser),
+    workload: inferWorkloadFromText(input.latestUser),
+  };
+}
+
+function buildExplicitConstraintMap(activeFilters: AiCourseFilters): ConstraintMap {
+  return {
+    department: activeFilters.department,
+    semester: activeFilters.semester,
+  };
+}
+
+function toSessionInferredConstraints(resolved: Record<string, string | number>): SessionInferredConstraints {
+  const departmentRaw = typeof resolved.department === "string" ? resolved.department.trim() : "";
+  const semesterRaw = typeof resolved.semester === "string" ? resolved.semester.trim() : "";
+  const workloadRaw = typeof resolved.workload === "string" ? resolved.workload.trim().toLowerCase() : "";
+
+  return {
+    department: departmentRaw ? truncate(departmentRaw, 20).toUpperCase() : undefined,
+    semester: semesterRaw ? truncate(semesterRaw, 80) : undefined,
+    workload:
+      workloadRaw === "easy" || workloadRaw === "moderate" || workloadRaw === "hard"
+        ? workloadRaw
+        : undefined,
+  };
+}
+
+function deriveConstraintSearchTerms(resolved: Record<string, string | number>): string[] {
+  const out: string[] = [];
+  const department = typeof resolved.department === "string" ? resolved.department.trim().toUpperCase() : "";
+  if (department) out.push(department);
+  const workload = typeof resolved.workload === "string" ? resolved.workload.trim().toLowerCase() : "";
+  if (workload === "easy" || workload === "moderate" || workload === "hard") out.push(workload);
+  return out;
+}
+
+function deriveEffectiveSearchTerms(input: {
+  latestUser: string;
+  deps: DepartmentMini[];
+  resolvedConstraints: Record<string, string | number>;
+}) {
+  const base = deriveAiSearchTerms(input.latestUser, input.deps);
+  const out = [...base];
+  const seen = new Set(base.map((term) => term.toLowerCase()));
+  for (const term of deriveConstraintSearchTerms(input.resolvedConstraints)) {
+    const normalized = term.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(term);
+  }
   return out;
 }
 
@@ -792,57 +831,201 @@ function rankCandidatesByPreferenceSignals(
     .map((x) => x.course);
 }
 
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function courseCodeRegex(code: string) {
+  const parts = code
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+  return new RegExp(`\\b${parts.map(escapeRegExp).join("\\s*")}\\b`, "i");
+}
+
+type MentionMatch = {
+  course: CourseWithRatings;
+  index: number;
+  matchedBy: "code" | "title";
+};
+
+function extractMentionedCoursesFromAssistantMessage(
+  assistantMessage: string,
+  candidates: CourseWithRatings[]
+): MentionMatch[] {
+  const haystack = assistantMessage.toLowerCase();
+  const matches: MentionMatch[] = [];
+
+  for (const course of candidates) {
+    let bestIndex = Number.POSITIVE_INFINITY;
+    let matchedBy: MentionMatch["matchedBy"] | null = null;
+
+    const codeRe = courseCodeRegex(course.code);
+    if (codeRe) {
+      const codeMatch = codeRe.exec(haystack);
+      if (codeMatch && codeMatch.index < bestIndex) {
+        bestIndex = codeMatch.index;
+        matchedBy = "code";
+      }
+    }
+
+    const title = (course.title ?? "").trim().toLowerCase();
+    if (title.length >= 6) {
+      const titleIndex = haystack.indexOf(title);
+      if (titleIndex !== -1 && titleIndex < bestIndex) {
+        bestIndex = titleIndex;
+        matchedBy = "title";
+      }
+    }
+
+    if (matchedBy) {
+      matches.push({ course, index: bestIndex, matchedBy });
+    }
+  }
+
+  return matches.sort((a, b) => a.index - b.index);
+}
+
+function scoreCourseByQueryTerms(course: CourseWithRatings, termsLower: string[]) {
+  if (termsLower.length === 0) return 0;
+  const text = `${course.code} ${course.title} ${course.description ?? ""}`.toLowerCase();
+  let score = 0;
+  for (const term of termsLower) {
+    if (!term) continue;
+    if (text.includes(term)) score += 1;
+  }
+  if (course.description) score += 0.35;
+  return score;
+}
+
+function computeMatchedTermCoverage(courses: CourseWithRatings[], termsLower: string[]): number {
+  if (termsLower.length === 0) return 1;
+  if (!Array.isArray(courses) || courses.length === 0) return 0;
+
+  const matchedTerms = new Set<string>();
+  for (const course of courses.slice(0, 4)) {
+    const text = `${course.code} ${course.title} ${course.description ?? ""}`.toLowerCase();
+    for (const term of termsLower) {
+      if (term && text.includes(term)) {
+        matchedTerms.add(term);
+      }
+    }
+  }
+
+  return Math.max(0, Math.min(1, matchedTerms.size / termsLower.length));
+}
+
+function buildRecommendationFromCourse({
+  course,
+  termsLower,
+  baseFit,
+  mentionReason,
+}: {
+  course: CourseWithRatings;
+  termsLower: string[];
+  baseFit: number;
+  mentionReason: string | null;
+}) {
+  const text = `${course.code} ${course.title} ${course.description ?? ""}`.toLowerCase();
+  const matchedTerms = termsLower.filter((term) => term && text.includes(term)).slice(0, 3);
+
+  const why: string[] = [];
+  if (mentionReason) why.push(mentionReason);
+  if (matchedTerms.length > 0) {
+    why.push(`Matches your query terms: ${matchedTerms.join(", ")}`);
+  }
+  if (course.gers && course.gers.length > 0) {
+    why.push(`GER: ${course.gers.slice(0, 3).join(", ")}`);
+  }
+  if (why.length < 2) {
+    const desc = (course.description ?? "").replace(/\s+/g, " ").trim();
+    if (desc) why.push(truncate(`Catalog: ${desc}`, 160));
+    else why.push(truncate(`From title: ${course.title}`, 160));
+  }
+
+  const cautions: string[] = [];
+  const req = (course.requirements ?? course.prerequisites ?? "").trim();
+  if (req) cautions.push(truncate(`Requirements: ${req.replace(/\s+/g, " ").trim()}`, 160));
+
+  const relevanceBoost = matchedTerms.length > 0 ? 1 : 0;
+  const fitScore = Math.max(1, Math.min(10, baseFit + relevanceBoost));
+
+  return {
+    course,
+    fitScore,
+    why: fixWhyBullets(course, why.slice(0, 4)),
+    cautions: cautions.slice(0, 2),
+  };
+}
+
+function withNonProductionDebug(factory: () => ReturnType<typeof buildAiDebugDiagnostics>) {
+  if (env.nodeEnv === "production") return {};
+  return { debug: factory() };
+}
+
 router.post(
   "/ai/course-recommendations",
-  requireAuth,
+  optionalAuth,
   aiLimiter,
   validate(recommendSchema),
   async (req, res) => {
+    let telemetryIntentMode: "conversation" | "clarify" | "recommend" = "conversation";
+    let telemetryRetrievalMode: "none" | "lexical_only" | "hybrid" | "hybrid_degraded" = "none";
+    let telemetryGroundingStatus: "not_applicable" | "passed" | "failed" = "not_applicable";
+    let telemetryUsedJsonFallback = false;
+    let telemetryGroundingMismatch = false;
+
     try {
       const tStart = Date.now();
 
-      if (!env.openaiApiKey) {
-        return res.status(500).json({ error: "AI is not configured on the server" });
-      }
-
-      const { messages, prompt, reset, excludeCourseIds, filters, preferences } = req.body as z.infer<
+      const { messages, prompt, reset, sessionId, excludeCourseIds, filters, preferences } = req.body as z.infer<
         typeof recommendSchema
       >;
-      const user = await getUserById(req.user!.id);
-      const activeFilters = normalizeAiFilters(filters);
-      const likedCourses = normalizePreferenceCourses(preferences?.liked);
-      const dislikedCourses = normalizePreferenceCourses(preferences?.disliked);
-      const preferenceProfile = buildPreferenceProfile(likedCourses, dislikedCourses);
 
-      const excludeSet = new Set<number>(
-        (excludeCourseIds ?? []).filter((id) => typeof id === "number" && Number.isFinite(id))
-      );
-      for (const c of dislikedCourses) excludeSet.add(c.id);
+      const configErrorMessages: AiMessage[] = (() => {
+        if (Array.isArray(messages)) return messages as AiMessage[];
+        const nextUser = (prompt ?? "").trim();
+        return nextUser ? [{ role: "user" as const, content: nextUser }] : [];
+      })();
+      const configErrorLatestUser =
+        [...configErrorMessages].reverse().find((message) => message.role === "user")?.content ?? "";
+      const configErrorDecision = classifyIntent({
+        latestUser: configErrorLatestUser,
+        recentMessages: configErrorMessages,
+      });
+      telemetryIntentMode = configErrorDecision.mode;
 
-      const tDepsStart = Date.now();
-      const [deps, trainerScores] = await Promise.all([
-        getDepartmentsCached(),
-        getTrainerScoresCached(),
-      ]);
-      const deptCode = findDepartmentCodeFromMajor(
-        user?.major ?? null,
-        deps
-      );
-      const depsMs = Date.now() - tDepsStart;
-
-      if (reset) clearUserMemory(req.user!.id);
-      if (reset && !messages && !prompt) {
-        return res.json({
-          assistantMessage: "AI memory cleared.",
-          followUpQuestion: null,
-          recommendations: [],
+      if (!env.openaiApiKey) {
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "route_error",
+          groundingStatus: telemetryGroundingStatus,
+          safeFallbackUsed: false,
+          usedJsonFallback: telemetryUsedJsonFallback,
+          groundingMismatch: telemetryGroundingMismatch,
         });
+        return res.status(500).json({ error: "AI is not configured on the server" });
       }
+      const userId = req.user?.id ?? null;
+      const sessionKey = resolveAiSessionKey({ userId, sessionId });
+
+      if (reset && sessionKey) {
+        clearSessionContext(sessionKey);
+        clearSessionBlockedCourseIds(sessionKey);
+      }
+      const priorSessionContext = sessionKey ? getSessionContext(sessionKey) : null;
 
       const effectiveMessages: AiMessage[] = (() => {
         if (Array.isArray(messages)) return messages as AiMessage[];
-        const mem = getUserMemory(req.user!.id);
         const nextUser = (prompt ?? "").trim();
+        if (!sessionKey) {
+          return nextUser ? [{ role: "user" as const, content: nextUser }] : [];
+        }
+        const mem = priorSessionContext?.messages ?? [];
         const merged = nextUser ? [...mem, { role: "user" as const, content: nextUser }] : mem;
         // Keep model context bounded.
         return merged.slice(-12);
@@ -850,45 +1033,282 @@ router.post(
 
       const latestUser =
         [...effectiveMessages].reverse().find((m) => m.role === "user")?.content ?? "";
+      const decision = classifyIntent({
+        latestUser,
+        recentMessages: effectiveMessages,
+      });
+      telemetryIntentMode = decision.mode;
+      const isTrivialGreeting =
+        decision.mode === "conversation" && decision.reason === "trivial_greeting";
 
-      // If someone just says "hello", don't burn an expensive LLM call.
-      if (isTrivialGreeting(latestUser)) {
-        setUserMemory(req.user!.id, [
-          ...getUserMemory(req.user!.id),
-          {
-            role: "assistant" as const,
-            content:
-              "Hi. Tell me what you want in a class (interests, workload, credits, semester) and I'll recommend courses.",
-          },
-        ]);
+      if (reset && !messages && !prompt) {
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: "none",
+          outcomeType: "reset",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
+        return res.json({
+          assistantMessage: "AI memory cleared.",
+          followUpQuestion: null,
+          recommendations: [],
+          ...withNonProductionDebug(() =>
+            buildAiDebugDiagnostics({
+              intentMode: decision.mode,
+              intentReason: "reset_request",
+              retrievalSkipped: true,
+            })
+          ),
+        });
+      }
+
+      if (isTrivialGreeting) {
+        if (sessionKey) {
+          persistSessionMessages(sessionKey, [
+            ...effectiveMessages,
+            {
+              role: "assistant" as const,
+              content: "Hi. I can help with anything, including classes when you ask for course recommendations.",
+            },
+          ]);
+        }
         const totalMs = Date.now() - tStart;
         if (totalMs > 1500) {
           console.log("ai/course-recommendations timings", {
             totalMs,
-            depsMs,
+            depsMs: 0,
             openaiMs: 0,
             note: "trivial_greeting",
             model: env.openaiModel,
           });
         }
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: "none",
+          outcomeType: "conversation_response",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
         return res.json({
           assistantMessage:
-            "Tell me what you want in a class (interests, workload, credits, semester) and I'll recommend courses.",
-          followUpQuestion: "What are 2-3 topics you'd actually be excited to learn right now?",
+            "Hi. I can help with anything, including classes when you ask for course recommendations.",
+          followUpQuestion: null,
           recommendations: [],
+          ...withNonProductionDebug(() =>
+            buildAiDebugDiagnostics({
+              intentMode: decision.mode,
+              intentReason: decision.reason,
+              retrievalSkipped: true,
+            })
+          ),
         });
       }
 
+      if (decision.mode === "conversation") {
+        const systemPrompt = [
+          "You are BetterAtlas AI, a helpful conversational assistant for students.",
+          "Respond naturally and directly to the user.",
+          "Do NOT provide specific course recommendations unless the user explicitly asks for courses/classes.",
+          "Keep answers concise, practical, and friendly.",
+        ].join("\n");
+
+        const openAiMessages = [
+          { role: "system" as const, content: systemPrompt },
+          ...effectiveMessages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: m.content,
+          })),
+        ];
+
+        const tOpenAiStart = Date.now();
+        const assistantMessage = await openAiChat({
+          messages: openAiMessages,
+          model: env.openaiModel,
+          temperature: 0.4,
+          maxTokens: 1200,
+        });
+        const openaiMs = Date.now() - tOpenAiStart;
+
+        if (sessionKey) {
+          persistSessionMessages(sessionKey, [
+            ...effectiveMessages,
+            { role: "assistant" as const, content: assistantMessage },
+          ]);
+        }
+
+        const totalMs = Date.now() - tStart;
+        if (totalMs > 1500) {
+          console.log("ai/course-recommendations timings", {
+            totalMs,
+            depsMs: 0,
+            candidatesMs: 0,
+            embedMs: 0,
+            semanticMs: 0,
+            openaiMs,
+            model: env.openaiModel,
+            conversationalOnly: true,
+          });
+        }
+
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: "none",
+          outcomeType: "conversation_response",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
+        return res.json({
+          assistantMessage,
+          followUpQuestion: null,
+          recommendations: [],
+          ...withNonProductionDebug(() =>
+            buildAiDebugDiagnostics({
+              intentMode: decision.mode,
+              intentReason: decision.reason,
+              retrievalSkipped: true,
+            })
+          ),
+        });
+      }
+
+      if (decision.mode === "clarify") {
+        const clarifyResponse = buildClarifyResponse({
+          latestUser,
+          recentMessages: effectiveMessages,
+        });
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: "none",
+          outcomeType: "clarify_response",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
+        return res.json({
+          assistantMessage: clarifyResponse.assistantMessage,
+          followUpQuestion: clarifyResponse.followUpQuestion,
+          recommendations: [],
+          ...withNonProductionDebug(() =>
+            buildAiDebugDiagnostics({
+              intentMode: decision.mode,
+              intentReason: decision.reason,
+              retrievalSkipped: true,
+            })
+          ),
+        });
+      }
+
+      const explicitFilters = normalizeAiFilters(filters);
+      const likedCourses = normalizePreferenceCourses(preferences?.liked);
+      const dislikedCourses = normalizePreferenceCourses(preferences?.disliked);
+      const preferenceProfile = buildPreferenceProfile(likedCourses, dislikedCourses);
+      const excludeSet = new Set<number>(
+        (excludeCourseIds ?? []).filter((id) => typeof id === "number" && Number.isFinite(id))
+      );
+      for (const c of dislikedCourses) excludeSet.add(c.id);
+      if (sessionKey) {
+        const priorBlockedIds = getSessionBlockedCourseIds(sessionKey);
+        for (const blockedId of priorBlockedIds) {
+          excludeSet.add(blockedId);
+        }
+      }
+
+      const persistSessionBlockedIds = () => {
+        if (!sessionKey) return;
+        mergeSessionBlockedCourseIds(sessionKey, excludeSet);
+      };
+
+      const user = userId ? await getUserById(userId) : null;
+
+      const tDepsStart = Date.now();
+      const [deps, trainerScores] = await Promise.all([
+        getDepartmentsCached(),
+        getTrainerScoresCached(),
+      ]);
+      const latestTurnInferred = inferLatestTurnConstraints({
+        latestUser,
+        deps,
+      });
+      const explicitConstraintMap = buildExplicitConstraintMap(explicitFilters);
+      const priorInferredConstraints: ConstraintMap = priorSessionContext?.inferredConstraints ?? {};
+      const preShiftResolved = resolveConstraintPrecedence({
+        explicitCurrent: explicitConstraintMap,
+        latestTurnInferred,
+        priorInferred: priorInferredConstraints,
+      });
+      const topicShift = detectTopicShift({
+        previousFingerprint: priorSessionContext?.topicFingerprint ?? [],
+        latestUser,
+        resolvedConstraints: preShiftResolved,
+      });
+      const decayedContext = decayContextForTopicShift({
+        detected: topicShift.detected,
+        keepRecentMessages: 2,
+        context: {
+          messages: priorSessionContext?.messages ?? [],
+          inferredConstraints: priorSessionContext?.inferredConstraints ?? {},
+          topicFingerprint: priorSessionContext?.topicFingerprint ?? [],
+        },
+      });
+      const resolvedConstraints = resolveConstraintPrecedence({
+        explicitCurrent: explicitConstraintMap,
+        latestTurnInferred,
+        priorInferred: decayedContext.inferredConstraints,
+      });
+      const activeFilters = explicitFilters;
+      const inferredConstraintsForSession = toSessionInferredConstraints(resolvedConstraints);
+      const nextTopicFingerprint = buildTopicFingerprint({
+        latestUser,
+        resolvedConstraints,
+      });
+      const recommendContextMessages: AiMessage[] =
+        topicShift.detected && !Array.isArray(messages)
+          ? [
+              ...decayedContext.messages,
+              ...(latestUser ? [{ role: "user" as const, content: latestUser }] : []),
+            ].slice(-12)
+          : effectiveMessages;
+      const persistRecommendationContext = (assistantMessage: string) => {
+        if (!sessionKey) return;
+        upsertSessionContext(sessionKey, {
+          messages: [...recommendContextMessages, { role: "assistant", content: assistantMessage }],
+          inferredConstraints: inferredConstraintsForSession,
+          topicFingerprint: nextTopicFingerprint,
+        });
+      };
+
+      const deptCode = findDepartmentCodeFromMajor(
+        user?.major ?? null,
+        deps
+      );
+      const depsMs = Date.now() - tDepsStart;
+
       const candidateQuery = normalizeSearchQuery(latestUser);
-      const searchTerms = deriveAiSearchTerms(latestUser, deps).slice(0, 3);
+      const searchTerms = deriveEffectiveSearchTerms({
+        latestUser,
+        deps,
+        resolvedConstraints,
+      }).slice(0, 3);
+      const termsLower = searchTerms.map((t) => t.toLowerCase()).filter(Boolean);
 
       const tCandidatesStart = Date.now();
       let embedMs = 0;
       let semanticMs = 0;
       let semanticUnique: CourseWithRatings[] = [];
+      const semanticAvailable = await areCourseEmbeddingsAvailable();
+      const semanticAttempted = semanticAvailable && candidateQuery.length >= 3;
+      let semanticFailed = false;
       const hasFilters = hasAnyAiFilters(activeFilters);
 
-      if (candidateQuery.length >= 3 && (await areCourseEmbeddingsAvailable())) {
+      if (semanticAttempted) {
         try {
           const tEmbed = Date.now();
           const embedding = (await openAiEmbedText({ input: latestUser })) as number[];
@@ -902,43 +1322,59 @@ router.post(
           });
           semanticMs = Date.now() - tSemantic;
         } catch (e) {
-          // Don't fail the whole request if embeddings aren't set up yet.
+          // Don't fail the whole request if semantic retrieval can't run.
           semanticUnique = [];
           embedMs = 0;
           semanticMs = 0;
+          semanticFailed = true;
         }
       }
 
       let searchCoursesRaw: CourseWithRatings[] = [];
-      if (searchTerms.length > 0) {
-        // 1) Try a single "combined" query first (cheap and often good enough).
-        const primary = await searchCourses({
-          q: searchTerms.join(" "),
-          page: 1,
-          limit: 24,
-          ...activeFilters,
-        });
-        searchCoursesRaw = primary.data ?? [];
+      // Recommend mode must always execute lexical retrieval, even when derived terms are empty.
+      const lexicalQuery = searchTerms.length > 0 ? searchTerms.join(" ") : candidateQuery || "course";
+      // 1) Try a single "combined" query first (cheap and often good enough).
+      const primary = await searchCourses({
+        q: lexicalQuery,
+        page: 1,
+        limit: 24,
+        ...activeFilters,
+      });
+      searchCoursesRaw = primary.data ?? [];
 
-        // 2) If that was too strict (common with AND semantics), broaden by searching per-keyword.
-        if (searchCoursesRaw.length < 18 && searchTerms.length > 1) {
-          const perTerm = await Promise.all(
-            searchTerms.map((t) =>
-              searchCourses({
-                q: t,
-                page: 1,
-                limit: 12,
-                ...activeFilters,
-              })
-            )
-          );
-          searchCoursesRaw = [
-            ...searchCoursesRaw,
-            ...perTerm.flatMap((r) => r.data ?? []),
-          ];
-        }
+      // 2) If that was too strict (common with AND semantics), broaden by searching per-keyword.
+      if (searchCoursesRaw.length < 18 && searchTerms.length > 1) {
+        const perTerm = await Promise.all(
+          searchTerms.map((t) =>
+            searchCourses({
+              q: t,
+              page: 1,
+              limit: 12,
+              ...activeFilters,
+            })
+          )
+        );
+        searchCoursesRaw = [
+          ...searchCoursesRaw,
+          ...perTerm.flatMap((r) => r.data ?? []),
+        ];
       }
       const searchUnique = Array.from(dedupeCourses(searchCoursesRaw).values());
+      const retrievalEnvelope = buildRetrievalEnvelope({
+        lexicalCount: searchUnique.length,
+        semanticCount: semanticUnique.length,
+        semanticAvailable,
+        semanticAttempted,
+        semanticFailed,
+      });
+      const retrievalDebug = {
+        retrievalMode: retrievalEnvelope.mode,
+        semanticAttempted: retrievalEnvelope.semanticAttempted,
+        semanticAvailable: retrievalEnvelope.semanticAvailable,
+        lexicalCount: retrievalEnvelope.lexicalCount,
+        semanticCount: retrievalEnvelope.semanticCount,
+      };
+      telemetryRetrievalMode = retrievalEnvelope.mode;
 
       // Only pay for fillers (top-rated, major-rated) when search isn't providing enough options.
       const needFillers = searchUnique.length + semanticUnique.length < 24 && candidateQuery.length >= 3;
@@ -993,43 +1429,157 @@ router.post(
         maxCandidates: CANDIDATE_MAX,
         minSemantic: MIN_SEMANTIC_CANDIDATES,
       });
-      candidates = rankCandidatesWithGlobalBias(candidates, preferenceProfile, trainerScores);
+      const baseRelevance = new Map<number, number>();
+      const preferenceScores = new Map<number, number>();
+      for (const candidate of candidates) {
+        const lexicalScore = scoreCourseByQueryTerms(candidate, termsLower);
+        const semanticScore = semanticIds.has(candidate.id) ? 1 : 0;
+        const descriptionScore = candidate.description ? 0.15 : 0;
+        baseRelevance.set(candidate.id, lexicalScore + semanticScore + descriptionScore);
+        preferenceScores.set(candidate.id, scoreCourseWithPreferenceSignals(candidate, preferenceProfile));
+      }
+
+      const rankedCandidates = rankCandidatesWithBoundedSignals({
+        courses: candidates,
+        baseRelevance,
+        preferenceScores,
+        trainerScores,
+      });
+      const rankedCourseIndex = new Map<number, number>(
+        rankedCandidates.map((candidate, index) => [candidate.course.id, index])
+      );
+      candidates = rankedCandidates.map((candidate) => candidate.course);
       const semanticCandidateCount = candidates.filter((c) => semanticIds.has(c.id)).length;
+      const rankingTopBreakdown = buildRankingTopBreakdown({
+        rankedCandidates,
+        limit: 5,
+      });
+      const buildRecommendDebugDiagnostics = (input: {
+        totalMs: number;
+        openaiMs: number;
+        candidateCount?: number;
+        semanticCandidateCount?: number;
+        candidatesWithDescription?: number;
+        deptCounts?: Record<string, number>;
+        groundingStatus?: "not_applicable" | "passed" | "failed";
+        groundingViolationCount?: number;
+        excludedMentionCount?: number;
+        usedJsonFallback?: boolean;
+        safeFallbackUsed?: boolean;
+        lowRelevanceRefineUsed?: boolean;
+        filterConstraintDroppedCount?: number;
+        constraintFallbackTriggered?: boolean;
+        concentrationAllowed?: boolean | null;
+        relevanceGateEligible?: boolean | null;
+        matchedTermCoverage?: number | null;
+        relevanceSufficient?: boolean | null;
+      }) =>
+        buildAiDebugDiagnostics({
+          intentMode: decision.mode,
+          intentReason: decision.reason,
+          retrievalSkipped: false,
+          retrieval: {
+            retrievalMode: retrievalDebug.retrievalMode,
+            semanticAttempted: retrievalDebug.semanticAttempted,
+            semanticAvailable: retrievalDebug.semanticAvailable,
+            lexicalCount: retrievalDebug.lexicalCount,
+            semanticCount: retrievalDebug.semanticCount,
+          },
+          timings: {
+            model: env.openaiModel,
+            totalMs: input.totalMs,
+            depsMs,
+            candidatesMs,
+            embedMs,
+            semanticMs,
+            openaiMs: input.openaiMs,
+          },
+          query: {
+            searchTerms,
+          },
+          candidateComposition: {
+            candidateCount: input.candidateCount ?? candidates.length,
+            hadFillers: needFillers,
+            userMajor: user?.major ?? null,
+            deptCode,
+            searchUniqueCount: searchUnique.length,
+            semanticUniqueCount: semanticUnique.length,
+            semanticCandidateCount: input.semanticCandidateCount ?? semanticCandidateCount,
+            candidatesWithDescription:
+              input.candidatesWithDescription ??
+              candidates.filter((candidate) => Boolean(candidate.description)).length,
+            deptCounts: input.deptCounts ?? {},
+          },
+          preferenceSignals: {
+            appliedFilters: activeFilters,
+            likedSignals: likedCourses.length,
+            dislikedSignals: dislikedCourses.length,
+          },
+          trainerSignals: {
+            trainerScoresLoaded: trainerScores.size,
+            trainerBoostedCount:
+              candidates.filter((candidate) => (trainerScores.get(candidate.id) ?? 0) > 0.3).length,
+            trainerDemotedCount:
+              candidates.filter((candidate) => (trainerScores.get(candidate.id) ?? 0) < -0.3).length,
+          },
+          grounding: {
+            status: input.groundingStatus ?? "not_applicable",
+            violationCount: input.groundingViolationCount ?? 0,
+            excludedMentionCount: input.excludedMentionCount ?? 0,
+            blockedCourseCount: excludeSet.size,
+          },
+          outcome: {
+            usedJsonFallback: Boolean(input.usedJsonFallback),
+            safeFallbackUsed: Boolean(input.safeFallbackUsed),
+            lowRelevanceRefineUsed: Boolean(input.lowRelevanceRefineUsed),
+            concentrationAllowed:
+              typeof input.concentrationAllowed === "boolean"
+                ? input.concentrationAllowed
+                : null,
+          },
+          relevanceGate: {
+            eligible:
+              typeof input.relevanceGateEligible === "boolean" ? input.relevanceGateEligible : null,
+            matchedTermCoverage:
+              typeof input.matchedTermCoverage === "number" ? input.matchedTermCoverage : null,
+            sufficient:
+              typeof input.relevanceSufficient === "boolean" ? input.relevanceSufficient : null,
+          },
+          filterEnforcement: {
+            droppedCount: input.filterConstraintDroppedCount ?? 0,
+            constraintFallbackTriggered: Boolean(input.constraintFallbackTriggered),
+          },
+          rankingTopBreakdown,
+        });
 
       if (candidates.length === 0) {
+        persistRecommendationContext(
+          "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again."
+        );
+        persistSessionBlockedIds();
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "empty_candidates",
+          groundingStatus: "not_applicable",
+          safeFallbackUsed: false,
+          usedJsonFallback: false,
+          groundingMismatch: false,
+        });
         return res.json({
           assistantMessage:
             "I couldn't find any courses that satisfy your current filters. Relax one or two filters (often semester + instructor + GER) and try again.",
-          followUpQuestion: "Want me to prioritize semester first, then broaden instructor/campus constraints?",
+          followUpQuestion: null,
           recommendations: [],
-          ...(env.nodeEnv !== "production"
-            ? {
-                debug: {
-                  model: env.openaiModel,
-                  totalMs: Date.now() - tStart,
-                  depsMs,
-                  candidatesMs,
-                  embedMs,
-                  semanticMs,
-                  openaiMs: 0,
-                  searchTerms,
-                  candidateCount: 0,
-                  hadFillers: needFillers,
-                  userMajor: user?.major ?? null,
-                  deptCode,
-                  searchUniqueCount: searchUnique.length,
-                  semanticUniqueCount: semanticUnique.length,
-                  semanticCandidateCount: 0,
-                  candidatesWithDescription: 0,
-                  appliedFilters: activeFilters,
-                  likedSignals: likedCourses.length,
-                  dislikedSignals: dislikedCourses.length,
-                  trainerScoresLoaded: trainerScores.size,
-                  trainerBoostedCount: 0,
-                  trainerDemotedCount: 0,
-                },
-              }
-            : {}),
+          ...withNonProductionDebug(() =>
+            buildRecommendDebugDiagnostics({
+              totalMs: Date.now() - tStart,
+              openaiMs: 0,
+              candidateCount: 0,
+              semanticCandidateCount: 0,
+              candidatesWithDescription: 0,
+            })
+          ),
         });
       }
 
@@ -1053,33 +1603,22 @@ router.post(
 
       const systemPrompt = [
         "You are BetterAtlas AI, an academic counselor inside a course catalog.",
-        "Goal: recommend courses that match the student's interests and intentions.",
+        "Goal: have a natural conversation while helping the student make better class decisions.",
         "The student's major is a hint, not a constraint.",
-        "Treat active catalog filters as hard constraints; never suggest anything outside them.",
-        "Prioritize fit to the course title and description.",
-        "Do NOT default to CS/tech courses unless the student asks for them or the course clearly matches their described interests.",
-        "Unless the student explicitly asks for one department, diversify: pick from at least 3 departments when possible and avoid recommending more than 3 courses from any single department.",
-        "Use course details when helpful: instructors, campuses, GERs, prerequisites, and requirements/restrictions.",
+        "Treat active catalog filters as hard constraints whenever you suggest specific courses.",
+        "Respond directly to the user first; do not force a list of courses in every answer.",
+        "If suggesting courses, reference concrete course codes/titles from the candidate list only.",
+        "Do NOT default to CS/tech courses unless the user asks for them or the request clearly implies them.",
+        "Use course details when helpful: instructors, campuses, GERs, prerequisites, and requirements.",
         "Use developer/user feedback signals (liked/disliked course examples) as strong preference hints.",
-        "You must ONLY recommend courses from the provided candidate list, using their numeric id.",
-        "Never recommend any excluded course_id values provided in context.",
-        "If the student's request is vague, make reasonable assumptions and include exactly ONE concise follow-up question.",
+        "Never suggest excluded courses listed in context.",
+        "If the student's request is vague, make reasonable assumptions and optionally include one concise follow-up question.",
         "Keep output concise and helpful. No moralizing. No long disclaimers.",
-        "In each recommendation's `why` bullets, reference at least one concrete keyword from the course title or `desc:` snippet provided (no hallucinated details).",
-        "Do NOT use generic why bullets like \"seems relevant\" or \"based on the title/description\"; each why bullet must cite a specific course detail (keyword phrase, GER code, campus, instructor, prerequisite, or requirement).",
         "",
         "Return ONLY valid JSON (no markdown, no code fences) matching this shape:",
         "{",
         '  "assistant_message": string,',
-        '  "follow_up_question": string|null,',
-        '  "recommendations": [',
-        "    {",
-        '      "course_id": number,',
-        '      "fit_score": integer 1-10,',
-        '      "why": string[] (2-4 short bullets),',
-        '      "cautions": string[] (0-2 short bullets)',
-        "    }",
-        "  ] (8 items; minimum 6)",
+        '  "follow_up_question": string|null',
         "}",
       ].join("\n");
 
@@ -1088,6 +1627,7 @@ router.post(
         `Student graduationYear: ${user?.graduationYear ?? "unknown"}`,
         `Student deptCode (hint): ${deptCode ?? "unknown"}`,
         `Active filters (hard constraints): ${summarizeAiFilters(activeFilters)}`,
+        `Resolved memory constraints: ${JSON.stringify(inferredConstraintsForSession)}`,
         `Liked feedback examples: ${
           likedCourses.length > 0
             ? likedCourses
@@ -1118,7 +1658,7 @@ router.post(
           return parts.length > 0 ? parts.join("\n") : "";
         })(),
         "",
-        "Candidates JSON (ONLY recommend from these ids):",
+        "Candidate courses (if you reference specific courses, use codes/titles from this list):",
         JSON.stringify(modelCandidates),
       ].join("\n");
 
@@ -1129,124 +1669,301 @@ router.post(
           content:
             "Context:\n" + counselorContextText,
         },
-        ...effectiveMessages.map((m) => ({
+        ...recommendContextMessages.map((m) => ({
           role: m.role as "user" | "assistant",
           content: m.content,
         })),
       ];
 
       const tOpenAiStart = Date.now();
-      const { parsed } = await openAiChatJson({
-        messages: openAiMessages,
-        model: env.openaiModel,
-        temperature: 0.2,
-        maxTokens: 1500,
-        responseFormat: { type: "json_schema", json_schema: modelResponseJsonSchema },
-      });
+      let modelResult: z.infer<typeof modelResponseSchema> | null = null;
+      let usedJsonFallback = false;
+
+      try {
+        const { parsed } = await openAiChatJson({
+          messages: openAiMessages,
+          model: env.openaiModel,
+          temperature: 0.2,
+          maxTokens: 1500,
+          responseFormat: courseRecommendationResponseFormat,
+        });
+        const parsedResult = modelResponseSchema.safeParse(parsed);
+        if (parsedResult.success) {
+          modelResult = parsedResult.data;
+        }
+      } catch (error: any) {
+        const message = String(error?.message ?? "");
+        const isJsonFormatFailure =
+          /json object|parse json|invalid response format|missing message content/i.test(
+            message,
+          );
+        if (!isJsonFormatFailure) {
+          throw error;
+        }
+      }
+
+      if (!modelResult) {
+        const fallbackAssistantMessage = await openAiChat({
+          messages: openAiMessages,
+          model: env.openaiModel,
+          temperature: 0.2,
+          maxTokens: 1500,
+        });
+        modelResult = {
+          assistant_message: fallbackAssistantMessage.trim(),
+          follow_up_question: null,
+        };
+        usedJsonFallback = true;
+        telemetryUsedJsonFallback = true;
+      }
+
       const openaiMs = Date.now() - tOpenAiStart;
 
-      const parsedResult = modelResponseSchema.safeParse(parsed);
-      if (!parsedResult.success) {
-        return res.status(500).json({
-          error: "AI returned an invalid response format",
-          details: parsedResult.error.flatten().fieldErrors,
+      const TARGET_RECS = 8;
+      const groundingResult = validateAssistantGrounding({
+        assistantMessage: modelResult.assistant_message,
+        candidates,
+        blockedCourseIds: excludeSet,
+      });
+      telemetryGroundingStatus = groundingResult.ok ? "passed" : "failed";
+      telemetryGroundingMismatch = groundingResult.violations.length > 0;
+      const excludedMentionCount = groundingResult.violations.filter(
+        (violation) => violation.kind === "blocked_mention"
+      ).length;
+
+      if (!groundingResult.ok) {
+        const safeFallback = buildSafeGroundingFallback();
+        persistRecommendationContext(safeFallback.assistantMessage);
+        persistSessionBlockedIds();
+
+        const totalMs = Date.now() - tStart;
+        if (totalMs > 1500) {
+          console.log("ai/course-recommendations timings", {
+            totalMs,
+            depsMs,
+            candidatesMs,
+            embedMs,
+            semanticMs,
+            openaiMs,
+            model: env.openaiModel,
+            note: "grounding_fallback",
+          });
+        }
+
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "grounding_fallback",
+          groundingStatus: "failed",
+          safeFallbackUsed: true,
+          usedJsonFallback: telemetryUsedJsonFallback,
+          groundingMismatch: telemetryGroundingMismatch,
+        });
+        return res.json({
+          assistantMessage: safeFallback.assistantMessage,
+          followUpQuestion: safeFallback.followUpQuestion,
+          recommendations: safeFallback.recommendations,
+          ...withNonProductionDebug(() =>
+            buildRecommendDebugDiagnostics({
+              totalMs,
+              openaiMs,
+              groundingStatus: "failed",
+              groundingViolationCount: groundingResult.violations.length,
+              excludedMentionCount,
+              usedJsonFallback,
+              safeFallbackUsed: true,
+            })
+          ),
         });
       }
 
-      const modelResult = parsedResult.data;
+      const relevanceGateEligible = candidates.length >= 4;
+      const matchedTermCoverage = relevanceGateEligible
+        ? computeMatchedTermCoverage(candidates, termsLower)
+        : 1;
+      const relevanceSufficient = !relevanceGateEligible
+        ? true
+        : isRelevanceSufficient({
+            rankedBaseScores: rankedCandidates.map((candidate) => candidate.scores.baseRelevance),
+            matchedTermCoverage,
+            retrievalMode: retrievalEnvelope.mode,
+          });
 
-      const byId = new Map<number, CourseWithRatings>();
-      for (const c of candidates) byId.set(c.id, c);
+      if (!relevanceSufficient) {
+        const refineGuidance = buildLowRelevanceRefineGuidance({
+          retrievalMode: retrievalEnvelope.mode,
+          matchedTermCoverage,
+        });
+        persistRecommendationContext(refineGuidance.assistantMessage);
+        persistSessionBlockedIds();
 
-      const TARGET_RECS = 8;
-      const MIN_RECS = 6;
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "low_relevance_refine",
+          groundingStatus: "passed",
+          safeFallbackUsed: false,
+          usedJsonFallback: telemetryUsedJsonFallback,
+          groundingMismatch: false,
+        });
+        return res.json({
+          assistantMessage: refineGuidance.assistantMessage,
+          followUpQuestion: refineGuidance.followUpQuestion,
+          recommendations: refineGuidance.recommendations,
+          ...withNonProductionDebug(() =>
+            buildRecommendDebugDiagnostics({
+              totalMs: Date.now() - tStart,
+              openaiMs,
+              groundingStatus: "passed",
+              usedJsonFallback,
+              safeFallbackUsed: false,
+              lowRelevanceRefineUsed: true,
+              relevanceGateEligible,
+              matchedTermCoverage,
+              relevanceSufficient,
+            })
+          ),
+        });
+      }
 
-      const seen = new Set<number>();
-      let recommendations = modelResult.recommendations
-        .filter((r) => byId.has(r.course_id))
-        .filter((r) => !excludeSet.has(r.course_id))
-        .filter((r) => {
-          if (seen.has(r.course_id)) return false;
-          seen.add(r.course_id);
+      const mentioned = extractMentionedCoursesFromAssistantMessage(
+        modelResult.assistant_message,
+        candidates
+      );
+
+      const mentionRelevant =
+        termsLower.length === 0
+          ? mentioned
+          : mentioned.filter(
+              (match) => scoreCourseByQueryTerms(match.course, termsLower) > 0
+            );
+
+      const mentionPool =
+        mentionRelevant.length > 0 || termsLower.length === 0 ? mentionRelevant : mentioned;
+      const rankedMentionPool = [...mentionPool].sort((a, b) => {
+        const aRank = rankedCourseIndex.get(a.course.id) ?? Number.MAX_SAFE_INTEGER;
+        const bRank = rankedCourseIndex.get(b.course.id) ?? Number.MAX_SAFE_INTEGER;
+        return aRank - bRank || a.index - b.index;
+      });
+
+      const seenMentionedIds = new Set<number>();
+      let recommendations = rankedMentionPool
+        .filter((match) => !excludeSet.has(match.course.id))
+        .filter((match) => {
+          if (seenMentionedIds.has(match.course.id)) return false;
+          seenMentionedIds.add(match.course.id);
           return true;
         })
-        .slice(0, 16)
-        .map((r) => ({
-          course: byId.get(r.course_id)!,
-          fitScore: r.fit_score,
-          why: fixWhyBullets(byId.get(r.course_id)!, r.why),
-          cautions: r.cautions ?? [],
-        }));
+        .slice(0, TARGET_RECS)
+        .map((match) =>
+          buildRecommendationFromCourse({
+            course: match.course,
+            termsLower,
+            baseFit: match.matchedBy === "code" ? 8 : 7,
+            mentionReason:
+              match.matchedBy === "code"
+                ? `Mentioned in response by code (${match.course.code}).`
+                : `Mentioned in response by title (${match.course.title}).`,
+          })
+        );
 
-      if (recommendations.length < MIN_RECS) {
-        const existingIds = new Set<number>(recommendations.map((r) => r.course.id));
-        const perDept = new Map<string, number>();
-        for (const r of recommendations) {
-          const dept = r.course.department?.code ?? "OTHER";
-          perDept.set(dept, (perDept.get(dept) ?? 0) + 1);
-        }
+      if (recommendations.length === 0) {
+        const fallback = candidates.filter((course) => !excludeSet.has(course.id));
 
-        const termsLower = searchTerms.map((t) => t.toLowerCase());
-        function scoreCourse(c: CourseWithRatings) {
-          const text = `${c.code} ${c.title} ${c.description ?? ""}`.toLowerCase();
-          let score = 0;
-          for (const t of termsLower) {
-            if (!t) continue;
-            if (text.includes(t)) score += 1;
-          }
-          if (c.description) score += 1;
-          return score;
-        }
-
-        const fill = candidates
-          .filter((c) => !excludeSet.has(c.id))
-          .filter((c) => !existingIds.has(c.id))
-          .slice()
-          .sort((a, b) => scoreCourse(b) - scoreCourse(a));
-
-        for (const c of fill) {
-          if (recommendations.length >= MIN_RECS) break;
-          const dept = c.department?.code ?? "OTHER";
-          if ((perDept.get(dept) ?? 0) >= 3) continue;
-
-          const text = `${c.code} ${c.title} ${c.description ?? ""}`.toLowerCase();
-          const matched = termsLower.filter((t) => t && text.includes(t)).slice(0, 3);
-
-          const why: string[] = [];
-          if (matched.length > 0) why.push(`Title/description mentions: ${matched.join(", ")}`);
-          if (c.gers && c.gers.length > 0) why.push(`GER: ${c.gers.slice(0, 3).join(", ")}`);
-          if (why.length < 2) {
-            const desc = (c.description ?? "").replace(/\s+/g, " ").trim();
-            if (desc) why.push(truncate(`Catalog: ${desc}`, 160));
-            else why.push(truncate(`From title: ${c.title}`, 160));
-          }
-
-          const cautions: string[] = [];
-          const req = (c.requirements ?? c.prerequisites ?? "").trim();
-          if (req) cautions.push(truncate(`Requirements: ${req.replace(/\s+/g, " ").trim()}`, 160));
-
-          recommendations.push({
-            course: c,
-            fitScore: Math.max(4, Math.min(8, 4 + scoreCourse(c))),
-            why: fixWhyBullets(c, why.slice(0, 4)),
-            cautions: cautions.slice(0, 2),
-          });
-          existingIds.add(c.id);
-          perDept.set(dept, (perDept.get(dept) ?? 0) + 1);
-        }
+        recommendations = fallback
+          .slice(0, Math.min(6, TARGET_RECS))
+          .map((course, index) =>
+            buildRecommendationFromCourse({
+              course,
+              termsLower,
+              baseFit: Math.max(5, 8 - index),
+              mentionReason: "Suggested based on your latest request.",
+            })
+          );
       }
 
       recommendations = recommendations.slice(0, TARGET_RECS);
+      const constrainedRecommendations = enforceRecommendationFilterConstraints(
+        recommendations,
+        activeFilters
+      );
+      recommendations = constrainedRecommendations.valid;
+      const filterConstraintDroppedCount = constrainedRecommendations.droppedCount;
+      const concentrationAllowed = shouldAllowDepartmentConcentration({
+        filters: activeFilters,
+        intentSignals: deriveConcentrationIntentSignals(latestUser),
+        rankedDepartmentCodes: candidates
+          .slice(0, TARGET_RECS)
+          .map((candidate) => candidate.department?.code ?? "OTHER"),
+      });
+      const diversityRanked = recommendations
+        .slice()
+        .sort((a, b) => {
+          const aRank = rankedCourseIndex.get(a.course.id) ?? Number.MAX_SAFE_INTEGER;
+          const bRank = rankedCourseIndex.get(b.course.id) ?? Number.MAX_SAFE_INTEGER;
+          return aRank - bRank || a.course.code.localeCompare(b.course.code);
+        })
+        .map((recommendation) => ({ recommendation, course: recommendation.course }));
+      recommendations = selectWithDepartmentDiversity({
+        ranked: diversityRanked,
+        targetCount: TARGET_RECS,
+        maxPerDepartment: 2,
+        concentrationAllowed,
+      }).map((item) => item.recommendation);
 
-      if (recommendations.length === 0) {
-        return res.status(500).json({ error: "AI did not select any valid courses" });
+      if (filterConstraintDroppedCount > 0 && recommendations.length === 0) {
+        const safeFallback = buildSafeGroundingFallback();
+        persistRecommendationContext(safeFallback.assistantMessage);
+        persistSessionBlockedIds();
+
+        const totalMs = Date.now() - tStart;
+        if (totalMs > 1500) {
+          console.log("ai/course-recommendations timings", {
+            totalMs,
+            depsMs,
+            candidatesMs,
+            embedMs,
+            semanticMs,
+            openaiMs,
+            model: env.openaiModel,
+            note: "filter_constraint_fallback",
+          });
+        }
+
+        recordAiQualityEvent({
+          intentMode: telemetryIntentMode,
+          retrievalMode: telemetryRetrievalMode,
+          outcomeType: "filter_constraint_fallback",
+          groundingStatus: "passed",
+          safeFallbackUsed: true,
+          usedJsonFallback: telemetryUsedJsonFallback,
+          groundingMismatch: false,
+        });
+        return res.json({
+          assistantMessage: safeFallback.assistantMessage,
+          followUpQuestion: safeFallback.followUpQuestion,
+          recommendations: safeFallback.recommendations,
+          ...withNonProductionDebug(() =>
+            buildRecommendDebugDiagnostics({
+              totalMs,
+              openaiMs,
+              groundingStatus: "passed",
+              usedJsonFallback,
+              safeFallbackUsed: true,
+              filterConstraintDroppedCount,
+              constraintFallbackTriggered: true,
+              concentrationAllowed,
+              lowRelevanceRefineUsed: false,
+              relevanceGateEligible,
+              matchedTermCoverage,
+              relevanceSufficient,
+            })
+          ),
+        });
       }
 
-      // Persist per-user memory (isolated by user id).
-      setUserMemory(req.user!.id, [
-        ...effectiveMessages,
-        { role: "assistant" as const, content: modelResult.assistant_message },
-      ]);
+      persistRecommendationContext(modelResult.assistant_message);
+      persistSessionBlockedIds();
 
       const totalMs = Date.now() - tStart;
       if (totalMs > 1500) {
@@ -1267,41 +1984,47 @@ router.post(
         deptCounts[k] = (deptCounts[k] ?? 0) + 1;
       }
 
+      recordAiQualityEvent({
+        intentMode: telemetryIntentMode,
+        retrievalMode: telemetryRetrievalMode,
+        outcomeType: "recommendation_success",
+        groundingStatus: "passed",
+        safeFallbackUsed: false,
+        usedJsonFallback: telemetryUsedJsonFallback,
+        groundingMismatch: false,
+      });
       return res.json({
         assistantMessage: modelResult.assistant_message,
-        followUpQuestion: modelResult.follow_up_question ?? null,
+        followUpQuestion: null,
         recommendations,
-        ...(env.nodeEnv !== "production"
-          ? {
-              debug: {
-                model: env.openaiModel,
-                totalMs,
-                depsMs,
-                candidatesMs,
-                embedMs,
-                semanticMs,
-                openaiMs,
-                searchTerms,
-                candidateCount: candidates.length,
-                hadFillers: needFillers,
-                userMajor: user?.major ?? null,
-                deptCode,
-                searchUniqueCount: searchUnique.length,
-                semanticUniqueCount: semanticUnique.length,
-                semanticCandidateCount,
-                candidatesWithDescription: candidates.filter((c) => Boolean(c.description)).length,
-                deptCounts,
-                appliedFilters: activeFilters,
-                likedSignals: likedCourses.length,
-                dislikedSignals: dislikedCourses.length,
-                trainerScoresLoaded: trainerScores.size,
-                trainerBoostedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) > 0.3).length,
-                trainerDemotedCount: candidates.filter((c) => (trainerScores.get(c.id) ?? 0) < -0.3).length,
-              },
-            }
-          : {}),
+        ...withNonProductionDebug(() =>
+          buildRecommendDebugDiagnostics({
+            totalMs,
+            openaiMs,
+            deptCounts,
+            groundingStatus: "passed",
+            usedJsonFallback,
+            safeFallbackUsed: false,
+            filterConstraintDroppedCount,
+            constraintFallbackTriggered: false,
+            concentrationAllowed,
+            lowRelevanceRefineUsed: false,
+            relevanceGateEligible,
+            matchedTermCoverage,
+            relevanceSufficient,
+          })
+        ),
       });
     } catch (err: any) {
+      recordAiQualityEvent({
+        intentMode: telemetryIntentMode,
+        retrievalMode: telemetryRetrievalMode,
+        outcomeType: "route_error",
+        groundingStatus: telemetryGroundingStatus,
+        safeFallbackUsed: false,
+        usedJsonFallback: telemetryUsedJsonFallback,
+        groundingMismatch: telemetryGroundingMismatch,
+      });
       console.error("AI recommend error:", err);
       return res.status(500).json({ error: err?.message || "AI request failed" });
     }
@@ -1309,4 +2032,3 @@ router.post(
 );
 
 export default router;
-

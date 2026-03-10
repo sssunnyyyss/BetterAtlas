@@ -29,6 +29,7 @@ export interface ScheduleCourseBlock {
 
 export interface MyScheduleResponse {
   term: { code: string; name: string | null };
+  availableTerms: Array<{ code: string; name: string | null }>;
   listId: number | null;
   items: ScheduleCourseBlock[];
 }

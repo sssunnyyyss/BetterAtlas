@@ -34,6 +34,11 @@ const faqs = [
       "We take your privacy seriously. Your personal information is never sold. You can control what's visible to other users through your profile settings. See our Privacy Policy for full details.",
   },
   {
+    id: "how_do_i_contact_betteratlas",
+    question: "How do I contact BetterAtlas?",
+    answer: "Email us at hello@betteratlas.net.",
+  },
+  {
     id: "how_do_i_report_an_issue_or_suggest_a_feature",
     question: "How do I report an issue or suggest a feature?",
     answer:

@@ -347,7 +347,7 @@ function StepBetaTester() {
       </div>
       <div className="space-y-3">
         <h2 className="text-3xl font-bold tracking-tight text-gray-900 sm:text-5xl">
-          You&rsquo;re a beta tester
+          You&rsquo;re an Early Adopter
         </h2>
         <p className="mx-auto max-w-md text-base text-gray-500 sm:text-lg">
           Help us build something great. Your reports and ideas go straight to

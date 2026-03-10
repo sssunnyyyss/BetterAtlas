@@ -1,20 +1,31 @@
 import { useParams, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useCourseDetail } from "../hooks/useCourses.js";
 import { useMemo, useState, useCallback, useEffect, useRef, type FormEvent } from "react";
-import { useReviews, useSectionReviews, useCreateReview, useUpdateReview, useDeleteReview } from "../hooks/useReviews.js";
+import {
+  useReviews,
+  useSectionReviews,
+  useCreateReview,
+  useUpdateReview,
+  useDeleteReview,
+  type ReviewSourceFilter,
+} from "../hooks/useReviews.js";
 import RatingBadge from "../components/course/RatingBadge.js";
 import GerPills from "../components/course/GerPills.js";
 import ReviewCard from "../components/review/ReviewCard.js";
 import ReviewForm from "../components/review/ReviewForm.js";
 import EditReviewModal from "../components/review/EditReviewModal.js";
 import Modal from "../components/ui/Modal.js";
+import AppDropdown from "../components/ui/AppDropdown.js";
 import { formatTimeRange12h } from "../lib/time.js";
 import type { Schedule, Section, ReviewWithAuthor } from "@betteratlas/shared";
 import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
 import { useAddToSchedule } from "../hooks/useSchedule.js";
+import { useAddToWishlist } from "../hooks/useWishlist.js";
 import { layoutOverlaps } from "../lib/calendarLayout.js";
 import { useSubmitFeedback } from "../hooks/useFeedback.js";
 import { normalizeTopic } from "../lib/courseTopics.js";
+import { gradeColor, gradeLabelFromPoints } from "../lib/grade.js";
+import { formatRating, getDifficultyColor, getRatingColor } from "../lib/utils.js";
 
 const ENROLLMENT_STATUS_LABELS: Record<string, string> = {
   O: "Open",
@@ -68,6 +79,40 @@ function enrollmentTone(percent: number | null) {
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
+function SchemeRatingBadge({
+  value,
+  label,
+  mode,
+  size = "md",
+}: {
+  value: number | null | undefined;
+  label: string;
+  mode: "class" | "difficulty";
+  size?: "sm" | "md";
+}) {
+  const normalized = typeof value === "number" && Number.isFinite(value) ? value : null;
+  const color = mode === "difficulty" ? getDifficultyColor(normalized) : getRatingColor(normalized);
+  const valueClass =
+    size === "sm"
+      ? "text-base font-bold rounded-md px-1.5 py-0.5"
+      : "text-lg font-bold rounded-md px-2 py-0.5";
+  const labelClass = size === "sm" ? "text-[11px] text-gray-500 mt-0.5" : "text-xs text-gray-500 mt-0.5";
+  return (
+    <div className="flex flex-col items-center">
+      <span
+        className={valueClass}
+        style={{
+          color: normalized === null ? "#4b5563" : color,
+          backgroundColor: normalized === null ? "#f3f4f6" : `${color}18`,
+        }}
+      >
+        {formatRating(normalized)}
+      </span>
+      <span className={labelClass}>{label}</span>
+    </div>
+  );
+}
+
 function schedulesForSection(section: Section): Schedule[] {
   if (Array.isArray(section.schedules) && section.schedules.length > 0) {
     return section.schedules;
@@ -119,7 +164,7 @@ function SectionDetails({ section }: { section: Section }) {
         )}
       </div>
 
-      {roster.length > 0 && (
+      {roster.length > 0 ? (
         <div>
           <span className="font-medium text-gray-800">
             {roster.length > 1 ? "Instructors:" : "Instructor:"}
@@ -139,6 +184,11 @@ function SectionDetails({ section }: { section: Section }) {
               </div>
             ))}
           </div>
+        </div>
+      ) : (
+        <div>
+          <span className="font-medium text-gray-800">Instructor:</span>{" "}
+          <span className="text-gray-500">Not provided by Atlas for this section.</span>
         </div>
       )}
 
@@ -313,31 +363,31 @@ function MiniWeeklyCalendar({
             ))}
 
             {layoutOverlaps(blocks.filter((b) => b.day === d.key)).map((b) => {
-                const top = (b.startMin - minMinute) * pxPerMin;
-                const blockHeight = Math.max(18, (b.endMin - b.startMin) * pxPerMin);
-                return (
-                  <button
-                    key={b.id}
-                    type="button"
-                    onClick={() => onSelectSection(b.sectionId)}
-                    className="absolute rounded-md border px-1.5 py-1 text-[11px] shadow-sm text-left hover:opacity-90"
-                    style={{
-                      top,
-                      height: blockHeight,
-                      left: `calc(100% * ${b.col} / ${b.colCount})`,
-                      right: `calc(100% * ${b.colCount - b.col - 1} / ${b.colCount})`,
-                      marginLeft: 4,
-                      marginRight: 4,
-                      backgroundColor: `${b.color}22`,
-                      borderLeft: `3px solid ${b.color}`,
-                      borderColor: "#e5e7eb",
-                    }}
-                    title={b.title}
-                  >
-                    <div className="font-semibold text-gray-900 truncate">{b.label}</div>
-                  </button>
-                );
-              })}
+              const top = (b.startMin - minMinute) * pxPerMin;
+              const blockHeight = Math.max(18, (b.endMin - b.startMin) * pxPerMin);
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  onClick={() => onSelectSection(b.sectionId)}
+                  className="absolute rounded-md border px-1.5 py-1 text-[11px] shadow-sm text-left hover:opacity-90"
+                  style={{
+                    top,
+                    height: blockHeight,
+                    left: `calc(100% * ${b.col} / ${b.colCount})`,
+                    right: `calc(100% * ${b.colCount - b.col - 1} / ${b.colCount})`,
+                    marginLeft: 4,
+                    marginRight: 4,
+                    backgroundColor: `${b.color}22`,
+                    borderLeft: `3px solid ${b.color}`,
+                    borderColor: "#e5e7eb",
+                  }}
+                  title={b.title}
+                >
+                  <div className="font-semibold text-gray-900 truncate">{b.label}</div>
+                </button>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -364,11 +414,19 @@ export default function CourseDetail() {
     isError,
     error,
   } = useCourseDetail(courseId);
-  const { data: reviews } = useReviews(courseId);
+  const [sourceFilter, setSourceFilter] = useState<
+    ReviewSourceFilter | undefined
+  >(undefined);
+  const [reviewProfessorSearch, setReviewProfessorSearch] = useState("");
+  const [selectedReviewProfessorIds, setSelectedReviewProfessorIds] = useState<
+    Set<number>
+  >(new Set());
+  const { data: reviews } = useReviews(courseId, sourceFilter);
   const createReview = useCreateReview(courseId);
   const updateReview = useUpdateReview(courseId);
   const deleteReview = useDeleteReview();
   const addToSchedule = useAddToSchedule();
+  const addToWishlist = useAddToWishlist();
   const submitFeedback = useSubmitFeedback();
   const [editingReview, setEditingReview] = useState<ReviewWithAuthor | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<number | null>(null);
@@ -381,6 +439,7 @@ export default function CourseDetail() {
   const closeSectionModal = useCallback(() => setActiveSectionId(null), []);
   const closeEditModal = useCallback(() => setEditingReview(null), []);
   const [scheduleMessage, setScheduleMessage] = useState<string>("");
+  const [wishlistMessage, setWishlistMessage] = useState<string>("");
 
   const closeReportModal = useCallback(() => {
     setIsReportModalOpen(false);
@@ -455,6 +514,7 @@ export default function CourseDetail() {
         avgQuality: number | null;
         avgDifficulty: number | null;
         avgWorkload: number | null;
+        avgGradePoints: number | null;
         reviewCount: number;
       }
     >();
@@ -471,6 +531,7 @@ export default function CourseDetail() {
           avgQuality: null,
           avgDifficulty: null,
           avgWorkload: null,
+          avgGradePoints: null,
           reviewCount: 0,
         });
       }
@@ -511,6 +572,48 @@ export default function CourseDetail() {
   }, [visibleSections]);
 
   const { data: sectionReviews } = useSectionReviews(activeSection?.id ?? null);
+
+  const reviewProfessorOptions = useMemo(() => {
+    const byId = new Map<number, string>();
+    for (const review of reviews ?? []) {
+      if (typeof review.instructorId !== "number") continue;
+      const name = review.instructor?.name?.trim();
+      if (!name) continue;
+      byId.set(review.instructorId, name);
+    }
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [reviews]);
+
+  const filteredReviewProfessorOptions = useMemo(() => {
+    const q = reviewProfessorSearch.trim().toLowerCase();
+    if (!q) return reviewProfessorOptions;
+    return reviewProfessorOptions.filter((option) =>
+      option.name.toLowerCase().includes(q)
+    );
+  }, [reviewProfessorOptions, reviewProfessorSearch]);
+
+  useEffect(() => {
+    if (selectedReviewProfessorIds.size === 0) return;
+    const validIds = new Set(reviewProfessorOptions.map((option) => option.id));
+    const next = new Set(
+      Array.from(selectedReviewProfessorIds).filter((id) => validIds.has(id))
+    );
+    if (next.size !== selectedReviewProfessorIds.size) {
+      setSelectedReviewProfessorIds(next);
+    }
+  }, [reviewProfessorOptions, selectedReviewProfessorIds]);
+
+  const filteredReviews = useMemo(() => {
+    const all = reviews ?? [];
+    if (selectedReviewProfessorIds.size === 0) return all;
+    return all.filter(
+      (review) =>
+        typeof review.instructorId === "number" &&
+        selectedReviewProfessorIds.has(review.instructorId)
+    );
+  }, [reviews, selectedReviewProfessorIds]);
 
   const hasMultipleSectionTopics = useMemo(() => {
     const topics = new Set<string>();
@@ -686,6 +789,16 @@ export default function CourseDetail() {
       ...sectionOptions,
     ];
   }, [course, editingReview, sectionOptions]);
+  const reportSectionDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "Course page in general" },
+      ...sectionOptions.map((section) => ({
+        value: String(section.id),
+        label: `Section ${section.sectionNumber ?? "—"} · ${section.semester}${section.instructorName ? ` · ${section.instructorName}` : ""}`,
+      })),
+    ],
+    [sectionOptions]
+  );
 
   async function handleSubmitInaccurateReport(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -748,7 +861,7 @@ export default function CourseDetail() {
     <div className="max-w-4xl mx-auto p-6">
       {/* Breadcrumb */}
       <Link
-        to={selectedSemester ? `/catalog?semester=${encodeURIComponent(selectedSemester)}` : "/catalog"}
+        to="/catalog"
         className="text-sm text-primary-600 hover:text-primary-800"
       >
         &larr; Back to catalog
@@ -844,16 +957,30 @@ export default function CourseDetail() {
                   <Link to={`/professors/${p.id}`} className="text-gray-900 font-medium hover:underline">
                     {p.name}
                   </Link>
+                  {typeof p.avgGradePoints === "number" && Number.isFinite(p.avgGradePoints) && (
+                    <span
+                      className="text-xs font-medium"
+                      style={{ color: gradeColor(p.avgGradePoints) }}
+                    >
+                      Avg grade {gradeLabelFromPoints(p.avgGradePoints) ?? "—"} (
+                      {p.avgGradePoints.toFixed(2)})
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>
           </div>
         )}
+        {professors.length === 0 && (
+          <div className="mt-3 text-sm text-gray-500">
+            Professor data is not available for the currently visible sections.
+          </div>
+        )}
 
         {/* Ratings */}
         <div className="flex gap-6 mt-4">
-          <RatingBadge value={course.classScore ?? null} label="Class" />
-          <RatingBadge value={course.avgDifficulty} label="Difficulty" />
+          <SchemeRatingBadge value={course.classScore ?? null} label="Class" mode="class" />
+          <SchemeRatingBadge value={course.avgDifficulty} label="Difficulty" mode="difficulty" />
           <RatingBadge value={course.avgWorkload} label="Workload" />
           <div className="flex flex-col items-center">
             <span className="text-lg font-bold text-gray-700">{course.reviewCount}</span>
@@ -871,6 +998,21 @@ export default function CourseDetail() {
               <span className="text-[10px]">{courseEnrollment.sectionCount} sections</span>
             </div>
           )}
+          {typeof course.avgGradePoints === "number" && Number.isFinite(course.avgGradePoints) && (
+            <div
+              className="flex flex-col items-center rounded-lg border px-3 py-1.5"
+              style={{
+                backgroundColor: `${gradeColor(course.avgGradePoints)}4D`,
+                borderColor: `${gradeColor(course.avgGradePoints)}80`,
+                color: "#111827",
+              }}
+            >
+              <span className="text-sm font-semibold">
+                Avg grade {gradeLabelFromPoints(course.avgGradePoints) ?? "—"}
+              </span>
+              <span className="text-[10px]">{course.avgGradePoints.toFixed(2)} / 4.00</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -878,141 +1020,144 @@ export default function CourseDetail() {
       {course.sections.length > 0 && (
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-gray-900 mb-3">Sections</h2>
-          {hasMultipleSectionTopics && (
-            <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-              This course has section-specific topics. Each section group below is treated like a
-              mini class.
-            </div>
-          )}
           {selectedSemester && visibleSections.length === 0 && (
             <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-600">
               No sections found for <span className="font-medium text-gray-900">{selectedSemester}</span>.
             </div>
           )}
           {visibleSections.length > 0 && (
-          <div className="space-y-3">
-            {groupedSections.map((group) => (
-              <details
-                key={group.key}
-                className="bg-white rounded-lg border border-gray-200 p-3"
-                open={visibleSections.length <= 8}
-              >
-                <summary className="cursor-pointer select-none list-none flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-gray-900 truncate">
-                      {groupedBySemester
-                        ? group.semester ?? "Semester TBD"
-                        : hasMultipleSectionTopics
-                          ? (group.topic ?? "Topic TBD")
-                          : group.instructorName}
-                      <span className="text-xs font-normal text-gray-500 ml-2">
-                        {group.sections.length} section{group.sections.length !== 1 ? "s" : ""}
-                      </span>
+            <div className="space-y-3">
+              {groupedSections.map((group) => (
+                <details
+                  key={group.key}
+                  className="bg-white rounded-lg border border-gray-200 p-3"
+                  open={visibleSections.length <= 8}
+                >
+                  <summary className="cursor-pointer select-none list-none flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-gray-900 truncate">
+                        {groupedBySemester
+                          ? group.semester ?? "Semester TBD"
+                          : hasMultipleSectionTopics
+                            ? (group.topic ?? "Topic TBD")
+                            : group.instructorName}
+                        <span className="text-xs font-normal text-gray-500 ml-2">
+                          {group.sections.length} section{group.sections.length !== 1 ? "s" : ""}
+                        </span>
+                      </div>
+                      {hasMultipleSectionTopics && !groupedBySemester && (
+                        <div className="text-xs text-gray-500 mt-0.5">
+                          Professor: {group.instructorName}
+                        </div>
+                      )}
+                      {!groupedBySemester && group.instructorId !== null && (
+                        <div className="text-xs text-gray-500">
+                          <Link
+                            to={`/professors/${group.instructorId}`}
+                            className="text-primary-600 hover:text-primary-800"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            View professor
+                          </Link>
+                        </div>
+                      )}
                     </div>
-                    {hasMultipleSectionTopics && !groupedBySemester && (
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        Professor: {group.instructorName}
-                      </div>
-                    )}
-                    {!groupedBySemester && group.instructorId !== null && (
-                      <div className="text-xs text-gray-500">
-                        <Link
-                          to={`/professors/${group.instructorId}`}
-                          className="text-primary-600 hover:text-primary-800"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          View professor
-                        </Link>
-                      </div>
-                    )}
-                  </div>
-                  <span className="text-xs text-gray-500">Toggle</span>
-                </summary>
+                    <span className="text-xs text-gray-500">Toggle</span>
+                  </summary>
 
-                <div className="mt-3 space-y-2">
-                  {group.sections.map((section) => {
-                    const scheds = schedulesForSection(section);
-                    const sectionEnrollment = enrollmentPercent(
-                      section.enrollmentCur ?? 0,
-                      section.enrollmentCap
-                    );
-                    return (
-                      <button
-                        key={section.id}
-                        type="button"
-                        onClick={() => setActiveSectionId(section.id)}
-                        className="w-full text-left bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:border-primary-300 transition-all"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-semibold text-gray-900">
-                                Section {section.sectionNumber ?? "—"}
-                              </span>
-                              <span className="text-sm text-gray-500">
-                                {section.semester}
-                              </span>
-                              {section.campus && (
-                                <span className="text-xs text-gray-400">
-                                  {section.campus}
+                  <div className="mt-3 space-y-2">
+                    {group.sections.map((section) => {
+                      const scheds = schedulesForSection(section);
+                      const sectionEnrollment = enrollmentPercent(
+                        section.enrollmentCur ?? 0,
+                        section.enrollmentCap
+                      );
+                      return (
+                        <button
+                          key={section.id}
+                          type="button"
+                          onClick={() => setActiveSectionId(section.id)}
+                          className="w-full text-left bg-white rounded-lg border border-gray-200 p-4 hover:shadow-md hover:border-primary-300 transition-all"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm font-semibold text-gray-900">
+                                  Section {section.sectionNumber ?? "—"}
                                 </span>
+                                <span className="text-sm text-gray-500">
+                                  {section.semester}
+                                </span>
+                                {section.campus && (
+                                  <span className="text-xs text-gray-400">
+                                    {section.campus}
+                                  </span>
+                                )}
+                              </div>
+                              {sectionInstructorNames(section).length > 0 ? (
+                                <div className="mt-1.5">
+                                  <div className="text-sm text-gray-700 truncate">
+                                    {sectionInstructorNames(section).join(", ")}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="mt-1.5 text-sm text-gray-500">
+                                  Instructor not listed by Atlas
+                                </div>
+                              )}
+                              {section.registrationRestrictions && (
+                                <div className="mt-1 text-xs text-gray-500 line-clamp-2">
+                                  <span className="font-medium text-gray-600">Requirements:</span>{" "}
+                                  {section.registrationRestrictions}
+                                </div>
+                              )}
+                              {sectionTopic(section) && (
+                                <div className="mt-1 text-xs text-gray-600 line-clamp-2">
+                                  <span className="font-medium text-gray-700">Description:</span>{" "}
+                                  {sectionTopic(section)}
+                                </div>
                               )}
                             </div>
-                            {sectionInstructorNames(section).length > 0 && (
-                              <div className="mt-1.5">
-                                <div className="text-sm text-gray-700 truncate">
-                                  {sectionInstructorNames(section).join(", ")}
+                            <div className="text-right text-sm shrink-0">
+                              {scheds.length > 0 && (
+                                <div className="font-medium text-gray-700 space-y-0.5">
+                                  {scheds.map((sched, idx) => (
+                                    <div key={`${section.id}:${sched.days.join("/")}:${sched.start}:${idx}`}>
+                                      {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
+                                      {sched.location ? ` • ${sched.location}` : ""}
+                                    </div>
+                                  ))}
                                 </div>
+                              )}
+                              {sectionEnrollment !== null && (
+                                <div
+                                  className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${enrollmentTone(
+                                    sectionEnrollment
+                                  )}`}
+                                >
+                                  {sectionEnrollment}% enrolled
+                                </div>
+                              )}
+                              <div className="flex justify-end gap-3 mt-2">
+                                <RatingBadge value={section.instructorAvgQuality ?? null} label="Prof" size="sm" />
+                                <SchemeRatingBadge
+                                  value={section.avgDifficulty ?? null}
+                                  label="D"
+                                  mode="difficulty"
+                                  size="sm"
+                                />
+                                <RatingBadge value={section.avgWorkload ?? null} label="W" size="sm" />
                               </div>
-                            )}
-                            {section.registrationRestrictions && (
-                              <div className="mt-1 text-xs text-gray-500 line-clamp-2">
-                                <span className="font-medium text-gray-600">Requirements:</span>{" "}
-                                {section.registrationRestrictions}
-                              </div>
-                            )}
-                            {sectionTopic(section) && (
-                              <div className="mt-1 text-xs text-gray-600 line-clamp-2">
-                                <span className="font-medium text-gray-700">Description:</span>{" "}
-                                {sectionTopic(section)}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-right text-sm shrink-0">
-                            {scheds.length > 0 && (
-                              <div className="font-medium text-gray-700 space-y-0.5">
-                                {scheds.map((sched, idx) => (
-                                  <div key={`${section.id}:${sched.days.join("/")}:${sched.start}:${idx}`}>
-                                    {sched.days.join("/")} {formatTimeRange12h(sched.start, sched.end)}
-                                    {sched.location ? ` • ${sched.location}` : ""}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {sectionEnrollment !== null && (
-                              <div
-                                className={`mt-1 inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${enrollmentTone(
-                                  sectionEnrollment
-                                )}`}
-                              >
-                                {sectionEnrollment}% enrolled
-                              </div>
-                            )}
-                            <div className="flex justify-end gap-3 mt-2">
-                              <RatingBadge value={section.instructorAvgQuality ?? null} label="Prof" size="sm" />
-                              <RatingBadge value={section.avgDifficulty ?? null} label="D" size="sm" />
-                              <RatingBadge value={section.avgWorkload ?? null} label="W" size="sm" />
+                              <div className="text-xs text-gray-500 mt-1">Click for details</div>
                             </div>
-                            <div className="text-xs text-gray-500 mt-1">Click for details</div>
                           </div>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </details>
-            ))}
-          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </details>
+              ))}
+            </div>
           )}
 
           {miniCalendarBlocks.length > 0 && (
@@ -1052,7 +1197,11 @@ export default function CourseDetail() {
                 })()}
                 <div className="flex gap-4">
                   <RatingBadge value={activeSection.instructorAvgQuality ?? null} label="Prof" />
-                  <RatingBadge value={activeSection.avgDifficulty ?? null} label="Difficulty" />
+                  <SchemeRatingBadge
+                    value={activeSection.avgDifficulty ?? null}
+                    label="Difficulty"
+                    mode="difficulty"
+                  />
                   <RatingBadge value={activeSection.avgWorkload ?? null} label="Workload" />
                   <div className="flex flex-col items-center">
                     <span className="text-lg font-bold text-gray-700">{activeSection.reviewCount ?? 0}</span>
@@ -1084,53 +1233,82 @@ export default function CourseDetail() {
                 <SectionDetails section={activeSection} />
 
                 <div className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      setScheduleMessage("");
-                      try {
-                        await addToSchedule.mutateAsync({ sectionId: activeSection.id });
-                        setScheduleMessage("Added to My Schedule");
-                      } catch (e: any) {
-                        setScheduleMessage(e?.message || "Failed to add to schedule");
-                      }
-                    }}
-                    disabled={addToSchedule.isPending}
-                    className="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
-                  >
-                    {addToSchedule.isPending ? "Adding..." : "Add to My Schedule"}
-                  </button>
-                  {scheduleMessage && (
-                    <div
-                      className={`text-sm ${
-                        scheduleMessage.toLowerCase().includes("fail")
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setScheduleMessage("");
+                        try {
+                          await addToSchedule.mutateAsync({ sectionId: activeSection.id });
+                          setScheduleMessage("Added to My Schedule");
+                        } catch (e: any) {
+                          setScheduleMessage(e?.message || "Failed to add to schedule");
+                        }
+                      }}
+                      disabled={addToSchedule.isPending}
+                      className="bg-primary-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-primary-700 disabled:opacity-50"
+                    >
+                      {addToSchedule.isPending ? "Adding..." : "Add to My Schedule"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        setWishlistMessage("");
+                        try {
+                          await addToWishlist.mutateAsync({ sectionId: activeSection.id });
+                          setWishlistMessage("Added to Wishlist");
+                        } catch (e: any) {
+                          setWishlistMessage(e?.message || "Failed to add to wishlist");
+                        }
+                      }}
+                      disabled={addToWishlist.isPending}
+                      className="border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      {addToWishlist.isPending ? "Adding..." : "Add to Wishlist"}
+                    </button>
+                  </div>
+                  <div>
+                    {scheduleMessage && (
+                      <div
+                        className={`text-sm ${scheduleMessage.toLowerCase().includes("fail")
                           ? "text-red-600"
                           : "text-gray-600"
-                      }`}
-                    >
-                      {scheduleMessage}
-                    </div>
-                  )}
+                          }`}
+                      >
+                        {scheduleMessage}
+                      </div>
+                    )}
+                    {wishlistMessage && (
+                      <div
+                        className={`text-sm ${wishlistMessage.toLowerCase().includes("fail")
+                          ? "text-red-600"
+                          : "text-gray-600"
+                          }`}
+                      >
+                        {wishlistMessage}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
                   <h3 className="text-sm font-semibold text-gray-900">Section Reviews</h3>
-	                  <div className="space-y-3 mt-2">
-	                    {(sectionReviews ?? []).map((review) => (
-	                      <ReviewCard
-	                        key={review.id}
-	                        review={review}
-	                        onEdit={(r) => setEditingReview(r)}
-	                        onDelete={(id) =>
-	                          deleteReview.mutate({ reviewId: id, courseId, sectionId: review.sectionId })
-	                        }
-	                      />
-	                    ))}
-	                    {sectionReviews?.length === 0 && (
-	                      <p className="text-sm text-gray-500">No reviews for this section yet.</p>
-	                    )}
-	                  </div>
-	                </div>
+                  <div className="space-y-3 mt-2">
+                    {(sectionReviews ?? []).map((review) => (
+                      <ReviewCard
+                        key={review.id}
+                        review={review}
+                        onEdit={(r) => setEditingReview(r)}
+                        onDelete={(id) =>
+                          deleteReview.mutate({ reviewId: id, courseId, sectionId: review.sectionId })
+                        }
+                      />
+                    ))}
+                    {sectionReviews?.length === 0 && (
+                      <p className="text-sm text-gray-500">No reviews for this section yet.</p>
+                    )}
+                  </div>
+                </div>
               </div>
             ) : null}
           </Modal>
@@ -1153,8 +1331,87 @@ export default function CourseDetail() {
           </p>
         )}
 
+        <div className="mt-4 mb-3 flex gap-2">
+          {[
+            { value: undefined, label: "All" },
+            { value: "native", label: "BetterAtlas" },
+            { value: "rmp", label: "RateMyProfessor" },
+          ].map((option) => (
+            <button
+              key={option.label}
+              type="button"
+              onClick={() =>
+                setSourceFilter(option.value as ReviewSourceFilter | undefined)
+              }
+              className={`rounded-full px-2 py-1 text-xs ${sourceFilter === option.value
+                ? "bg-primary-100 text-primary-700"
+                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
+        {reviewProfessorOptions.length > 0 && (
+          <div className="mb-3 rounded-xl border border-gray-200 bg-white p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={reviewProfessorSearch}
+                onChange={(e) => setReviewProfessorSearch(e.target.value)}
+                placeholder="Search professor in ratings"
+                className="min-w-[220px] flex-1 rounded-xl border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/20"
+              />
+              {selectedReviewProfessorIds.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedReviewProfessorIds(new Set())}
+                  className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600 hover:bg-gray-200"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+
+            <div className="mt-2 max-h-32 overflow-y-auto space-y-1">
+              {filteredReviewProfessorOptions.map((option) => {
+                const checked = selectedReviewProfessorIds.has(option.id);
+                return (
+                  <label
+                    key={option.id}
+                    className="flex items-center gap-2 rounded-lg px-2 py-1 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setSelectedReviewProfessorIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(option.id)) next.delete(option.id);
+                          else next.add(option.id);
+                          return next;
+                        });
+                      }}
+                      className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                    />
+                    <span>{option.name}</span>
+                  </label>
+                );
+              })}
+              {filteredReviewProfessorOptions.length === 0 && (
+                <p className="px-1 py-1 text-xs text-gray-500">No professors match that search.</p>
+              )}
+            </div>
+          </div>
+        )}
+
+        <p className="text-xs text-gray-500">
+          Showing {filteredReviews.length} of {reviews?.length ?? 0} reviews
+        </p>
+
         <div className="space-y-3 mt-4">
-          {reviews?.map((review) => (
+          {filteredReviews.map((review) => (
             <ReviewCard
               key={review.id}
               review={review}
@@ -1164,8 +1421,12 @@ export default function CourseDetail() {
               }
             />
           ))}
-          {reviews?.length === 0 && (
-            <p className="text-sm text-gray-500">No reviews yet. Be the first!</p>
+          {filteredReviews.length === 0 && (
+            <p className="text-sm text-gray-500">
+              {(reviews?.length ?? 0) === 0
+                ? "No reviews yet. Be the first!"
+                : "No reviews match the selected professor filter."}
+            </p>
           )}
         </div>
       </div>
@@ -1184,20 +1445,13 @@ export default function CourseDetail() {
             <label className="block text-sm font-medium text-gray-700" htmlFor="report-section">
               Section (optional)
             </label>
-            <select
+            <AppDropdown
               id="report-section"
               value={reportSectionId === "" ? "" : String(reportSectionId)}
-              onChange={(e) => setReportSectionId(e.target.value ? Number(e.target.value) : "")}
-              className="mt-1 w-full rounded-md border-gray-300 text-sm focus:border-primary-500 focus:ring-primary-500"
-            >
-              <option value="">Course page in general</option>
-              {sectionOptions.map((section) => (
-                <option key={section.id} value={section.id}>
-                  Section {section.sectionNumber ?? "—"} · {section.semester}
-                  {section.instructorName ? ` · ${section.instructorName}` : ""}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setReportSectionId(value ? Number(value) : "")}
+              options={reportSectionDropdownOptions}
+              className="mt-1 w-full"
+            />
           </div>
 
           <div>
@@ -1257,9 +1511,9 @@ export default function CourseDetail() {
         onSubmit={(data, prevSectionId) =>
           editingReview
             ? updateReview.mutate(
-                { reviewId: editingReview.id, data, prevSectionId },
-                { onSuccess: () => closeEditModal() }
-              )
+              { reviewId: editingReview.id, data, prevSectionId },
+              { onSuccess: () => closeEditModal() }
+            )
             : undefined
         }
       />

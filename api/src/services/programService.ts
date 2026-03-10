@@ -6,6 +6,7 @@ import {
   departments,
   courseRatings,
   instructors,
+  instructorRatings,
   programs,
   programRequirementNodes,
   programCourseCodes,
@@ -40,6 +41,23 @@ async function getSingleActiveTermCode(): Promise<string> {
   return active[0]!.srcdb;
 }
 
+function avgEnrollmentPercentExpr() {
+  return sql<number>`avg(
+    case
+      when ${sections.enrollmentCap} is not null and ${sections.enrollmentCap} > 0
+      then (coalesce(${sections.enrollmentCur}, 0)::float / nullif(${sections.enrollmentCap}, 0)) * 100
+      else null
+    end
+  )`;
+}
+
+function toRoundedPercent(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n);
+}
+
 function programSortOrder(sort: string) {
   switch (sort) {
     case "rating":
@@ -61,6 +79,50 @@ function courseNumberSql() {
 
 function normalizeProgramName(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function normalizeStrictProgramName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+function hasProgramKind(rows: Array<{ kind: string }>, kind: "major" | "minor") {
+  return rows.some((r) => r.kind === kind);
+}
+
+type ProgramVariantRow = {
+  id: number;
+  name: string;
+  kind: string;
+  degree: string | null;
+};
+
+function normalizeDegree(degree: string | null | undefined) {
+  const value = (degree || "").trim().toUpperCase();
+  return value ? value : null;
+}
+
+function compareProgramVariants(
+  a: { id: number; name: string; degree: string | null },
+  b: { id: number; name: string; degree: string | null },
+  preferredDegree: string | null
+) {
+  const aExact = normalizeDegree(a.degree) === preferredDegree ? 0 : 1;
+  const bExact = normalizeDegree(b.degree) === preferredDegree ? 0 : 1;
+  if (aExact !== bExact) return aExact - bExact;
+
+  const nameCompare = a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  if (nameCompare !== 0) return nameCompare;
+
+  const degreeCompare = (normalizeDegree(a.degree) || "").localeCompare(normalizeDegree(b.degree) || "");
+  if (degreeCompare !== 0) return degreeCompare;
+
+  return a.id - b.id;
+}
+
+function sortProgramVariants(rows: ProgramVariantRow[], preferredDegree: string | null) {
+  return [...rows]
+    .map((r) => ({ id: r.id, name: r.name, kind: r.kind as any, degree: r.degree ?? null }))
+    .sort((a, b) => compareProgramVariants(a, b, preferredDegree));
 }
 
 function requirementsToText(nodes: { nodeType: string; text: string; listLevel: number | null }[]) {
@@ -87,21 +149,79 @@ function requirementsToText(nodes: { nodeType: string; text: string; listLevel: 
   return joined.length > 10_000 ? joined.slice(0, 10_000) : joined;
 }
 
+const AI_SUMMARY_STOP_WORDS = new Set([
+  "about",
+  "after",
+  "among",
+  "and",
+  "are",
+  "but",
+  "for",
+  "from",
+  "have",
+  "into",
+  "its",
+  "that",
+  "the",
+  "their",
+  "there",
+  "these",
+  "this",
+  "those",
+  "through",
+  "with",
+]);
+
+function extractAiSummaryTokens(value: string | null | undefined, maxTokens = 16): string[] {
+  if (!value) return [];
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+
+  for (const token of value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)) {
+    if (token.length < 3) continue;
+    if (AI_SUMMARY_STOP_WORDS.has(token)) continue;
+    if (!/[a-z]/.test(token)) continue;
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push(token);
+    if (out.length >= maxTokens) break;
+  }
+
+  return out;
+}
+
 export async function listPrograms(query: ProgramsQuery) {
   const { q, limit } = query;
-  const base = db
+  const nameOrderExpr = sql<string>`lower(trim(${programs.name}))`;
+  const kindOrderExpr =
+    sql<number>`case when ${programs.kind} = 'major' then 0 when ${programs.kind} = 'minor' then 1 else 2 end`;
+  const degreeNullOrderExpr = sql<number>`case when ${programs.degree} is null then 1 else 0 end`;
+  const degreeOrderExpr = sql<string>`lower(coalesce(trim(${programs.degree}), ''))`;
+
+  const conditions = [eq(programs.isActive, true)];
+  if (q) conditions.push(ilike(programs.name, `%${q}%`));
+
+  const rows = await db
     .select({
       id: programs.id,
       name: programs.name,
       kind: programs.kind,
       degree: programs.degree,
     })
-    .from(programs);
-
-  const qy = q ? base.where(ilike(programs.name, `%${q}%`)) : base;
-
-  const rows = await qy
-    .orderBy(asc(programs.name), asc(programs.kind), asc(programs.degree))
+    .from(programs)
+    .where(and(...conditions))
+    .orderBy(
+      asc(nameOrderExpr),
+      asc(kindOrderExpr),
+      asc(degreeNullOrderExpr),
+      asc(degreeOrderExpr),
+      asc(programs.id)
+    )
     .limit(limit);
 
   return rows.map((r) => ({
@@ -187,6 +307,7 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
   const {
     tab,
     q,
+    semester,
     minRating,
     credits,
     attributes,
@@ -200,12 +321,39 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
   } = query;
 
   const offset = (page - 1) * limit;
-  const termCode = await getSingleActiveTermCode();
+  const termCode = semester ? null : await getSingleActiveTermCode();
+  let aiSummaryTokens: string[] = [];
+  let hasProgramSubjectCodes = false;
 
-  const baseConditions: any[] = [
-    eq(sections.termCode, termCode),
-    eq(sections.isActive, true),
-  ];
+  if (tab === "required") {
+    const [programSummary] = await db
+      .select({
+        requirementsSummary: programs.requirementsSummary,
+        requirementsSummaryHighlights: programs.requirementsSummaryHighlights,
+      })
+      .from(programs)
+      .where(eq(programs.id, programId))
+      .limit(1);
+
+    aiSummaryTokens = extractAiSummaryTokens(
+      `${programSummary?.requirementsSummary ?? ""}\n${programSummary?.requirementsSummaryHighlights ?? ""}`
+    );
+
+    const subjectCodes = await db
+      .select({ subjectCode: programSubjectCodes.subjectCode })
+      .from(programSubjectCodes)
+      .where(eq(programSubjectCodes.programId, programId))
+      .limit(1);
+    hasProgramSubjectCodes = subjectCodes.length > 0;
+  }
+
+  const baseConditions: any[] = [];
+  if (semester) {
+    baseConditions.push(eq(terms.name, semester));
+  } else if (termCode) {
+    baseConditions.push(eq(sections.termCode, termCode));
+    baseConditions.push(eq(sections.isActive, true));
+  }
 
   if (credits) baseConditions.push(eq(courses.credits, credits));
   if (minRating) baseConditions.push(gte(courseRatings.avgQuality, String(minRating)));
@@ -237,7 +385,36 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
 
   // Program constraints
   if (tab === "required") {
-    baseConditions.push(eq(programCourseCodes.programId, programId));
+    const requiredCodeCondition = sql`EXISTS (
+      SELECT 1 FROM ${programCourseCodes} pcc
+      WHERE pcc.program_id = ${programId} AND pcc.course_code = ${courses.code}
+    )`;
+
+    if (aiSummaryTokens.length === 0) {
+      baseConditions.push(requiredCodeCondition);
+    } else {
+      const aiSummaryQuery = aiSummaryTokens.join(" | ");
+      const aiSummaryMatchCondition = sql`(
+        setweight(to_tsvector('english', coalesce(${courses.code}, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(${courses.title}, '')), 'A') ||
+        setweight(to_tsvector('english', coalesce(${courses.description}, '')), 'B')
+      ) @@ to_tsquery('english', ${aiSummaryQuery})`;
+
+      if (hasProgramSubjectCodes) {
+        baseConditions.push(sql`(
+          ${requiredCodeCondition}
+          OR (
+            EXISTS (
+              SELECT 1 FROM ${programSubjectCodes} psc
+              WHERE psc.program_id = ${programId} AND psc.subject_code = ${departments.code}
+            )
+            AND ${aiSummaryMatchCondition}
+          )
+        )`);
+      } else {
+        baseConditions.push(sql`(${requiredCodeCondition} OR ${aiSummaryMatchCondition})`);
+      }
+    }
   } else {
     // Electives: all subjects referenced by the program, plus optional level floor.
     baseConditions.push(eq(programSubjectCodes.programId, programId));
@@ -263,10 +440,6 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
 
   const where = and(...baseConditions);
 
-  // Always join sections (active term gating).
-  // Conditionally join instructors when filtering by instructor.
-  const needInstructorJoin = !!instructor;
-
   let queryBase: any = db
     .select({
       id: courses.id,
@@ -282,19 +455,23 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
       avgDifficulty: courseRatings.avgDifficulty,
       avgWorkload: courseRatings.avgWorkload,
       reviewCount: courseRatings.reviewCount,
+      classScore: sql<string>`avg(DISTINCT ${instructorRatings.avgQuality})::numeric(3,2)`,
+      avgEnrollmentPercent: avgEnrollmentPercentExpr(),
+      instructors: sql<any>`coalesce(
+        json_agg(DISTINCT ${instructors.name})
+          FILTER (WHERE ${instructors.name} IS NOT NULL),
+        '[]'::json
+      )`,
     })
     .from(courses)
     .innerJoin(sections, eq(courses.id, sections.courseId))
+    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+    .leftJoin(instructors, eq(sections.instructorId, instructors.id))
     .leftJoin(departments, eq(courses.departmentId, departments.id))
-    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId));
+    .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId))
+    .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId));
 
-  if (needInstructorJoin) {
-    queryBase = queryBase.innerJoin(instructors, eq(sections.instructorId, instructors.id));
-  }
-
-  if (tab === "required") {
-    queryBase = queryBase.innerJoin(programCourseCodes, eq(programCourseCodes.courseCode, courses.code));
-  } else {
+  if (tab !== "required") {
     queryBase = queryBase.innerJoin(programSubjectCodes, eq(programSubjectCodes.subjectCode, departments.code));
   }
 
@@ -304,19 +481,12 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
     .select({ count: sql<number>`count(DISTINCT ${courses.id})` })
     .from(courses)
     .innerJoin(sections, eq(courses.id, sections.courseId))
+    .leftJoin(terms, eq(sections.termCode, terms.srcdb))
+    .leftJoin(instructors, eq(sections.instructorId, instructors.id))
     .leftJoin(departments, eq(courses.departmentId, departments.id))
     .leftJoin(courseRatings, eq(courses.id, courseRatings.courseId));
 
-  if (needInstructorJoin) {
-    countQuery = countQuery.innerJoin(instructors, eq(sections.instructorId, instructors.id));
-  }
-
-  if (tab === "required") {
-    countQuery = countQuery.innerJoin(
-      programCourseCodes,
-      and(eq(programCourseCodes.programId, programId), eq(programCourseCodes.courseCode, courses.code))
-    );
-  } else {
+  if (tab !== "required") {
     countQuery = countQuery.innerJoin(
       programSubjectCodes,
       and(
@@ -367,6 +537,23 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
       avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
       avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
       reviewCount: row.reviewCount ?? 0,
+      classScore: row.classScore ? parseFloat(row.classScore) : null,
+      avgEnrollmentPercent: toRoundedPercent(row.avgEnrollmentPercent),
+      instructors: Array.isArray(row.instructors)
+        ? (row.instructors.filter((s: any) => typeof s === "string" && s.trim()) as string[])
+        : (() => {
+            if (typeof row.instructors === "string") {
+              try {
+                const parsed = JSON.parse(row.instructors);
+                return Array.isArray(parsed)
+                  ? (parsed.filter((s: any) => typeof s === "string" && s.trim()) as string[])
+                  : [];
+              } catch {
+                return [];
+              }
+            }
+            return [];
+          })(),
     })),
     meta: {
       page,
@@ -379,7 +566,7 @@ export async function listProgramCourses(programId: number, query: ProgramCourse
 
 export async function getProgramVariants(programId: number) {
   const [p] = await db
-    .select({ id: programs.id, name: programs.name })
+    .select({ id: programs.id, name: programs.name, degree: programs.degree })
     .from(programs)
     .where(eq(programs.id, programId))
     .limit(1);
@@ -400,15 +587,26 @@ export async function getProgramVariants(programId: number) {
     .where(and(eq(programs.isActive, true), sql`${normExpr} = ${norm}`))
     .orderBy(asc(programs.kind), asc(programs.degree), asc(programs.name));
 
-  const majors: any[] = [];
-  const minors: any[] = [];
-  for (const r of rows) {
-    const row = { id: r.id, name: r.name, kind: r.kind as any, degree: r.degree ?? null };
+  const strictName = normalizeStrictProgramName(p.name);
+  const strictRows = rows.filter((r) => normalizeStrictProgramName(r.name) === strictName);
+  const candidateRows =
+    hasProgramKind(strictRows, "major") && hasProgramKind(strictRows, "minor") ? strictRows : rows;
+
+  const preferredDegree = normalizeDegree(p.degree ?? null);
+  const majors: ProgramVariantRow[] = [];
+  const minors: ProgramVariantRow[] = [];
+  for (const r of candidateRows) {
+    const row = { id: r.id, name: r.name, kind: r.kind, degree: r.degree ?? null };
     if (r.kind === "minor") minors.push(row);
     else majors.push(row);
   }
 
-  return { programId, name: p.name, majors, minors };
+  return {
+    programId,
+    name: p.name,
+    majors: sortProgramVariants(majors, preferredDegree),
+    minors: sortProgramVariants(minors, preferredDegree),
+  };
 }
 
 // OpenAI Structured Output schema for program requirement summaries.

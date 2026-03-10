@@ -19,7 +19,17 @@ router.get("/courses/:id/reviews", async (req, res) => {
   if (isNaN(courseId)) {
     return res.status(400).json({ error: "Invalid course ID" });
   }
-  const reviews = await getReviewsForCourse(courseId);
+  const sourceParam = req.query.source;
+  if (
+    sourceParam !== undefined &&
+    sourceParam !== "native" &&
+    sourceParam !== "rmp"
+  ) {
+    return res.status(400).json({ error: "Invalid source filter" });
+  }
+
+  const source = sourceParam as "native" | "rmp" | undefined;
+  const reviews = await getReviewsForCourse(courseId, source);
   res.json(reviews);
 });
 

@@ -108,12 +108,22 @@ export async function getPendingRequests(userId: string) {
 export async function sendFriendRequest(requesterId: string, addresseeUsername: string) {
   const username = addresseeUsername.trim().replace(/^@/, "").toLowerCase();
   const [addressee] = await db
-    .select({ id: users.id })
+    .select({ id: users.id, email: users.email, username: users.username })
     .from(users)
     .where(eq(users.username, username))
     .limit(1);
 
   if (!addressee) {
+    throw new Error("User not found");
+  }
+  const addresseeEmail = addressee.email.toLowerCase();
+  const addresseeName = addressee.username.toLowerCase();
+  if (
+    addresseeEmail.endsWith("@invalid.local") ||
+    addresseeName.startsWith("deleted_") ||
+    addresseeName === "rmp-import" ||
+    addresseeEmail === "system+rmp@betteratlas.app"
+  ) {
     throw new Error("User not found");
   }
 

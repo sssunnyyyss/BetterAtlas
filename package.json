@@ -8,6 +8,7 @@
     "build": "pnpm --filter @betteratlas/shared build && pnpm -r --parallel --filter api --filter frontend build",
     "build:api": "pnpm --filter api build",
     "build:frontend": "pnpm --filter frontend build",
+    "test:ai:gates": "pnpm --filter api run test:ai:gates",
     "db:generate": "pnpm --filter api db:generate",
     "db:push": "pnpm --filter api db:push",
     "db:seed": "pnpm --filter api db:seed",

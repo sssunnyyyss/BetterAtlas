@@ -23,6 +23,16 @@ interface AuthContextType {
     inviteCode?: string;
   }) => Promise<{ requiresEmailVerification: boolean }>;
   resendVerificationEmail: (email: string) => Promise<void>;
+  verifySignupCode: (params: { email: string; code: string }) => Promise<void>;
+  requestPasswordResetCode: (email: string) => Promise<void>;
+  verifyPasswordResetCode: (params: {
+    email: string;
+    code: string;
+  }) => Promise<{ resetToken: string }>;
+  completePasswordReset: (params: {
+    resetToken: string;
+    newPassword: string;
+  }) => Promise<void>;
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -145,6 +155,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await api.post<{ message: string }>("/auth/resend-verification", { email });
   }, []);
 
+  const verifySignupCode = useCallback(async (params: { email: string; code: string }) => {
+    await api.post<{ message: string }>("/auth/register/verify-code", params);
+  }, []);
+
+  const requestPasswordResetCode = useCallback(async (email: string) => {
+    await api.post<{ message: string }>("/auth/password-reset/request", { email });
+  }, []);
+
+  const verifyPasswordResetCode = useCallback(
+    async (params: { email: string; code: string }) => {
+      return api.post<{ resetToken: string; message: string }>("/auth/password-reset/verify-code", params);
+    },
+    []
+  );
+
+  const completePasswordReset = useCallback(
+    async (params: { resetToken: string; newPassword: string }) => {
+      await api.post<{ message: string }>("/auth/password-reset/complete", params);
+    },
+    []
+  );
+
   const logout = useCallback(async () => {
     await supabase.auth.signOut();
     setUser(null);
@@ -152,7 +184,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, login, register, resendVerificationEmail, refresh, logout }}
+      value={{
+        user,
+        isLoading,
+        login,
+        register,
+        resendVerificationEmail,
+        verifySignupCode,
+        requestPasswordResetCode,
+        verifyPasswordResetCode,
+        completePasswordReset,
+        refresh,
+        logout,
+      }}
     >
       {children}
     </AuthContext.Provider>

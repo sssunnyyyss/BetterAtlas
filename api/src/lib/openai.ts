@@ -161,3 +161,81 @@ export async function openAiChatJson({
     throw new Error("Failed to parse JSON from OpenAI response");
   }
 }
+
+export async function openAiChat({
+  messages,
+  model = env.openaiModel,
+  temperature,
+  maxTokens,
+  timeoutMs = 35_000,
+}: {
+  messages: OpenAiChatMessage[];
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+}): Promise<string> {
+  if (!env.openaiApiKey) {
+    throw new Error("OPENAI_API_KEY is not configured");
+  }
+
+  async function doRequest(payload: any) {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const res = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${env.openaiApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+      const bodyText = await res.text();
+      return { res, bodyText };
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        throw new Error(`OpenAI request timed out after ${timeoutMs}ms`);
+      }
+      throw e;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
+  const payload: any = { model, messages };
+  if (temperature !== undefined) payload.temperature = temperature;
+  if (maxTokens !== undefined) payload.max_tokens = maxTokens;
+
+  let { res, bodyText } = await doRequest(payload);
+
+  if (!res.ok && res.status === 400 && payload.temperature !== undefined) {
+    delete payload.temperature;
+    ({ res, bodyText } = await doRequest(payload));
+  }
+
+  if (!res.ok && res.status === 400 && payload.max_tokens !== undefined) {
+    delete payload.max_tokens;
+    ({ res, bodyText } = await doRequest(payload));
+  }
+
+  if (!res.ok) {
+    throw new Error(`OpenAI error (${res.status}): ${bodyText}`);
+  }
+
+  let data: any;
+  try {
+    data = JSON.parse(bodyText);
+  } catch {
+    throw new Error("OpenAI returned invalid JSON response envelope");
+  }
+
+  const raw: string | undefined = data?.choices?.[0]?.message?.content;
+  if (!raw || typeof raw !== "string") {
+    throw new Error("OpenAI response missing message content");
+  }
+
+  return raw;
+}

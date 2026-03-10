@@ -10,6 +10,7 @@ import {
   courseInstructorRatings,
   sectionRatings,
   instructorRatings,
+  reviews,
 } from "../db/schema.js";
 import { eq, sql, and, asc, desc, ilike, inArray } from "drizzle-orm";
 import type { CourseQuery, SearchQuery, CourseWithRatings } from "@betteratlas/shared";
@@ -18,6 +19,7 @@ import {
   buildCrossListSignatureMap,
   haveExactCrossListSignatures,
 } from "../lib/crossListSignatures.js";
+import { openAiEmbedText } from "../lib/openaiEmbeddings.js";
 
 let sectionInstructorsTableAvailableCache: boolean | null = null;
 
@@ -53,6 +55,10 @@ type CourseFilterQuery = Partial<
   >
 >;
 
+const HYBRID_SEMANTIC_MIN_QUERY_LEN = 4;
+const HYBRID_SEMANTIC_MIN_LEXICAL_RESULTS = 8;
+const HYBRID_SEMANTIC_MIN_TOP_RANK = 0.12;
+
 function classScoreExpr() {
   // "Class" score = average of professor-wide scores for instructors teaching the course.
   // Uses DISTINCT to avoid overweighting instructors with multiple sections.
@@ -76,11 +82,51 @@ function toRoundedPercent(value: unknown): number | null {
   return Math.round(n);
 }
 
+function toNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+async function avgGradePointsByCourseIds(courseIds: number[]): Promise<Map<number, number>> {
+  const map = new Map<number, number>();
+  if (courseIds.length === 0) return map;
+
+  const rows = await db
+    .select({
+      courseId: reviews.courseId,
+      avgGradePoints: sql<string>`avg(${reviews.gradePoints})::numeric(3,2)`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        inArray(reviews.courseId, courseIds),
+        sql`${reviews.gradePoints} is not null`
+      )
+    )
+    .groupBy(reviews.courseId);
+
+  for (const row of rows) {
+    const avg = toNullableNumber(row.avgGradePoints);
+    if (avg !== null) {
+      map.set(row.courseId, avg);
+    }
+  }
+  return map;
+}
+
 function normalizeInstructionMethodFilter(value: string | undefined) {
   if (!value) return value;
   if (value === "O") return "DL";
   if (value === "H") return "BL";
   return value;
+}
+
+function excludeKnownTestCoursesExpr(codeExpr: any, titleExpr: any) {
+  return sql`not (
+    upper(coalesce(${codeExpr}, '')) like 'AAAA %'
+    or lower(coalesce(${titleExpr}, '')) like '%test course%'
+  )`;
 }
 
 function stripAtlasDescriptionLabels(value: string): string {
@@ -160,7 +206,7 @@ export async function listCourses(query: CourseQuery) {
   // Course listing is section-backed: filters and instructor display require joins.
   // Do not force active-only sections here; callers expect all DB-matching courses
   // unless explicitly narrowed by other filters (e.g. semester).
-  const conditions: any[] = [];
+  const conditions: any[] = [excludeKnownTestCoursesExpr(courses.code, courses.title)];
 
   if (department) conditions.push(eq(departments.code, department));
   if (semester) conditions.push(eq(terms.name, semester));
@@ -365,6 +411,9 @@ export async function listCourses(query: CourseQuery) {
     .then((r) => r[0]?.count ?? 0);
 
   const [data, countResult] = await Promise.all([dataQuery, countQuery]);
+  const avgGradeByCourse = await avgGradePointsByCourseIds(
+    data.map((row: any) => row.id as number)
+  );
 
   return {
     data: data.map((row: any) => ({
@@ -434,6 +483,7 @@ export async function listCourses(query: CourseQuery) {
       avgQuality: row.avgQuality ? parseFloat(row.avgQuality) : null,
       avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
       avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
+      avgGradePoints: avgGradeByCourse.get(row.id) ?? null,
       reviewCount: row.reviewCount ?? 0,
       classScore: row.classScore ? parseFloat(row.classScore) : null,
       avgEnrollmentPercent: toRoundedPercent((row as any).avgEnrollmentPercent),
@@ -465,6 +515,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
   const offset = (page - 1) * limit;
 
   const term = q.trim();
+  const hasTrigram = await arePgTrgmAvailable();
   const tsQuery = sql`plainto_tsquery('english', ${term})`;
 
   const courseVector = sql`(
@@ -477,6 +528,17 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
   // - course code/title/description via FTS + ILIKE
   // - department code/name via ILIKE
   // - instructor name via ILIKE (section-backed)
+  // - optional trigram similarity for typo tolerance when pg_trgm is available
+  const sameInitial = (value: any) => sql`left(lower(${value}), 1) = left(lower(${term}), 1)`;
+  const trigramSearchWhere = hasTrigram
+    ? sql`
+      OR similarity(lower(${courses.code}), lower(${term})) >= 0.32
+      OR (${sameInitial(courses.title)} AND similarity(lower(${courses.title}), lower(${term})) >= 0.33)
+      OR similarity(lower(${departments.code}), lower(${term})) >= 0.34
+      OR (${sameInitial(departments.name)} AND similarity(lower(${departments.name}), lower(${term})) >= 0.34)
+      OR (${sameInitial(instructors.name)} AND similarity(lower(${instructors.name}), lower(${term})) >= 0.34)
+    `
+    : sql``;
   const searchWhere = sql`(
     ${courseVector} @@ ${tsQuery}
     OR ${courses.code} ILIKE ${"%" + term + "%"}
@@ -484,9 +546,13 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     OR ${departments.code} ILIKE ${"%" + term + "%"}
     OR ${departments.name} ILIKE ${"%" + term + "%"}
     OR ${instructors.name} ILIKE ${"%" + term + "%"}
+    ${trigramSearchWhere}
   )`;
 
-  const whereParts: any[] = [searchWhere];
+  const whereParts: any[] = [
+    searchWhere,
+    excludeKnownTestCoursesExpr(courses.code, courses.title),
+  ];
   if (department) whereParts.push(eq(departments.code, department));
   if (semester) whereParts.push(eq(terms.name, semester));
   if (credits) whereParts.push(eq(courses.credits, credits));
@@ -524,6 +590,20 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     havingParts.push(sql`coalesce(${classScoreExpr()}, 0) >= ${minRating}`);
   }
 
+  const trigramRankExpr = hasTrigram
+    ? sql`
+      + (
+        greatest(
+          similarity(lower(${courses.code}), lower(${term})) * 1.3,
+          (case when ${sameInitial(courses.title)} then similarity(lower(${courses.title}), lower(${term})) else 0 end) * 1.0,
+          similarity(lower(${departments.code}), lower(${term})) * 0.85,
+          (case when ${sameInitial(departments.name)} then similarity(lower(${departments.name}), lower(${term})) else 0 end) * 0.7,
+          (case when ${sameInitial(instructors.name)} then similarity(lower(${instructors.name}), lower(${term})) else 0 end) * 1.1
+        ) * 0.22
+      )
+    `
+    : sql``;
+
   const rankExpr = sql<number>`max(
     ts_rank(${courseVector}, ${tsQuery})
     + (case when ${courses.code} ILIKE ${"%" + term + "%"} then 0.12 else 0 end)
@@ -531,6 +611,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     + (case when ${departments.code} ILIKE ${"%" + term + "%"} then 0.07 else 0 end)
     + (case when ${departments.name} ILIKE ${"%" + term + "%"} then 0.06 else 0 end)
     + (case when ${instructors.name} ILIKE ${"%" + term + "%"} then 0.18 else 0 end)
+    ${trigramRankExpr}
   )`;
 
   const buildGroupedBase = () => {
@@ -594,6 +675,7 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
     .then((r) => r[0]?.count ?? 0);
 
   const courseIds = data.map((r) => r.id);
+  const avgGradeByCoursePromise = avgGradePointsByCourseIds(courseIds);
   const instructorsByCourse = new Map<number, string[]>();
   const classScoreByCourse = new Map<number, number | null>();
   const avgEnrollmentByCourse = new Map<number, number | null>();
@@ -692,36 +774,89 @@ export async function searchCourses(query: SearchQuery & CourseFilterQuery) {
       avgEnrollmentByCourse.set(r.courseId, toRoundedPercent(r.avgEnrollmentPercent));
     }
   }
+  const avgGradeByCourse = await avgGradeByCoursePromise;
+
+  type SearchResultCourse = CourseWithRatings & { avgGradePoints: number | null };
+  const lexicalMapped: SearchResultCourse[] = data.map((row) => ({
+    id: row.id,
+    code: row.code,
+    title: row.title,
+    description: normalizeText(row.description),
+    prerequisites: (row as any).prerequisites ?? null,
+    credits: row.credits,
+    departmentId: row.departmentId,
+    attributes: row.attributes ?? null,
+    instructors: instructorsByCourse.get(row.id) ?? [],
+    campuses: campusesByCourse.get(row.id) ?? [],
+    gers: gersByCourse.get(row.id) ?? [],
+    requirements: requirementsByCourse.get(row.id) ?? null,
+    department: row.departmentCode
+      ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
+      : null,
+    avgQuality: row.avgQuality ? parseFloat(row.avgQuality) : null,
+    avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
+    avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
+    avgGradePoints: avgGradeByCourse.get(row.id) ?? null,
+    reviewCount: row.reviewCount ?? 0,
+    classScore: classScoreByCourse.get(row.id) ?? null,
+    avgEnrollmentPercent: avgEnrollmentByCourse.get(row.id) ?? null,
+  }));
+
+  let mergedData = lexicalMapped;
+  let mergedTotal = Number(total);
+
+  const bestLexicalRank = data.length > 0 ? toNullableNumber((data[0] as any).rank) ?? 0 : 0;
+  const shouldTrySemanticFallback =
+    page === 1 &&
+    term.length >= HYBRID_SEMANTIC_MIN_QUERY_LEN &&
+    (data.length < Math.min(limit, HYBRID_SEMANTIC_MIN_LEXICAL_RESULTS) ||
+      bestLexicalRank < HYBRID_SEMANTIC_MIN_TOP_RANK);
+
+  if (shouldTrySemanticFallback && (await areCourseEmbeddingsAvailable())) {
+    try {
+      const embedding = (await openAiEmbedText({ input: term, timeoutMs: 5_000 })) as number[];
+      const semanticCandidates = await semanticSearchCoursesByEmbedding({
+        embedding,
+        limit: Math.max(24, limit * 2),
+        filters: {
+          department,
+          semester,
+          minRating,
+          credits,
+          attributes,
+          instructor,
+          campus,
+          componentType,
+          instructionMethod,
+        },
+      });
+
+      const semanticMapped: SearchResultCourse[] = semanticCandidates.map((course) => ({
+        ...course,
+        avgGradePoints: null,
+      }));
+
+      const seen = new Set<number>();
+      const combined = [...lexicalMapped, ...semanticMapped].filter((course) => {
+        if (seen.has(course.id)) return false;
+        seen.add(course.id);
+        return true;
+      });
+
+      mergedData = combined.slice(0, limit);
+      mergedTotal = Math.max(mergedTotal, mergedData.length);
+    } catch {
+      // Keep lexical results when semantic fallback fails (e.g. API timeout).
+    }
+  }
 
   return {
-    data: data.map((row) => ({
-      id: row.id,
-      code: row.code,
-      title: row.title,
-      description: normalizeText(row.description),
-      prerequisites: (row as any).prerequisites ?? null,
-      credits: row.credits,
-      departmentId: row.departmentId,
-      attributes: row.attributes ?? null,
-      instructors: instructorsByCourse.get(row.id) ?? [],
-      campuses: campusesByCourse.get(row.id) ?? [],
-      gers: gersByCourse.get(row.id) ?? [],
-      requirements: requirementsByCourse.get(row.id) ?? null,
-      department: row.departmentCode
-        ? { id: row.departmentId!, code: row.departmentCode, name: row.departmentName! }
-        : null,
-      avgQuality: row.avgQuality ? parseFloat(row.avgQuality) : null,
-      avgDifficulty: row.avgDifficulty ? parseFloat(row.avgDifficulty) : null,
-      avgWorkload: row.avgWorkload ? parseFloat(row.avgWorkload) : null,
-      reviewCount: row.reviewCount ?? 0,
-      classScore: classScoreByCourse.get(row.id) ?? null,
-      avgEnrollmentPercent: avgEnrollmentByCourse.get(row.id) ?? null,
-    })),
+    data: mergedData,
     meta: {
       page,
       limit,
-      total: Number(total),
-      totalPages: Math.ceil(Number(total) / limit) || 1,
+      total: mergedTotal,
+      totalPages: Math.ceil(mergedTotal / limit) || 1,
     },
   };
 }
@@ -828,7 +963,7 @@ export async function getCourseById(id: number) {
     .leftJoin(terms, eq(sections.termCode, terms.srcdb))
 	    .leftJoin(sectionRatings, eq(sections.id, sectionRatings.sectionId))
 	    .leftJoin(instructorRatings, eq(sections.instructorId, instructorRatings.instructorId))
-	    .where(and(eq(sections.courseId, id), eq(sections.isActive, true)));
+	    .where(eq(sections.courseId, id));
 
   const sectionIds = (courseSections as Array<{ id: number }>).map((s) => s.id);
   const sectionInstructorsTableAvailable = await hasSectionInstructorsTable();
@@ -881,7 +1016,66 @@ export async function getCourseById(id: number) {
     }
   }
 
-  const professorsQuery = sectionInstructorsTableAvailable
+  // Visual-only normalization:
+  // for the same instructor teaching multiple sections of this course in one term,
+  // show a shared difficulty value in section cards without mutating stored aggregates.
+  const visualSectionDifficultyById = new Map<number, number | null>();
+  {
+    type Group = { sectionIds: number[]; sum: number; count: number };
+    const groups = new Map<string, Group>();
+
+    for (const s of courseSections as any[]) {
+      if (typeof s.id !== "number") continue;
+      if (typeof s.instructorId !== "number") continue;
+      const termCode = String(s.termCode ?? "").trim();
+      if (!termCode) continue;
+
+      const key = `${s.instructorId}:${termCode}`;
+      const g = groups.get(key) ?? { sectionIds: [], sum: 0, count: 0 };
+      g.sectionIds.push(s.id);
+
+      const sectionDifficulty = toNullableNumber(s.avgDifficulty);
+      if (sectionDifficulty !== null) {
+        g.sum += sectionDifficulty;
+        g.count += 1;
+      }
+
+      groups.set(key, g);
+    }
+
+    for (const g of groups.values()) {
+      if (g.sectionIds.length <= 1 || g.count === 0) continue;
+      const avg = g.sum / g.count;
+      for (const sectionId of g.sectionIds) {
+        visualSectionDifficultyById.set(sectionId, avg);
+      }
+    }
+  }
+
+  const sectionProfessorsQuery = db
+    .selectDistinct({
+      id: instructors.id,
+      name: instructors.name,
+      email: instructors.email,
+      departmentId: instructors.departmentId,
+      avgQuality: courseInstructorRatings.avgQuality,
+      avgDifficulty: courseInstructorRatings.avgDifficulty,
+      avgWorkload: courseInstructorRatings.avgWorkload,
+      reviewCount: courseInstructorRatings.reviewCount,
+    })
+    .from(sections)
+    .innerJoin(instructors, eq(sections.instructorId, instructors.id))
+    .leftJoin(
+      courseInstructorRatings,
+      and(
+        eq(courseInstructorRatings.courseId, sections.courseId),
+        eq(courseInstructorRatings.instructorId, sections.instructorId)
+      )
+    )
+    .where(eq(sections.courseId, id))
+    .orderBy(asc(instructors.name));
+
+  const rosterProfessorsQuery = sectionInstructorsTableAvailable
     ? db
         .selectDistinct({
           id: instructors.id,
@@ -903,35 +1097,76 @@ export async function getCourseById(id: number) {
             eq(courseInstructorRatings.instructorId, instructors.id)
           )
         )
-        .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
+        .where(eq(sections.courseId, id))
         .orderBy(asc(instructors.name))
-    : db
-        .selectDistinct({
-          id: instructors.id,
-          name: instructors.name,
-          email: instructors.email,
-          departmentId: instructors.departmentId,
-          avgQuality: courseInstructorRatings.avgQuality,
-          avgDifficulty: courseInstructorRatings.avgDifficulty,
-          avgWorkload: courseInstructorRatings.avgWorkload,
-          reviewCount: courseInstructorRatings.reviewCount,
-        })
-        .from(sections)
-        .innerJoin(instructors, eq(sections.instructorId, instructors.id))
-        .leftJoin(
-          courseInstructorRatings,
-          and(
-            eq(courseInstructorRatings.courseId, sections.courseId),
-            eq(courseInstructorRatings.instructorId, sections.instructorId)
-          )
-        )
-        .where(and(eq(sections.courseId, id), eq(sections.isActive, true)))
-        .orderBy(asc(instructors.name));
+    : Promise.resolve([] as any[]);
 
-  const [professors, crossListRows] = await Promise.all([
-    professorsQuery,
+  const courseGradeAggPromise = db
+    .select({
+      avgGradePoints: sql<string>`avg(${reviews.gradePoints})::numeric(3,2)`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.courseId, id),
+        sql`${reviews.gradePoints} is not null`
+      )
+    )
+    .limit(1);
+
+  const professorGradeAggPromise = db
+    .select({
+      instructorId: reviews.instructorId,
+      avgGradePoints: sql<string>`avg(${reviews.gradePoints})::numeric(3,2)`,
+    })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.courseId, id),
+        sql`${reviews.instructorId} is not null`,
+        sql`${reviews.gradePoints} is not null`
+      )
+    )
+    .groupBy(reviews.instructorId);
+
+  const [sectionProfessors, rosterProfessors, crossListRows, courseGradeAggRows, professorGradeAggRows] = await Promise.all([
+    sectionProfessorsQuery,
+    rosterProfessorsQuery,
     crossListPromise,
+    courseGradeAggPromise,
+    professorGradeAggPromise,
   ]);
+
+  const professorById = new Map<number, any>();
+  for (const row of [...sectionProfessors, ...rosterProfessors] as any[]) {
+    if (typeof row.id !== "number") continue;
+    const existing = professorById.get(row.id);
+    if (!existing) {
+      professorById.set(row.id, row);
+      continue;
+    }
+    professorById.set(row.id, {
+      ...existing,
+      name: existing.name ?? row.name,
+      email: existing.email ?? row.email,
+      departmentId: existing.departmentId ?? row.departmentId,
+      avgQuality: existing.avgQuality ?? row.avgQuality,
+      avgDifficulty: existing.avgDifficulty ?? row.avgDifficulty,
+      avgWorkload: existing.avgWorkload ?? row.avgWorkload,
+      reviewCount: existing.reviewCount ?? row.reviewCount,
+    });
+  }
+  const professors = Array.from(professorById.values()).sort((a, b) =>
+    String(a.name ?? "").localeCompare(String(b.name ?? ""))
+  );
+  const courseAvgGradePoints = toNullableNumber(courseGradeAggRows[0]?.avgGradePoints);
+  const avgGradeByProfessorId = new Map<number, number>();
+  for (const row of professorGradeAggRows) {
+    if (typeof row.instructorId !== "number") continue;
+    const avg = toNullableNumber(row.avgGradePoints);
+    if (avg !== null) avgGradeByProfessorId.set(row.instructorId, avg);
+  }
+
   const candidateCourseIds = Array.from(
     new Set(
       (crossListRows as any[])
@@ -1005,6 +1240,7 @@ export async function getCourseById(id: number) {
   );
 
   const resolvedLongDescription = pickLongestByWordCount(descriptionCandidates);
+  const resolvedShortDescription = pickShortestByWordCount(descriptionCandidates);
 
   return {
     id: course.id,
@@ -1023,6 +1259,7 @@ export async function getCourseById(id: number) {
     avgQuality: course.avgQuality ? parseFloat(course.avgQuality) : null,
     avgDifficulty: course.avgDifficulty ? parseFloat(course.avgDifficulty) : null,
     avgWorkload: course.avgWorkload ? parseFloat(course.avgWorkload) : null,
+    avgGradePoints: courseAvgGradePoints,
     reviewCount: course.reviewCount ?? 0,
     classScore: (() => {
       const seen = new Map<number, number>();
@@ -1052,6 +1289,7 @@ export async function getCourseById(id: number) {
       avgQuality: p.avgQuality ? parseFloat(p.avgQuality) : null,
       avgDifficulty: p.avgDifficulty ? parseFloat(p.avgDifficulty) : null,
       avgWorkload: p.avgWorkload ? parseFloat(p.avgWorkload) : null,
+      avgGradePoints: avgGradeByProfessorId.get(p.id) ?? null,
       reviewCount: p.reviewCount ?? 0,
     })),
     crossListedWith: filteredCrossListRows.map((r) => ({
@@ -1075,8 +1313,10 @@ export async function getCourseById(id: number) {
           )
         )
       );
-      const sectionShortDescription = pickShortestByWordCount(perSectionCandidates);
-      const sectionLongDescription = pickLongestByWordCount(perSectionCandidates);
+      const sectionShortDescription =
+        pickShortestByWordCount(perSectionCandidates) ?? resolvedShortDescription;
+      const sectionLongDescription =
+        pickLongestByWordCount(perSectionCandidates) ?? resolvedLongDescription;
       const fallbackPrimaryInstructor =
         s.instructorName && typeof s.instructorId === "number"
           ? {
@@ -1150,8 +1390,10 @@ export async function getCourseById(id: number) {
           .map((x) => x.trim())
           .filter((x) => x && x !== "");
       })(),
-      avgQuality: s.avgQuality ? parseFloat(s.avgQuality) : null,
-      avgDifficulty: s.avgDifficulty ? parseFloat(s.avgDifficulty) : null,
+        avgQuality: s.avgQuality ? parseFloat(s.avgQuality) : null,
+      avgDifficulty:
+        visualSectionDifficultyById.get(s.id) ??
+        (s.avgDifficulty ? parseFloat(s.avgDifficulty) : null),
       avgWorkload: s.avgWorkload ? parseFloat(s.avgWorkload) : null,
       reviewCount: s.sectionReviewCount ?? 0,
       instructorAvgQuality: s.instructorAvgQuality ? parseFloat(s.instructorAvgQuality) : null,
@@ -1160,6 +1402,39 @@ export async function getCourseById(id: number) {
       };
     }),
   };
+}
+
+const PG_TRGM_AVAIL_TTL_MS = 5 * 60 * 1000; // 5m
+let pgTrgmAvailCache: { value: boolean; updatedAt: number } | null = null;
+let pgTrgmAvailInFlight: Promise<boolean> | null = null;
+
+async function arePgTrgmAvailable(): Promise<boolean> {
+  if (pgTrgmAvailCache && Date.now() - pgTrgmAvailCache.updatedAt < PG_TRGM_AVAIL_TTL_MS) {
+    return pgTrgmAvailCache.value;
+  }
+  if (pgTrgmAvailInFlight) return pgTrgmAvailInFlight;
+
+  pgTrgmAvailInFlight = (async () => {
+    try {
+      const rows = (await db.execute(sql`
+        select exists (
+          select 1
+          from pg_extension
+          where extname = 'pg_trgm'
+        ) as ok
+      `)) as any[];
+      const ok = Boolean(rows?.[0]?.ok);
+      pgTrgmAvailCache = { value: ok, updatedAt: Date.now() };
+      return ok;
+    } catch {
+      pgTrgmAvailCache = { value: false, updatedAt: Date.now() };
+      return false;
+    } finally {
+      pgTrgmAvailInFlight = null;
+    }
+  })();
+
+  return pgTrgmAvailInFlight;
 }
 
 const EMBEDDINGS_AVAIL_TTL_MS = 5 * 60 * 1000; // 5m
@@ -1195,6 +1470,29 @@ export async function listDepartments() {
   return db.select().from(departments).orderBy(asc(departments.code));
 }
 
+export async function listTerms() {
+  const seasonRank = sql<number>`
+    case lower(${terms.season})
+      when 'spring' then 1
+      when 'summer' then 2
+      when 'fall' then 3
+      when 'winter' then 0
+      else -1
+    end
+  `;
+
+  return db
+    .select({
+      srcdb: terms.srcdb,
+      name: terms.name,
+      season: terms.season,
+      year: terms.year,
+      isActive: terms.isActive,
+    })
+    .from(terms)
+    .orderBy(desc(terms.year), desc(seasonRank), desc(terms.srcdb));
+}
+
 function embeddingToVectorLiteral(embedding: number[]) {
   const clean = embedding.map((v) => (Number.isFinite(v) ? v : 0));
   return `[${clean.join(",")}]`;
@@ -1213,6 +1511,7 @@ export async function semanticSearchCoursesByEmbedding(input: {
   const filterWhereParts: any[] = [
     sql`s.course_id = ce.course_id`,
     sql`s.is_active = true`,
+    excludeKnownTestCoursesExpr(sql`c.code`, sql`c.title`),
   ];
   if (filters?.department) filterWhereParts.push(sql`d.code = ${filters.department}`);
   if (filters?.semester) filterWhereParts.push(sql`t.name = ${filters.semester}`);

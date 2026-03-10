@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import type { FeedbackHubPostStatus } from "@betteratlas/shared";
+import AppDropdown from "../../components/ui/AppDropdown.js";
 import {
   useAdminCreateChangelog,
   useAdminDeleteFeedbackPost,
@@ -38,6 +39,31 @@ export default function AdminFeedback() {
   const selectedPosts = useMemo(
     () => postsQuery.data?.items.filter((post) => selectedPostIds.includes(post.id)) ?? [],
     [postsQuery.data?.items, selectedPostIds]
+  );
+  const boardDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "All boards" },
+      ...(boardsQuery.data ?? []).map((board) => ({ value: board.slug, label: board.name })),
+    ],
+    [boardsQuery.data]
+  );
+  const statusDropdownOptions = useMemo(
+    () => [
+      { value: "", label: "All statuses" },
+      ...STATUS_OPTIONS.map((value) => ({
+        value,
+        label: value.replace("_", " "),
+      })),
+    ],
+    []
+  );
+  const rowStatusDropdownOptions = useMemo(
+    () =>
+      STATUS_OPTIONS.map((value) => ({
+        value,
+        label: value.replace("_", " "),
+      })),
+    []
   );
 
   function toggleSelected(postId: number) {
@@ -78,30 +104,18 @@ export default function AdminFeedback() {
       <section className="rounded-lg border border-gray-200 bg-white p-5 space-y-4">
         <h2 className="text-lg font-semibold text-gray-900">Feedback Triage</h2>
         <div className="flex flex-wrap gap-3">
-          <select
+          <AppDropdown
             value={boardSlug}
-            onChange={(e) => setBoardSlug(e.target.value)}
-            className="rounded-md border-gray-300 text-sm"
-          >
-            <option value="">All boards</option>
-            {boardsQuery.data?.map((board) => (
-              <option key={board.slug} value={board.slug}>
-                {board.name}
-              </option>
-            ))}
-          </select>
-          <select
+            onChange={(value) => setBoardSlug(value)}
+            options={boardDropdownOptions}
+            className="min-w-[190px]"
+          />
+          <AppDropdown
             value={status}
-            onChange={(e) => setStatus(e.target.value as "" | FeedbackHubPostStatus)}
-            className="rounded-md border-gray-300 text-sm"
-          >
-            <option value="">All statuses</option>
-            {STATUS_OPTIONS.map((value) => (
-              <option key={value} value={value}>
-                {value.replace("_", " ")}
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setStatus(value as "" | FeedbackHubPostStatus)}
+            options={statusDropdownOptions}
+            className="min-w-[180px]"
+          />
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
@@ -135,22 +149,17 @@ export default function AdminFeedback() {
                   {post.score} votes
                 </p>
               </div>
-              <select
+              <AppDropdown
                 value={post.status}
-                onChange={(e) =>
+                onChange={(value) =>
                   updateStatus.mutate({
                     postId: post.id,
-                    status: e.target.value as FeedbackHubPostStatus,
+                    status: value as FeedbackHubPostStatus,
                   })
                 }
-                className="rounded-md border-gray-300 text-sm"
-              >
-                {STATUS_OPTIONS.map((value) => (
-                  <option key={value} value={value}>
-                    {value.replace("_", " ")}
-                  </option>
-                ))}
-              </select>
+                options={rowStatusDropdownOptions}
+                className="min-w-[170px]"
+              />
               <button
                 type="button"
                 onClick={() => onDeletePost(post.id, post.title)}

@@ -228,23 +228,38 @@ export const reviews = pgTable(
     instructorId: integer("instructor_id").references(() => instructors.id),
     sectionId: integer("section_id").references(() => sections.id),
     termCode: varchar("term_code", { length: 10 }).references(() => terms.srcdb),
-    ratingQuality: smallint("rating_quality").notNull(),
-    ratingDifficulty: smallint("rating_difficulty").notNull(),
-    ratingWorkload: smallint("rating_workload").notNull(),
+    ratingQuality: numeric("rating_quality", {
+      precision: 2,
+      scale: 1,
+    }).notNull(),
+    ratingDifficulty: numeric("rating_difficulty", {
+      precision: 2,
+      scale: 1,
+    }).notNull(),
+    ratingWorkload: numeric("rating_workload", {
+      precision: 2,
+      scale: 1,
+    }),
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
+    reportedGrade: varchar("reported_grade", { length: 12 }),
+    gradePoints: numeric("grade_points", { precision: 3, scale: 2 }),
     comment: text("comment"),
     isAnonymous: boolean("is_anonymous").default(true),
+    source: varchar("source", { length: 10 }).notNull().default("native"),
+    externalId: varchar("external_id", { length: 40 }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => ({
-    // One review per user per section.
+    // Native reviews: one review per user per section.
     userSectionUnique: uniqueIndex("reviews_user_section_unique").on(
       table.userId,
       table.sectionId
-    ),
+    ).where(sql`${table.source} = 'native' AND ${table.sectionId} IS NOT NULL`),
     courseIdx: index("idx_reviews_course").on(table.courseId),
     instructorIdx: index("idx_reviews_instructor").on(table.instructorId),
     sectionIdx: index("idx_reviews_section").on(table.sectionId),
+    externalIdIdx: uniqueIndex("idx_reviews_external_id").on(table.externalId),
   })
 );
 
@@ -686,6 +701,17 @@ export const aiTrainerScores = pgTable("ai_trainer_scores", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
+// Course Review Summaries (LLM-generated summaries of student reviews)
+export const courseReviewSummaries = pgTable("course_review_summaries", {
+  courseId: integer("course_id")
+    .primaryKey()
+    .references(() => courses.id),
+  summary: text("summary").notNull(),
+  reviewCount: integer("review_count").notNull(),
+  reviewHash: varchar("review_hash", { length: 64 }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
 // OAuth Clients — registered third-party apps (admin-managed)
 export const oauthClients = pgTable("oauth_clients", {
   id: varchar("id", { length: 36 }).primaryKey(), // UUID, used as public client_id
@@ -732,3 +758,37 @@ export const oauthAccessTokens = pgTable("oauth_access_tokens", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }), // soft revocation
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
+
+// RMP professor linkage (maps instructors to RMP teacher IDs)
+export const rmpProfessors = pgTable("rmp_professors", {
+  instructorId: integer("instructor_id")
+    .primaryKey()
+    .references(() => instructors.id),
+  rmpTeacherId: varchar("rmp_teacher_id", { length: 20 }).notNull(),
+  rmpAvgRating: numeric("rmp_avg_rating", { precision: 3, scale: 2 }),
+  rmpAvgDifficulty: numeric("rmp_avg_difficulty", { precision: 3, scale: 2 }),
+  rmpNumRatings: integer("rmp_num_ratings"),
+  rmpWouldTakeAgain: numeric("rmp_would_take_again", { precision: 5, scale: 2 }),
+  rmpDepartment: text("rmp_department"),
+  importedAt: timestamp("imported_at", { withTimezone: true }).defaultNow(),
+});
+
+// RMP community tags per instructor
+export const rmpProfessorTags = pgTable(
+  "rmp_professor_tags",
+  {
+    id: serial("id").primaryKey(),
+    instructorId: integer("instructor_id")
+      .references(() => instructors.id)
+      .notNull(),
+    tag: text("tag").notNull(),
+    count: integer("count").default(1),
+  },
+  (table) => ({
+    instructorTagUnique: uniqueIndex("idx_rmp_professor_tags_instructor_tag").on(
+      table.instructorId,
+      table.tag
+    ),
+    instructorIdx: index("idx_rmp_professor_tags_instructor").on(table.instructorId),
+  })
+);

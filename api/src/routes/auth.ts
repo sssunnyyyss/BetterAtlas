@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { authLimiter } from "../middleware/rateLimit.js";
 import { registerSchema, loginSchema } from "@betteratlas/shared";
 import { z } from "zod";
-import { supabase, db } from "../db/index.js";
+import { supabase, supabaseAnon, db } from "../db/index.js";
 import { users } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { isAdminEmail } from "../utils/admin.js";
@@ -13,18 +13,51 @@ import {
   getInviteCodeByCode,
   incrementInviteCodeUsedCount,
 } from "../services/inviteCodeService.js";
-import { env } from "../config/env.js";
 import {
   getBadgeBySlug,
   grantBadgeToUser,
   listBadgesForUser,
 } from "../services/badgeService.js";
+import crypto from "node:crypto";
+import { env } from "../config/env.js";
 
 const router = Router();
 const resendVerificationSchema = z.object({
   email: z.string().email(),
 });
-const loginRedirectUrl = `${env.frontendUrl.replace(/\/+$/, "")}/login?emailVerified=1`;
+const passwordResetRequestSchema = z.object({
+  email: z.string().email(),
+});
+const passwordResetVerifySchema = z.object({
+  email: z.string().email(),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Code must be a 6-digit number"),
+});
+const signupVerifySchema = z.object({
+  email: z.string().email(),
+  code: z
+    .string()
+    .trim()
+    .regex(/^\d{6}$/, "Code must be a 6-digit number"),
+});
+const passwordResetCompleteSchema = z.object({
+  resetToken: z.string().min(16),
+  newPassword: z.string().min(8, "Password must be at least 8 characters"),
+});
+const RESET_TOKEN_TTL_MS = 10 * 60 * 1000;
+const resetChallengeTokens = new Map<
+  string,
+  { userId: string; email: string; expiresAt: number }
+>();
+
+function cleanupExpiredResetTokens() {
+  const now = Date.now();
+  for (const [token, payload] of resetChallengeTokens.entries()) {
+    if (payload.expiresAt <= now) resetChallengeTokens.delete(token);
+  }
+}
 
 const authUserSelect = {
   id: users.id,
@@ -163,9 +196,6 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo: loginRedirectUrl,
-      },
     });
 
     if (authError) {
@@ -193,9 +223,14 @@ router.post("/register", authLimiter, validate(registerSchema), async (req, res)
       })
       .returning(authUserSelect);
 
+    const badgeSlugsToGrant = new Set<string>(["early-adopter"]);
     if (validInviteCode) {
       await incrementInviteCodeUsedCount(validInviteCode.id);
-      const badge = await getBadgeBySlug(validInviteCode.badgeSlug);
+      badgeSlugsToGrant.add(validInviteCode.badgeSlug);
+    }
+
+    for (const badgeSlug of badgeSlugsToGrant) {
+      const badge = await getBadgeBySlug(badgeSlug);
       if (badge) {
         await grantBadgeToUser(user.id, badge.id);
       }
@@ -229,7 +264,7 @@ router.post("/login", authLimiter, validate(loginSchema), async (req, res) => {
     if (authError) {
       if (String(authError.message || "").toLowerCase().includes("email not confirmed")) {
         return res.status(403).json({
-          error: "Please verify your email before signing in. Check your inbox for the confirmation link.",
+          error: "Please verify your email before signing in. Check your inbox for the 6-digit verification code.",
         });
       }
       return res.status(401).json({ error: "Invalid email or password" });
@@ -312,9 +347,6 @@ router.post(
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
-        options: {
-          emailRedirectTo: loginRedirectUrl,
-        },
       });
 
       if (error) {
@@ -323,7 +355,7 @@ router.post(
         if (message.includes("not found") || message.includes("for security purposes")) {
           return res.json({
             message:
-              "If an unverified account exists for this email, a verification email has been sent.",
+              "If an unverified account exists for this email, a verification code has been sent.",
           });
         }
         throw error;
@@ -331,11 +363,178 @@ router.post(
 
       return res.json({
         message:
-          "If an unverified account exists for this email, a verification email has been sent.",
+          "If an unverified account exists for this email, a verification code has been sent.",
       });
     } catch (err: any) {
       console.error("Resend verification error:", err);
-      return res.status(500).json({ error: "Failed to resend verification email" });
+      return res.status(500).json({ error: "Failed to resend verification code" });
+    }
+  }
+);
+
+router.post(
+  "/register/verify-code",
+  authLimiter,
+  validate(signupVerifySchema),
+  async (req, res) => {
+    const { email, code } = req.body;
+
+    try {
+      let verified = false;
+      // `signup` still works in some environments, but `email` is the current preferred type.
+      for (const otpType of ["email", "signup"] as const) {
+        const { data, error } = await supabaseAnon.auth.verifyOtp({
+          email,
+          token: code,
+          type: otpType,
+        });
+        if (error) continue;
+        const userId = data.user?.id ?? data.session?.user?.id;
+        if (userId) {
+          verified = true;
+          break;
+        }
+      }
+
+      if (!verified) {
+        return res.status(400).json({ error: "Invalid or expired verification code" });
+      }
+
+      return res.json({ message: "Email verified successfully. You can now sign in." });
+    } catch (err: any) {
+      console.error("Signup verify error:", err);
+      return res.status(500).json({ error: "Failed to verify code" });
+    }
+  }
+);
+
+router.post(
+  "/password-reset/request",
+  authLimiter,
+  validate(passwordResetRequestSchema),
+  async (req, res) => {
+    const { email } = req.body;
+    const genericMessage =
+      "If an account exists for this email, a 6-digit verification code has been sent.";
+
+    try {
+      const redirectTo = `${env.frontendUrl.replace(/\/+$/, "")}/login?emailReset=1`;
+      const { error } = await supabaseAnon.auth.signInWithOtp({
+        email,
+        options: {
+          shouldCreateUser: false,
+          emailRedirectTo: redirectTo,
+        },
+      });
+
+      if (error) {
+        const message = String(error.message || "").toLowerCase();
+        // Do not leak account existence.
+        if (
+          message.includes("not found") ||
+          message.includes("not registered") ||
+          message.includes("for security purposes") ||
+          message.includes("signups not allowed")
+        ) {
+          return res.json({ message: genericMessage });
+        }
+        throw error;
+      }
+
+      return res.json({ message: genericMessage });
+    } catch (err: any) {
+      console.error("Password reset request error:", err);
+      return res.status(500).json({ error: "Failed to send verification code" });
+    }
+  }
+);
+
+router.post(
+  "/password-reset/verify-code",
+  authLimiter,
+  validate(passwordResetVerifySchema),
+  async (req, res) => {
+    const { email, code } = req.body;
+
+    try {
+      cleanupExpiredResetTokens();
+      let userId: string | null = null;
+      // Recovery is the intended OTP type for password reset emails.
+      // Keep email fallback so recently-issued codes still work during rollout.
+      for (const otpType of ["recovery", "email"] as const) {
+        const { data, error } = await supabaseAnon.auth.verifyOtp({
+          email,
+          token: code,
+          type: otpType,
+        });
+        if (error) continue;
+        userId = data.user?.id ?? data.session?.user?.id ?? null;
+        if (userId) break;
+      }
+
+      if (!userId) {
+        return res.status(400).json({ error: "Invalid or expired verification code" });
+      }
+
+      const resetToken = crypto.randomBytes(24).toString("hex");
+      resetChallengeTokens.set(resetToken, {
+        userId,
+        email,
+        expiresAt: Date.now() + RESET_TOKEN_TTL_MS,
+      });
+
+      return res.json({
+        resetToken,
+        message: "Code verified. Continue to set your new password.",
+      });
+    } catch (err: any) {
+      console.error("Password reset verify error:", err);
+      return res.status(500).json({ error: "Failed to verify code" });
+    }
+  }
+);
+
+router.post(
+  "/password-reset/complete",
+  authLimiter,
+  validate(passwordResetCompleteSchema),
+  async (req, res) => {
+    const { resetToken, newPassword } = req.body;
+    cleanupExpiredResetTokens();
+
+    const challenge = resetChallengeTokens.get(resetToken);
+    if (!challenge || challenge.expiresAt <= Date.now()) {
+      if (challenge) resetChallengeTokens.delete(resetToken);
+      return res.status(400).json({ error: "Reset session expired. Request a new code." });
+    }
+
+    const hasStrongPassword =
+      /.{8,}/.test(newPassword) &&
+      /[0-9]/.test(newPassword) &&
+      /[a-z]/.test(newPassword) &&
+      /[A-Z]/.test(newPassword) &&
+      /[!-\/:-@[-`{-~]/.test(newPassword);
+    if (!hasStrongPassword) {
+      return res.status(400).json({
+        error:
+          "Password must include at least 8 characters, upper and lowercase letters, a number, and a special character.",
+      });
+    }
+
+    try {
+      const { error } = await supabase.auth.admin.updateUserById(challenge.userId, {
+        password: newPassword,
+      });
+      if (error) {
+        console.error("Password reset complete error:", error.message);
+        return res.status(500).json({ error: "Failed to update password" });
+      }
+
+      resetChallengeTokens.delete(resetToken);
+      return res.json({ message: "Password updated successfully. You can now sign in." });
+    } catch (err: any) {
+      console.error("Password reset complete exception:", err);
+      return res.status(500).json({ error: "Failed to update password" });
     }
   }
 );

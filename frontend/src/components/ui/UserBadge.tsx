@@ -8,6 +8,7 @@ interface UserBadgeProps {
 
 export default function UserBadge({ badge, className }: UserBadgeProps) {
   const isEarlyAdopter = badge.slug === "early-adopter";
+  const label = isEarlyAdopter ? "Early Adopter" : badge.name;
 
   return (
     <span
@@ -21,7 +22,7 @@ export default function UserBadge({ badge, className }: UserBadgeProps) {
       )}
     >
       {badge.icon ? <span aria-hidden>{badge.icon}</span> : null}
-      <span>{badge.name}</span>
+      <span>{label}</span>
     </span>
   );
 }

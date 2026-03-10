@@ -1,153 +1,359 @@
-import { useState } from "react";
+import React from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../../lib/auth.js";
+import { Button } from "../ui/button.js";
+import { MenuToggleIcon } from "../ui/menu-toggle-icon.js";
+import { useScroll } from "../ui/use-scroll.js";
+import { cn } from "../../lib/utils.js";
 
 const NAV_ITEMS = [
   { label: "Home", path: "/" },
   { label: "Catalog", path: "/catalog" },
   { label: "My Schedule", path: "/schedule" },
+  { label: "Wishlist", path: "/wishlist" },
   { label: "Friends", path: "/friends" },
 ];
+const MENU_TRANSITION_MS = 360;
 
 export default function Navbar() {
   const { user, logout } = useAuth();
   const location = useLocation();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const isProfileActive = location.pathname.startsWith("/profile");
-  const avatarInitial = (user?.fullName?.trim()?.[0] || user?.username?.[0] || "U").toUpperCase();
-  const navItems = user?.isAdmin
-    ? [...NAV_ITEMS, { label: "Admin", path: "/admin" }]
-    : NAV_ITEMS;
+  const [open, setOpen] = React.useState(false);
+  const [renderMenu, setRenderMenu] = React.useState(false);
+  const [previousDesktopIndex, setPreviousDesktopIndex] = React.useState<number | null>(null);
+  const [desktopDirection, setDesktopDirection] = React.useState<"left" | "right" | null>(null);
+  const [desktopIndicator, setDesktopIndicator] = React.useState({
+    left: 0,
+    width: 0,
+    ready: false,
+  });
+  const desktopNavRef = React.useRef<HTMLDivElement | null>(null);
+  const desktopLinkRefs = React.useRef<Array<HTMLAnchorElement | null>>([]);
+  const desktopIndexRef = React.useRef(0);
+  const desktopHydratedRef = React.useRef(false);
+  const scrolled = useScroll(10);
+  const showFramedShell = scrolled || open;
+  const navItems = user?.isAdmin ? [...NAV_ITEMS, { label: "Admin", path: "/admin" }] : NAV_ITEMS;
+  const activeIndex = React.useMemo(() => {
+    const index = navItems.findIndex((item) =>
+      item.path === "/" ? location.pathname === "/" : location.pathname.startsWith(item.path)
+    );
+    return index >= 0 ? index : 0;
+  }, [location.pathname, navItems]);
+
+  const measureDesktopIndicator = React.useCallback(() => {
+    const currentLink = desktopLinkRefs.current[activeIndex];
+    if (!currentLink) return;
+    setDesktopIndicator({
+      left: currentLink.offsetLeft,
+      width: currentLink.offsetWidth,
+      ready: true,
+    });
+  }, [activeIndex]);
+
+  React.useEffect(() => {
+    if (open) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = "";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [open]);
+
+  React.useEffect(() => {
+    if (open) {
+      setRenderMenu(true);
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setRenderMenu(false);
+    }, MENU_TRANSITION_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [open]);
+
+  React.useLayoutEffect(() => {
+    measureDesktopIndicator();
+  }, [measureDesktopIndicator]);
+
+  React.useEffect(() => {
+    const navEl = desktopNavRef.current;
+    if (!navEl) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      measureDesktopIndicator();
+    });
+    resizeObserver.observe(navEl);
+
+    const onWindowResize = () => {
+      measureDesktopIndicator();
+    };
+    window.addEventListener("resize", onWindowResize);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", onWindowResize);
+    };
+  }, [measureDesktopIndicator]);
+
+  React.useEffect(() => {
+    if (!desktopHydratedRef.current) {
+      desktopHydratedRef.current = true;
+      desktopIndexRef.current = activeIndex;
+      return;
+    }
+
+    const previousIndex = desktopIndexRef.current;
+    if (previousIndex === activeIndex) return;
+
+    setPreviousDesktopIndex(previousIndex);
+    setDesktopDirection(activeIndex > previousIndex ? "right" : "left");
+    desktopIndexRef.current = activeIndex;
+
+    const timeoutId = window.setTimeout(() => {
+      setDesktopDirection(null);
+    }, 460);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [activeIndex]);
+
+  function isActivePath(path: string) {
+    return path === "/" ? location.pathname === "/" : location.pathname.startsWith(path);
+  }
+
+  function closeMenu() {
+    setOpen(false);
+  }
 
   return (
-    <nav className="bg-white sticky top-0 z-50 shadow-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center gap-8">
-            <Link to="/" className="text-xl font-bold tracking-tight" style={{ fontFamily: "var(--ba-font-display)", color: "#012169" }}>
-              BetterAtlas
-            </Link>
-            <div className="hidden sm:flex gap-1">
-              {navItems.map((item) => {
-                const isActive =
-                  item.path === "/"
-                    ? location.pathname === "/"
-                    : location.pathname.startsWith(item.path);
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                      isActive
-                        ? "bg-gray-100 text-gray-900"
-                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-          <div className="flex items-center gap-4">
-            {user ? (
-              <>
-                <Link
-                  to="/profile"
-                  className={`inline-flex h-9 w-9 overflow-hidden items-center justify-center rounded-full border border-gray-200 bg-gray-100 text-sm font-semibold text-primary-700 transition-colors ${
-                    isProfileActive ? "ring-2 ring-primary-500/40 border-primary-300" : "hover:border-gray-300"
-                  }`}
-                  title="Profile"
-                  aria-label="Open profile"
-                >
-                  {user.avatarUrl ? (
-                    <img
-                      src={user.avatarUrl}
-                      alt={`${user.username} profile`}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <span>{avatarInitial}</span>
-                  )}
-                </Link>
-                <button
-                  onClick={logout}
-                  className="text-sm text-gray-500 hover:text-gray-900 hidden sm:inline transition-colors"
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <Link
-                to="/login"
-                className="text-sm font-medium text-gray-700 border border-gray-300 rounded-md px-3 py-1.5 hover:bg-gray-50 transition-colors"
-              >
-                Login
-              </Link>
-            )}
-            {/* Hamburger button - mobile only */}
-            <button
-              type="button"
-              onClick={() => setMobileOpen(!mobileOpen)}
-              className="sm:hidden inline-flex items-center justify-center p-2 rounded-md text-gray-500 hover:text-gray-900 hover:bg-gray-50 min-w-[44px] min-h-[44px] transition-colors"
-              aria-label="Toggle navigation menu"
-              aria-expanded={mobileOpen}
-            >
-              {mobileOpen ? (
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              ) : (
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
+    <header
+      className={cn(
+        "ba-liquid-navbar-shell relative z-50 mx-auto mb-4 w-full max-w-7xl rounded-full border border-transparent px-4 md:sticky md:top-4 md:mb-6 md:origin-top md:transition-all md:duration-300 md:ease-out lg:px-8",
+        showFramedShell ? "ba-liquid-navbar-shell-scrolled" : "ba-liquid-navbar-shell-top",
+        scrolled && !open ? "md:max-w-6xl md:scale-[0.985]" : "",
+        open ? "ba-liquid-navbar-shell-open" : "",
+      )}
+    >
+      <svg className="ba-liquid-nav-filter-defs" aria-hidden="true" focusable="false">
+        <defs>
+          <filter
+            id="ba-navbar-glass-filter"
+            x="0%"
+            y="0%"
+            width="100%"
+            height="100%"
+            colorInterpolationFilters="sRGB"
+          >
+            <feImage
+              result="map"
+              width="100%"
+              height="100%"
+              x="0"
+              y="0"
+              preserveAspectRatio="none"
+              href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='rgb(110,128,128)'/%3E%3Cstop offset='50%25' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='100%25' stop-color='rgb(146,128,128)'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g)'/%3E%3C/svg%3E"
+            />
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="map"
+              scale="22"
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
 
-      {/* Mobile menu */}
-      {mobileOpen && (
-        <div className="sm:hidden border-t border-gray-200 bg-white">
-          <div className="px-4 py-3 space-y-1">
-            {navItems.map((item) => {
-              const isActive =
-                item.path === "/"
-                  ? location.pathname === "/"
-                  : location.pathname.startsWith(item.path);
-              return (
+          <filter
+            id="ba-navbar-glass-filter-edge"
+            x="0%"
+            y="0%"
+            width="100%"
+            height="100%"
+            colorInterpolationFilters="sRGB"
+          >
+            <feImage
+              result="mapEdge"
+              width="100%"
+              height="100%"
+              x="0"
+              y="0"
+              preserveAspectRatio="none"
+              href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' preserveAspectRatio='none'%3E%3Cdefs%3E%3ClinearGradient id='g2' x1='0' y1='0' x2='1' y2='0'%3E%3Cstop offset='0%25' stop-color='rgb(95,128,128)'/%3E%3Cstop offset='50%25' stop-color='rgb(128,128,128)'/%3E%3Cstop offset='100%25' stop-color='rgb(161,128,128)'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100' height='100' fill='url(%23g2)'/%3E%3C/svg%3E"
+            />
+            <feDisplacementMap
+              in="SourceGraphic"
+              in2="mapEdge"
+              scale="46"
+              xChannelSelector="R"
+              yChannelSelector="G"
+            />
+          </filter>
+        </defs>
+      </svg>
+
+      <nav
+        className={cn(
+          "ba-liquid-navbar-inner flex h-14 w-full items-center justify-between px-2 md:h-12 md:px-4 md:transition-all md:duration-300 md:ease-out lg:px-5",
+        )}
+      >
+        <Link to="/" onClick={closeMenu} className="flex items-center gap-2 pl-1 md:pl-2">
+          <span
+            className="text-xl font-bold tracking-tight"
+            style={{ fontFamily: "var(--ba-font-display)", color: "#012169" }}
+          >
+            BetterAtlas
+          </span>
+        </Link>
+
+        <div
+          ref={desktopNavRef}
+          className="ba-liquid-desktop-nav hidden items-center gap-1 md:flex"
+          data-current={activeIndex + 1}
+          data-previous={previousDesktopIndex !== null ? previousDesktopIndex + 1 : undefined}
+          data-direction={desktopDirection ?? undefined}
+        >
+          <span
+            className={cn(
+              "ba-liquid-desktop-indicator",
+              desktopIndicator.ready ? "ba-liquid-desktop-indicator-ready" : "",
+            )}
+            style={
+              {
+                "--ba-nav-left": `${desktopIndicator.left}px`,
+                "--ba-nav-width": `${desktopIndicator.width}px`,
+              } as React.CSSProperties
+            }
+            aria-hidden="true"
+          />
+          {navItems.map((item, index) => (
+            <Link
+              key={item.path}
+              to={item.path}
+              ref={(el) => {
+                desktopLinkRefs.current[index] = el;
+              }}
+              data-c-option={index + 1}
+              className={cn(
+                "ba-liquid-desktop-link",
+                isActivePath(item.path) ? "ba-liquid-desktop-link-active" : "",
+              )}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+
+        <div className="hidden items-center gap-2 pr-1 md:flex md:pr-2">
+          {user ? (
+            <>
+              <Button asChild variant="outline" className="ba-liquid-desktop-auth">
+                <Link to="/profile">@{user.username}</Link>
+              </Button>
+              <Button onClick={() => void logout()} className="ba-liquid-desktop-auth ba-liquid-desktop-auth-primary">
+                Logout
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="outline" className="ba-liquid-desktop-auth">
+                <Link to="/login">Sign In</Link>
+              </Button>
+              <Button asChild className="ba-liquid-desktop-auth ba-liquid-desktop-auth-primary">
+                <Link to="/login">Get Started</Link>
+              </Button>
+            </>
+          )}
+        </div>
+
+        <Button
+          size="icon"
+          variant="outline"
+          onClick={() => setOpen(!open)}
+          className="ba-liquid-toggle md:hidden"
+          aria-expanded={open}
+          aria-controls="mobile-nav-menu"
+          aria-label={open ? "Close menu" : "Open menu"}
+          data-state={open ? "open" : "closed"}
+        >
+          <MenuToggleIcon open={open} className="size-5" duration={300} />
+        </Button>
+      </nav>
+
+      {renderMenu ? (
+        <div
+          id="mobile-nav-menu"
+          className={cn(
+            "ba-liquid-menu-shell fixed top-[4.5rem] right-0 bottom-0 left-0 z-50 flex flex-col overflow-hidden md:hidden",
+            open ? "ba-liquid-menu-shell-open" : "ba-liquid-menu-shell-closed",
+          )}
+          aria-hidden={!open}
+        >
+          <div
+            data-state={open ? "open" : "closed"}
+            className={cn(
+              "ba-liquid-menu-panel flex h-full w-full flex-col justify-between gap-y-2 p-4",
+              open ? "ba-liquid-menu-panel-open" : "ba-liquid-menu-panel-closed",
+            )}
+          >
+            <div className="grid gap-y-2">
+              {navItems.map((item, index) => (
                 <Link
                   key={item.path}
                   to={item.path}
-                  onClick={() => setMobileOpen(false)}
-                  className={`block px-3 py-2.5 rounded-md text-base font-medium transition-colors min-h-[44px] flex items-center ${
-                    isActive
-                      ? "bg-gray-100 text-gray-900"
-                      : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                  }`}
+                  onClick={closeMenu}
+                  className={cn(
+                    "ba-liquid-menu-link",
+                    isActivePath(item.path) ? "ba-liquid-menu-link-active" : "",
+                  )}
+                  style={{ "--ba-delay": index } as React.CSSProperties}
                 >
                   {item.label}
                 </Link>
-              );
-            })}
-          </div>
-          {user && (
-            <div className="border-t border-gray-200 px-4 py-3 flex items-center justify-between">
-              <span className="text-sm text-gray-500">@{user.username}</span>
-              <button
-                onClick={() => {
-                  setMobileOpen(false);
-                  logout();
-                }}
-                className="text-sm text-gray-500 hover:text-gray-900 min-h-[44px] px-3 transition-colors"
-              >
-                Logout
-              </button>
+              ))}
             </div>
-          )}
+
+            <div className="grid gap-2">
+              {user ? (
+                <button
+                  className="ba-liquid-menu-link"
+                  style={{ "--ba-delay": navItems.length } as React.CSSProperties}
+                  onClick={() => {
+                    closeMenu();
+                    void logout();
+                  }}
+                >
+                  Logout (@{user.username})
+                </button>
+              ) : (
+                <>
+                  <Button
+                    asChild
+                    variant="outline"
+                    className="ba-liquid-menu-link ba-liquid-menu-action"
+                    style={{ "--ba-delay": navItems.length } as React.CSSProperties}
+                  >
+                    <Link to="/login" onClick={closeMenu}>
+                      Sign In
+                    </Link>
+                  </Button>
+                  <Button
+                    asChild
+                    className="ba-liquid-menu-link ba-liquid-menu-action ba-liquid-menu-action-primary"
+                    style={{ "--ba-delay": navItems.length + 1 } as React.CSSProperties}
+                  >
+                    <Link to="/login" onClick={closeMenu}>
+                      Get Started
+                    </Link>
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-      )}
-    </nav>
+      ) : null}
+    </header>
   );
 }

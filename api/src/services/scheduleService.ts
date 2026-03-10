@@ -12,6 +12,7 @@ import {
 } from "../db/schema.js";
 import { scheduleFromMeetings, schedulesFromMeetings } from "../lib/schedule.js";
 import { resolveTermCode } from "./termLookup.js";
+import { getOrCreateScheduleListId } from "./scheduleServiceInternal.js";
 
 const SCHEDULE_LIST_NAME = "My Schedule";
 
@@ -44,6 +45,17 @@ async function getTermInfo(termCode: string) {
   return { code: termCode, name: t?.name ?? null };
 }
 
+async function getAllTerms() {
+  return db
+    .select({ code: terms.srcdb, name: terms.name })
+    .from(terms)
+    .orderBy(
+      desc(terms.year),
+      sql`CASE lower(coalesce(${terms.season}, '')) WHEN 'fall' THEN 3 WHEN 'summer' THEN 2 WHEN 'spring' THEN 1 WHEN 'winter' THEN 0 ELSE -1 END DESC`,
+      desc(terms.srcdb)
+    );
+}
+
 async function getPreferredMyScheduleTerm(userId: string) {
   const [latest] = await db
     .select({ termCode: courseLists.termCode })
@@ -55,34 +67,6 @@ async function getPreferredMyScheduleTerm(userId: string) {
   return latest?.termCode ?? null;
 }
 
-async function getOrCreateScheduleListId(userId: string, termCode: string) {
-  const [existing] = await db
-    .select({ id: courseLists.id })
-    .from(courseLists)
-    .where(
-      and(
-        eq(courseLists.userId, userId),
-        eq(courseLists.termCode, termCode),
-        eq(courseLists.name, SCHEDULE_LIST_NAME)
-      )
-    )
-    .orderBy(asc(courseLists.id))
-    .limit(1);
-
-  if (existing) return existing.id;
-
-  const [created] = await db
-    .insert(courseLists)
-    .values({
-      userId,
-      termCode,
-      name: SCHEDULE_LIST_NAME,
-      isPublic: false,
-    })
-    .returning({ id: courseLists.id });
-
-  return created?.id ?? null;
-}
 
 async function getScheduleItemsForList(listId: number) {
   const rows = await db
@@ -160,6 +144,7 @@ export async function getMySchedule(userId: string, term?: string) {
     ? await resolveTermCode(term)
     : (await getPreferredMyScheduleTerm(userId)) ?? (await getActiveTerm()).code;
   const termInfo = await getTermInfo(termCode);
+  const availableTerms = await getAllTerms();
 
   const [list] = await db
     .select({ id: courseLists.id })
@@ -175,11 +160,11 @@ export async function getMySchedule(userId: string, term?: string) {
     .limit(1);
 
   if (!list) {
-    return { term: termInfo, listId: null, items: [] };
+    return { term: termInfo, availableTerms, listId: null, items: [] };
   }
 
   const items = await getScheduleItemsForList(list.id);
-  return { term: termInfo, listId: list.id, items };
+  return { term: termInfo, availableTerms, listId: list.id, items };
 }
 
 export async function addToMySchedule(
@@ -211,15 +196,15 @@ export async function addToMySchedule(
   const itemId = existing
     ? existing.id
     : (
-        await db
-          .insert(courseListItems)
-          .values({
-            listId,
-            sectionId: input.sectionId,
-            color: input.color ?? null,
-          })
-          .returning({ id: courseListItems.id })
-      )[0]?.id;
+      await db
+        .insert(courseListItems)
+        .values({
+          listId,
+          sectionId: input.sectionId,
+          color: input.color ?? null,
+        })
+        .returning({ id: courseListItems.id })
+    )[0]?.id;
 
   if (!itemId) throw new Error("Failed to add to schedule");
 
@@ -295,4 +280,62 @@ export async function getFriendsSchedules(userId: string, term?: string) {
   }
 
   return out;
+}
+
+export async function swapScheduleSection(
+  userId: string,
+  itemId: number,
+  newSectionId: number
+) {
+  // 1. Find the schedule item and verify ownership
+  const userListIds = await db
+    .select({ id: courseLists.id, termCode: courseLists.termCode })
+    .from(courseLists)
+    .where(and(eq(courseLists.userId, userId), eq(courseLists.name, SCHEDULE_LIST_NAME)));
+
+  if (userListIds.length === 0) throw new Error("Schedule not found");
+
+  const ids = userListIds.map((l) => l.id);
+  const [item] = await db
+    .select({
+      id: courseListItems.id,
+      listId: courseListItems.listId,
+      sectionId: courseListItems.sectionId,
+      color: courseListItems.color,
+    })
+    .from(courseListItems)
+    .where(and(eq(courseListItems.id, itemId), inArray(courseListItems.listId, ids)))
+    .limit(1);
+
+  if (!item) throw new Error("Schedule item not found");
+
+  // 2. Get the courseId of the current section
+  const [currentSection] = await db
+    .select({ courseId: sections.courseId, termCode: sections.termCode })
+    .from(sections)
+    .where(eq(sections.id, item.sectionId))
+    .limit(1);
+
+  if (!currentSection) throw new Error("Current section not found");
+
+  // 3. Validate the new section belongs to the same course
+  const [newSection] = await db
+    .select({ courseId: sections.courseId, termCode: sections.termCode })
+    .from(sections)
+    .where(eq(sections.id, newSectionId))
+    .limit(1);
+
+  if (!newSection) throw new Error("New section not found");
+  if (newSection.courseId !== currentSection.courseId) {
+    throw new Error("New section must belong to the same course");
+  }
+
+  // 4. Update the course list item to point to the new section
+  await db
+    .update(courseListItems)
+    .set({ sectionId: newSectionId })
+    .where(eq(courseListItems.id, itemId));
+
+  // 5. Return updated schedule
+  return getMySchedule(userId, currentSection.termCode);
 }

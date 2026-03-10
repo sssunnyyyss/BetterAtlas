@@ -50,3 +50,24 @@ export function useRemoveFromSchedule() {
       ]),
   });
 }
+
+export function useSwapSection() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      itemId,
+      newSectionId,
+    }: {
+      itemId: number;
+      newSectionId: number;
+    }) =>
+      api.put<MyScheduleResponse>(`/schedule/items/${itemId}/swap`, {
+        newSectionId,
+      }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["schedule", "me"] }),
+        queryClient.invalidateQueries({ queryKey: ["schedule", "friends"] }),
+      ]),
+  });
+}
