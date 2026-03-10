@@ -19,10 +19,10 @@ export default function Home() {
     e.preventDefault();
     const trimmed = q.trim();
     if (!trimmed) {
-      navigate("/catalog");
+      navigate(mode === "ai" ? "/ai" : "/catalog");
       return;
     }
-    if (mode === "ai") navigate(`/ai?prompt=${encodeURIComponent(trimmed)}`);
+    if (mode === "ai") navigate("/ai");
     else navigate(`/catalog?q=${encodeURIComponent(trimmed)}`);
   }
 
