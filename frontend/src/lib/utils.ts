@@ -9,8 +9,8 @@ export function formatRating(value: number | null): string {
 
 export function getRatingColor(value: number | null): string {
   if (value === null) return "#9ca3af"; // gray-400
-  if (value >= 4.5) return "#22c55e"; // bright green
-  if (value >= 4.0) return "#86efac"; // lighter green
+  if (value >= 4.5) return "#00c853"; // vibrant green
+  if (value >= 4.0) return "#5ef38c"; // lighter vibrant green
   if (value >= 3.5) return "#eab308"; // yellow-500
   if (value >= 3.0) return "#ca8a04"; // amber-600
   return "#ef4444"; // red-500
@@ -22,5 +22,5 @@ export function getDifficultyColor(value: number | null): string {
   if (value >= 4.0) return "#dc2626"; // red-600
   if (value >= 3.5) return "#ef4444"; // red-500
   if (value >= 3.0) return "#ca8a04"; // amber-600
-  return "#22c55e"; // bright green (easiest)
+  return "#00c853"; // vibrant green (easiest)
 }

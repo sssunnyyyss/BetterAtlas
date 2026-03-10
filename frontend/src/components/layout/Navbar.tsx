@@ -132,7 +132,7 @@ export default function Navbar() {
   return (
     <header
       className={cn(
-        "ba-liquid-navbar-shell relative z-50 mx-auto mb-4 w-full max-w-7xl rounded-full border border-transparent px-4 md:sticky md:top-4 md:mb-6 md:origin-top md:transition-all md:duration-300 md:ease-out lg:px-8",
+        "ba-liquid-navbar-shell sticky top-0 z-50 mx-auto mb-3 w-full max-w-7xl rounded-full border border-transparent px-3 pt-[env(safe-area-inset-top)] md:top-4 md:mb-6 md:px-4 md:pt-0 md:origin-top md:transition-all md:duration-300 md:ease-out lg:px-8",
         showFramedShell ? "ba-liquid-navbar-shell-scrolled" : "ba-liquid-navbar-shell-top",
         scrolled && !open ? "md:max-w-6xl md:scale-[0.985]" : "",
         open ? "ba-liquid-navbar-shell-open" : "",
@@ -286,7 +286,7 @@ export default function Navbar() {
         <div
           id="mobile-nav-menu"
           className={cn(
-            "ba-liquid-menu-shell fixed top-[4.5rem] right-0 bottom-0 left-0 z-50 flex flex-col overflow-hidden md:hidden",
+            "ba-liquid-menu-shell fixed right-0 bottom-0 left-0 top-[calc(4.5rem+env(safe-area-inset-top))] z-50 flex flex-col overflow-hidden md:hidden",
             open ? "ba-liquid-menu-shell-open" : "ba-liquid-menu-shell-closed",
           )}
           aria-hidden={!open}

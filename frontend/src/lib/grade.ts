@@ -20,9 +20,9 @@ export function gradeColor(points: number | null | undefined): string {
 
   switch (label) {
     case "A":
-      return "#22c55e"; // bright green
+      return "#00c853"; // vibrant green
     case "A-":
-      return "#86efac"; // lighter green
+      return "#5ef38c"; // lighter vibrant green
     case "B+":
       return "#a16207"; // amber-700
     case "B":

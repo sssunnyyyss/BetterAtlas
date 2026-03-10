@@ -8,6 +8,7 @@ import AppDropdown from "../components/ui/AppDropdown.js";
 import { Link } from "react-router-dom";
 import { INSTRUCTION_METHOD_OPTIONS } from "@betteratlas/shared";
 import { layoutOverlaps } from "../lib/calendarLayout.js";
+import { useMediaQuery } from "../hooks/useMediaQuery.js";
 
 const DAYS: Array<{ key: string; label: string }> = [
   { key: "M", label: "Mon" },
@@ -41,7 +42,7 @@ function parseHHMMColon(s: string) {
 
 function hashColor(key: string) {
   // Deterministic pastel-ish palette.
-  const palette = ["#0ea5e9", "#22c55e", "#f97316", "#a855f7", "#ef4444", "#14b8a6", "#eab308"];
+  const palette = ["#0ea5e9", "#00c853", "#f97316", "#a855f7", "#ef4444", "#14b8a6", "#eab308"];
   let h = 0;
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
   return palette[h % palette.length];
@@ -111,6 +112,13 @@ type CalendarBlock = {
   startDate: string | null;
   endDate: string | null;
 };
+
+function compareCalendarBlocks(a: CalendarBlock, b: CalendarBlock) {
+  if (a.startMin !== b.startMin) return a.startMin - b.startMin;
+  if (a.endMin !== b.endMin) return a.endMin - b.endMin;
+  if (a.owner !== b.owner) return a.owner === "me" ? -1 : 1;
+  return a.title.localeCompare(b.title);
+}
 
 function WeeklyCalendar({
   blocks,
@@ -220,6 +228,86 @@ function WeeklyCalendar({
   );
 }
 
+function MobileAgenda({
+  blocks,
+  onBlockClick,
+}: {
+  blocks: CalendarBlock[];
+  onBlockClick?: (b: CalendarBlock) => void;
+}) {
+  const dayGroups = DAYS.map((day) => ({
+    ...day,
+    blocks: blocks
+      .filter((block) => block.day === day.key)
+      .sort(compareCalendarBlocks),
+  }));
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-2xl border border-primary-100 bg-primary-50/50 p-4">
+        <p className="text-sm font-semibold text-primary-700">Mobile schedule view</p>
+        <p className="mt-1 text-xs leading-5 text-gray-600">
+          The weekly calendar switches to a compact agenda on smaller screens so everything stays
+          readable without horizontal scrolling.
+        </p>
+      </div>
+
+      {dayGroups.map((day) => (
+        <section key={day.key} className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
+          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+            <h2 className="text-sm font-semibold text-gray-900">{day.label}</h2>
+            <span className="text-xs text-gray-500">
+              {day.blocks.length === 0
+                ? "Free"
+                : `${day.blocks.length} block${day.blocks.length === 1 ? "" : "s"}`}
+            </span>
+          </div>
+
+          <div className="space-y-2 p-3">
+            {day.blocks.length === 0 ? (
+              <p className="rounded-xl bg-gray-50 px-3 py-2 text-sm text-gray-500">
+                No scheduled classes.
+              </p>
+            ) : (
+              day.blocks.map((block) => (
+                <button
+                  key={block.id}
+                  type="button"
+                  onClick={() => onBlockClick?.(block)}
+                  className="w-full rounded-2xl border border-gray-200 bg-white px-3 py-3 text-left shadow-sm transition hover:border-primary-200 hover:bg-primary-50/40"
+                  style={{ borderLeft: `4px solid ${block.color}` }}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-gray-900">
+                        {block.title}
+                        {block.sectionNumber ? (
+                          <span className="font-medium text-gray-600"> · {block.sectionNumber}</span>
+                        ) : null}
+                      </div>
+                      <div className="mt-0.5 truncate text-xs text-gray-600">{block.courseTitle}</div>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-[11px] font-medium text-gray-700">
+                      {block.owner === "me" ? "You" : block.ownerLabel}
+                    </span>
+                  </div>
+
+                  <div className="mt-2 text-sm text-gray-700">{block.subtitle}</div>
+                  {(block.instructorName || block.location) && (
+                    <div className="mt-1 text-xs text-gray-500">
+                      {[block.instructorName, block.location].filter(Boolean).join(" • ")}
+                    </div>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
 function courseLabel(item: ScheduleCourseBlock) {
   const sec = item.section.sectionNumber ? `Sec ${item.section.sectionNumber}` : "Section";
   return `${item.course.code} (${sec})`;
@@ -280,6 +368,7 @@ function blocksFromSchedule(items: ScheduleCourseBlock[], ownerLabel: string, ow
 }
 
 export default function Schedule() {
+  const isMobileSchedule = useMediaQuery("(max-width: 767px)");
   const [startHour, setStartHour] = useState<number>(() => {
     const raw = localStorage.getItem("schedule_start_hour");
     const n = raw ? Number(raw) : NaN;
@@ -439,39 +528,42 @@ export default function Schedule() {
   const termLabel = mine?.term.name ?? mine?.term.code ?? "";
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <div className="flex items-start justify-between gap-4 mb-6">
-        <div>
+    <div className="mx-auto max-w-6xl p-4 sm:p-6">
+      <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold text-gray-900">My Schedule</h1>
           <p className="text-sm text-gray-500 mt-1">{termLabel}</p>
         </div>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+        <div className="grid w-full grid-cols-1 gap-3 sm:grid-cols-2 lg:flex lg:w-auto lg:items-center lg:gap-4">
+          <label className="flex flex-col gap-2 text-sm text-gray-700 select-none sm:min-w-0 lg:min-w-[13rem]">
             <span className="text-sm text-gray-600">Semester</span>
             <AppDropdown
               value={selectedTerm}
               options={semesterDropdownOptions}
               onChange={(value) => setSelectedTerm(value)}
-              className="w-52"
+              className="w-full"
             />
           </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700 select-none">
+          <label className="flex flex-col gap-2 text-sm text-gray-700 select-none sm:min-w-0 lg:min-w-[8rem]">
             <span className="text-sm text-gray-600">Start</span>
             <AppDropdown
               value={String(startHour)}
               options={startDropdownOptions}
               onChange={(value) => setStartHour(parseInt(value, 10))}
-              className="w-32"
+              className="w-full"
             />
           </label>
-          <label className="flex items-center gap-2 text-sm text-gray-700 select-none" data-tour-id="schedule-friend-toggle">
+          <label
+            className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-3 text-sm text-gray-700 select-none sm:col-span-2 lg:min-w-[11rem]"
+            data-tour-id="schedule-friend-toggle"
+          >
             <input
               type="checkbox"
               checked={friendView}
               onChange={(e) => setFriendView(e.target.checked)}
               className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
-            Friend view
+            <span className="font-medium text-gray-800">Friend view</span>
             {friendView && friendsLoading && <span className="text-gray-400">Loading...</span>}
           </label>
         </div>
@@ -506,11 +598,11 @@ export default function Schedule() {
               </button>
             </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-3">
+          <div className="mt-3 flex flex-wrap gap-2 sm:gap-3">
             {(friends ?? []).map((f) => (
               <label
                 key={f.friend.id}
-                className="flex items-center gap-2 text-sm text-gray-700 border border-gray-200 rounded-md px-2 py-1"
+                className="flex items-center gap-2 rounded-full border border-gray-200 px-3 py-2 text-sm text-gray-700"
               >
                 <input
                   type="checkbox"
@@ -531,12 +623,16 @@ export default function Schedule() {
       )}
 
       <div data-tour-id="schedule-grid">
-        <WeeklyCalendar
-          blocks={calendarBlocks}
-          minMinute={minMinute}
-          maxMinute={maxMinute}
-          onBlockClick={(b) => setActiveBlock(b)}
-        />
+        {isMobileSchedule ? (
+          <MobileAgenda blocks={calendarBlocks} onBlockClick={(b) => setActiveBlock(b)} />
+        ) : (
+          <WeeklyCalendar
+            blocks={calendarBlocks}
+            minMinute={minMinute}
+            maxMinute={maxMinute}
+            onBlockClick={(b) => setActiveBlock(b)}
+          />
+        )}
       </div>
 
       <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">

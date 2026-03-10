@@ -8,7 +8,6 @@ import { useProgram, useProgramAiSummary, useProgramCourses } from "../hooks/use
 import Sidebar from "../components/layout/Sidebar.js";
 import CourseFilters from "../components/course/CourseFilters.js";
 import CourseGrid from "../components/course/CourseGrid.js";
-import AiChat from "./AiChat.js";
 import {
   isSpecialTopicsCourse,
   splitSpecialTopicCourses,
@@ -36,6 +35,34 @@ function Spinner({ className = "" }: { className?: string }) {
         strokeLinecap="round"
       />
     </svg>
+  );
+}
+
+function EmbeddedAiPlaceholder({ onReturnToCatalog }: { onReturnToCatalog: () => void }) {
+  return (
+    <div className="flex min-h-[24rem] flex-1 items-center justify-center">
+      <div className="w-full max-w-2xl rounded-3xl border border-primary-100 bg-white/95 p-8 text-center shadow-[0_24px_80px_rgba(1,33,105,0.12)] backdrop-blur">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary-600/80">
+          Atlas AI
+        </p>
+        <h2 className="mt-3 text-3xl font-bold text-primary-700 sm:text-4xl">
+          Currently under development
+        </h2>
+        <p className="mt-4 text-base leading-7 text-gray-600">
+          This mode is intentionally a placeholder right now. Atlas AI is still under development
+          and will be enabled here later.
+        </p>
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          <button
+            type="button"
+            onClick={onReturnToCatalog}
+            className="inline-flex items-center rounded-full bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-700"
+          >
+            Back to catalog
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -381,7 +408,7 @@ export default function Catalog() {
 
         {mode === "ai" ? (
           <div className="ba-ai-expand-in flex min-h-[24rem] flex-1 overflow-hidden">
-            <AiChat embedded />
+            <EmbeddedAiPlaceholder onReturnToCatalog={() => handleModeChange("search")} />
           </div>
         ) : (
           <>
