@@ -6,3 +6,5 @@ dist/
 .DS_Store
 pgdata/
 supabase/
+.claude/settings.local.json
+.obsidian/workspace.json
