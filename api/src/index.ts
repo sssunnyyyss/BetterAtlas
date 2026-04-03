@@ -20,6 +20,7 @@ import oauthRoutes from "./routes/oauth.js";
 import adminOAuthRoutes from "./routes/adminOAuth.js";
 import cannySsoRoutes from "./routes/cannySso.js";
 import wishlistRoutes from "./routes/wishlist.js";
+import swipeRoutes from "./routes/swipe.js";
 import { generalLimiter } from "./middleware/rateLimit.js";
 import { ensureJohnDoe } from "./bootstrap.js";
 
@@ -77,6 +78,7 @@ app.use("/api/feedback-hub", feedbackHubRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api", aiRoutes);
 app.use("/api", wishlistRoutes);
+app.use("/api/swipe", swipeRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {

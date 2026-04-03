@@ -46,4 +46,5 @@ export const env = {
       ? "https://betteratlas.net"
       : "http://localhost:5173"),
   cannySsoKey: process.env.CANNY_SSO_KEY || "",
+  stripeSecretKey: process.env.STRIPE_SECRET_KEY || "",
 } as const;
